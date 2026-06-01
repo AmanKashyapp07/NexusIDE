@@ -1,0 +1,98 @@
+import { Router } from 'express';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { getPool } from '../db';
+
+const router = Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+
+// Register User
+router.post('/register', async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'Username, email, and password are required' });
+    }
+
+    // Check if user exists
+    const userExists = await getPool().query('SELECT * FROM users WHERE username = $1 OR email = $2', [username, email]);
+    if (userExists.rows.length > 0) {
+      return res.status(400).json({ error: 'Username or email already taken' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(password, salt);
+
+    const newUser = await getPool().query(
+      'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id, username, email',
+      [username, email, password_hash]
+    );
+
+    const token = jwt.sign({ id: newUser.rows[0].id, username }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.status(201).json({ token, user: newUser.rows[0] });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: 'Server error during registration' });
+  }
+});
+
+// Login User
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    const userResult = await getPool().query('SELECT * FROM users WHERE username = $1', [username]);
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    const user = userResult.rows[0];
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Server error during login' });
+  }
+});
+
+// Get Current User (Me)
+router.get('/me', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'No token provided' });
+
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    
+    const userResult = await getPool().query('SELECT id, username, email FROM users WHERE id = $1', [decoded.id]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ user: userResult.rows[0] });
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+export default router;

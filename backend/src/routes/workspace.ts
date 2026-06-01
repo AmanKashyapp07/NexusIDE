@@ -1,11 +1,8 @@
 import { Router } from 'express';
-import { Pool } from 'pg';
 import { executeCode } from '../sandbox/docker';
+import { getPool } from '../db';
 
 const router = Router();
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 // Create or get workspace
 router.post('/', async (req, res) => {
@@ -18,7 +15,7 @@ router.post('/', async (req, res) => {
       let result;
       if (id) {
         // Upsert by ID (ON CONFLICT not simple for uuid if it's generated, but assuming UUID is PK)
-        result = await pool.query(
+        result = await getPool().query(
           `INSERT INTO workspaces (id, title, language) 
            VALUES ($1, $2, $3)
            ON CONFLICT (id) DO UPDATE 
@@ -27,7 +24,7 @@ router.post('/', async (req, res) => {
           [id, title || 'Untitled Project', language || 'javascript']
         );
       } else {
-        result = await pool.query(
+        result = await getPool().query(
           `INSERT INTO workspaces (title, language) 
            VALUES ($1, $2)
            RETURNING *`,

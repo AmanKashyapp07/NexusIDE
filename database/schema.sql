@@ -1,6 +1,16 @@
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto"; -- useful for hashing or random gen if needed
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Drop existing tables to ensure a clean slate (Idempotent)
+DROP TABLE IF EXISTS execution_history CASCADE;
+DROP TABLE IF EXISTS files CASCADE;
+DROP TABLE IF EXISTS workspace_collaborators CASCADE;
+DROP TABLE IF EXISTS workspaces CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TYPE IF EXISTS node_type CASCADE;
+DROP TYPE IF EXISTS collaborator_role CASCADE;
+DROP TYPE IF EXISTS execution_status CASCADE;
 
 -- Function to automatically update the 'updated_at' timestamp
 CREATE OR REPLACE FUNCTION trigger_set_timestamp()
@@ -57,7 +67,6 @@ CREATE TABLE workspace_collaborators (
 CREATE INDEX idx_collaborators_user ON workspace_collaborators(user_id);
 
 -- 4. FILES & DIRECTORIES TABLE
--- Supports nested directory structures
 CREATE TYPE node_type AS ENUM ('file', 'directory');
 
 CREATE TABLE files (
@@ -66,12 +75,12 @@ CREATE TABLE files (
     parent_id UUID REFERENCES files(id) ON DELETE CASCADE, -- NULL means root level
     name VARCHAR(255) NOT NULL,
     type node_type NOT NULL,
-    content TEXT, -- Null for directories
-    language VARCHAR(50), -- Only relevant for files
+    content TEXT, 
+    yjs_state BYTEA, -- CRDT state persistence for Yjs
+    language VARCHAR(50), 
     size_bytes BIGINT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    -- Ensure no duplicate file names in the same folder
     CONSTRAINT unique_name_per_parent UNIQUE NULLS NOT DISTINCT (workspace_id, parent_id, name)
 );
 
@@ -83,7 +92,6 @@ BEFORE UPDATE ON files
 FOR EACH ROW EXECUTE PROCEDURE trigger_set_timestamp();
 
 -- 5. EXECUTION HISTORY LOGS
--- Audit trail for secure code execution metrics
 CREATE TYPE execution_status AS ENUM ('success', 'failed', 'timeout', 'error');
 
 CREATE TABLE execution_history (
