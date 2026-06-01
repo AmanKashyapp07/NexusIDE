@@ -9,19 +9,18 @@ interface CodeEditorProps {
   workspaceId: string;
   fileId: string;
   language: string;
+  initialContent?: string;
   onCodeChange?: (code: string) => void;
   onEditorReady?: (editor: any) => void;
 }
 
-export default function CodeEditor({ workspaceId, fileId, language, onCodeChange, onEditorReady }: CodeEditorProps) {
-  const editorRef = useRef<any>(null);
-  const [provider, setProvider] = useState<WebsocketProvider | null>(null);
-  const ydocRef = useRef(new Y.Doc());
+export default function CodeEditor({ workspaceId, fileId, language, initialContent, onCodeChange, onEditorReady }: CodeEditorProps) {
+  const [editor, setEditor] = useState<any>(null);
 
   useEffect(() => {
-    const ydoc = ydocRef.current;
-    
-    // Connect to Yjs WebSocket server
+    if (!editor) return;
+
+    const ydoc = new Y.Doc();
     const roomName = `${workspaceId}-${fileId}`;
     const wsProvider = new WebsocketProvider(
       'ws://localhost:4000',
@@ -34,30 +33,33 @@ export default function CodeEditor({ workspaceId, fileId, language, onCodeChange
       color: '#' + Math.floor(Math.random()*16777215).toString(16)
     });
 
-    setProvider(wsProvider);
+    const type = ydoc.getText('monaco');
+    
+    const binding = new MonacoBinding(
+      type,
+      editor.getModel(),
+      new Set([editor]),
+      wsProvider.awareness
+    );
+
+    // Wait for initial sync with the server before injecting local cache to avoid duplicates
+    wsProvider.on('sync', (isSynced: boolean) => {
+      if (isSynced && type.length === 0 && initialContent) {
+        type.insert(0, initialContent);
+      }
+    });
 
     return () => {
+      binding.destroy();
       wsProvider.destroy();
       ydoc.destroy();
     };
-  }, [workspaceId, fileId]);
+  }, [editor, workspaceId, fileId]);
 
-  const handleEditorDidMount = (editor: any) => {
-    editorRef.current = editor;
-    
-    if (provider) {
-      const type = ydocRef.current.getText('monaco');
-      
-      new MonacoBinding(
-        type,
-        editor.getModel(),
-        new Set([editor]),
-        provider.awareness
-      );
-    }
-    
+  const handleEditorDidMount = (editorInstance: any) => {
+    setEditor(editorInstance);
     if (onEditorReady) {
-      onEditorReady(editor);
+      onEditorReady(editorInstance);
     }
   };
 

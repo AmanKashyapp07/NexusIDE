@@ -2,12 +2,13 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
 import OutputPanel from '../components/Terminal/OutputPanel';
-import Sidebar, { AppFile } from '../components/Sidebar/Sidebar';
+import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import { Play, Cloud, Users, Book, LogOut } from 'lucide-react';
 
 function IdePage() {
   const [isExecuting, setIsExecuting] = useState(false);
-  const [output, setOutput] = useState('');
+  const [fileOutputs, setFileOutputs] = useState<Record<string, string>>({});
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
   const [user, setUser] = useState<{username: string, id: string} | null>(null);
   
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -117,7 +118,7 @@ function IdePage() {
     const code = editorRef.current.getValue();
     
     setIsExecuting(true);
-    setOutput('');
+    setFileOutputs(prev => ({ ...prev, [activeFile.id]: 'Running...' }));
     
     try {
       const token = localStorage.getItem('token');
@@ -131,13 +132,10 @@ function IdePage() {
       });
       
       const data = await response.json();
-      if (data.error) {
-        setOutput(`Error: ${data.error}`);
-      } else {
-        setOutput(data.output);
-      }
+      const result = data.error ? `Error: ${data.error}` : data.output;
+      setFileOutputs(prev => ({ ...prev, [activeFile.id]: result }));
     } catch (error: any) {
-      setOutput(`Failed to execute: ${error.message}`);
+      setFileOutputs(prev => ({ ...prev, [activeFile.id]: `Failed to execute: ${error.message}` }));
     } finally {
       setIsExecuting(false);
     }
@@ -228,6 +226,8 @@ function IdePage() {
                     workspaceId={workspaceId} 
                     fileId={activeFile.id}
                     language={activeFile.language}
+                    initialContent={fileContents[activeFile.id] || ''}
+                    onCodeChange={(code) => setFileContents(prev => ({ ...prev, [activeFile.id]: code }))}
                     onEditorReady={(editor) => editorRef.current = editor}
                   />
                 ) : (
@@ -243,7 +243,7 @@ function IdePage() {
                 Terminal
               </div>
               <div className="flex-1 bg-[#0d1117]">
-                <OutputPanel output={output} isExecuting={isExecuting} />
+                <OutputPanel output={fileOutputs[activeFile?.id || ''] || ''} isExecuting={isExecuting} />
               </div>
             </div>
           </main>
