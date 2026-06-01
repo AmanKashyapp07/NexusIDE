@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import Editor, { useMonaco } from '@monaco-editor/react';
+import Editor from '@monaco-editor/react';
 import * as Y from 'yjs';
+// @ts-ignore
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 
@@ -15,7 +16,6 @@ export default function CodeEditor({ workspaceId, language, onCodeChange, onEdit
   const editorRef = useRef<any>(null);
   const [provider, setProvider] = useState<WebsocketProvider | null>(null);
   const ydocRef = useRef(new Y.Doc());
-  const bindingRef = useRef<any>(null);
 
   useEffect(() => {
     const ydoc = ydocRef.current;
@@ -27,7 +27,6 @@ export default function CodeEditor({ workspaceId, language, onCodeChange, onEdit
       ydoc
     );
 
-    // Provide user information for awareness (live cursors)
     wsProvider.awareness.setLocalStateField('user', {
       name: `User ${Math.floor(Math.random() * 1000)}`,
       color: '#' + Math.floor(Math.random()*16777215).toString(16)
@@ -41,14 +40,13 @@ export default function CodeEditor({ workspaceId, language, onCodeChange, onEdit
     };
   }, [workspaceId]);
 
-  const handleEditorDidMount = (editor: any, monaco: any) => {
+  const handleEditorDidMount = (editor: any) => {
     editorRef.current = editor;
     
     if (provider) {
       const type = ydocRef.current.getText('monaco');
       
-      // Bind Yjs to Monaco
-      bindingRef.current = new MonacoBinding(
+      new MonacoBinding(
         type,
         editor.getModel(),
         new Set([editor]),
@@ -62,16 +60,20 @@ export default function CodeEditor({ workspaceId, language, onCodeChange, onEdit
   };
 
   return (
-    <div className="h-full w-full rounded-md overflow-hidden border border-slate-700 shadow-xl">
+    <div className="h-full w-full">
       <Editor
         height="100%"
         language={language}
         theme="vs-dark"
         options={{
           minimap: { enabled: false },
-          fontSize: 14,
+          fontSize: 13,
+          fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
           wordWrap: 'on',
-          padding: { top: 16 },
+          padding: { top: 12 },
+          lineNumbersMinChars: 3,
+          scrollBeyondLastLine: false,
+          renderLineHighlight: 'none',
         }}
         onMount={handleEditorDidMount}
         onChange={(value) => onCodeChange && onCodeChange(value || '')}
