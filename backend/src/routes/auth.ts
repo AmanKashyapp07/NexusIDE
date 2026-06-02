@@ -96,3 +96,5 @@ router.get('/me', async (req, res) => {
 });
 
 export default router;
+
+// this files handles user authentication routes for registration, login, and fetching the current user's information. It uses bcrypt for password hashing and JWT for token-based authentication. The routes interact with the PostgreSQL database to store and retrieve user data securely.

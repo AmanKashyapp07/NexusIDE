@@ -5,41 +5,115 @@ import { getPool } from '../db';
 
 const router = Router();
 
-// Create or get workspace
-router.post('/', async (req, res) => {
+// Get all workspaces for the authenticated user
+router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id, title, language } = req.body;
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
     
-    // For this minimal setup, we return a dummy workspace if Postgres is not running.
-    // Try to connect and insert/update
+    const workspaces = await getPool().query(
+      'SELECT id, title, created_at, updated_at FROM workspaces WHERE owner_id = $1 ORDER BY updated_at DESC',
+      [userId]
+    );
+    res.json(workspaces.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Create or get workspace
+router.post('/', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id, title } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    
     try {
       let result;
       if (id) {
-        // Upsert by ID (ON CONFLICT not simple for uuid if it's generated, but assuming UUID is PK)
+        // Upsert by ID
         result = await getPool().query(
-          `INSERT INTO workspaces (id, title, language) 
+          `INSERT INTO workspaces (id, owner_id, title) 
            VALUES ($1, $2, $3)
            ON CONFLICT (id) DO UPDATE 
-           SET title = EXCLUDED.title, language = EXCLUDED.language
+           SET title = EXCLUDED.title
            RETURNING *`,
-          [id, title || 'Untitled Project', language || 'javascript']
+          [id, userId, title || 'Untitled Project']
         );
       } else {
         result = await getPool().query(
-          `INSERT INTO workspaces (title, language) 
+          `INSERT INTO workspaces (owner_id, title) 
            VALUES ($1, $2)
            RETURNING *`,
-          [title || 'Untitled Project', language || 'javascript']
+          [userId, title || 'Untitled Project']
         );
+        
+        // Auto-create a default index.js file for new workspaces
+        if (result.rows.length > 0) {
+          await getPool().query(
+            `INSERT INTO files (workspace_id, name, type, language, content) VALUES ($1, $2, $3, $4, $5)`,
+            [result.rows[0].id, 'index.js', 'file', 'javascript', '// Welcome to your new workspace!\nconsole.log("Hello World");']
+          );
+        }
       }
       
       res.json(result.rows[0]);
     } catch (dbError) {
       console.warn("Database connection failed, falling back to dummy workspace response:", dbError);
-      res.json({ id: id || 'test-uuid', title: 'Fallback Project', language: 'javascript' });
+      res.status(500).json({ error: 'Database error' });
     }
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get workspace by ID
+router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const wsResult = await getPool().query('SELECT id, title, owner_id FROM workspaces WHERE id = $1', [id]);
+    
+    if (wsResult.rows.length === 0) {
+      res.status(404).json({ error: 'Workspace not found' });
+      return;
+    }
+    
+    res.json(wsResult.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete workspace
+router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    
+    // Make sure the user owns the workspace before deleting
+    const wsResult = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [id]);
+    
+    if (wsResult.rows.length === 0) {
+      res.status(404).json({ error: 'Workspace not found' });
+      return;
+    }
+    
+    if (wsResult.rows[0].owner_id !== userId) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+    
+    await getPool().query('DELETE FROM workspaces WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

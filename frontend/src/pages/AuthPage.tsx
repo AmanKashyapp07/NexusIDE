@@ -35,7 +35,7 @@ export default function AuthPage() {
       }
 
       localStorage.setItem('token', data.token);
-      navigate('/ide');
+      navigate('/dashboard');
     } catch (err: any) {
       setError(err.message);
     } finally {

@@ -66,6 +66,7 @@ export default function CodeEditor({ workspaceId, fileId, language, initialConte
         height="100%"
         language={language}
         theme="vs-dark"
+        loading={<div className="h-full w-full bg-transparent" />}
         options={{
           minimap: { enabled: false },
           fontSize: 13,

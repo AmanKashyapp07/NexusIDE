@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
 import OutputPanel from '../components/Terminal/OutputPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
@@ -11,11 +11,13 @@ function IdePage() {
   const [fileContents, setFileContents] = useState<Record<string, string>>({});
   const [user, setUser] = useState<{ username: string; id: string } | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [workspaceTitle, setWorkspaceTitle] = useState<string>('Loading...');
   const [files, setFiles] = useState<AppFile[]>([]);
   const [activeFile, setActiveFile] = useState<AppFile | null>(null);
 
   const editorRef = useRef<any>(null);
   const navigate = useNavigate();
+  const { workspaceId: urlWorkspaceId } = useParams<{workspaceId: string}>();
 
   useEffect(() => {
     const initWorkspace = async () => {
@@ -39,11 +41,18 @@ function IdePage() {
         const userData = await userRes.json();
         setUser(userData.user);
 
-        const wsRes = await fetch('http://localhost:4000/api/workspace/default', {
+        const wsRes = await fetch(`http://localhost:4000/api/workspace/${urlWorkspaceId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+        
+        if (!wsRes.ok) {
+          navigate('/dashboard');
+          return;
+        }
+        
         const wsData = await wsRes.json();
         setWorkspaceId(wsData.id);
+        setWorkspaceTitle(wsData.title);
 
         const filesRes = await fetch(`http://localhost:4000/api/workspace/${wsData.id}/files`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -60,8 +69,12 @@ function IdePage() {
       }
     };
 
-    initWorkspace();
-  }, [navigate]);
+    if (urlWorkspaceId) {
+      initWorkspace();
+    } else {
+      navigate('/dashboard');
+    }
+  }, [navigate, urlWorkspaceId]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -165,7 +178,7 @@ function IdePage() {
             <div className="flex items-center text-sm font-medium">
               <span className="cursor-pointer text-zinc-400 transition-colors hover:text-zinc-200">{user.username}</span>
               <span className="mx-2 text-zinc-700">/</span>
-              <span className="cursor-pointer font-semibold text-white transition-colors hover:text-cyan-200">sandbox-ide</span>
+              <span className="cursor-pointer font-semibold text-white transition-colors hover:text-cyan-200">{workspaceTitle}</span>
               <span className="ml-3 rounded-full border border-cyan-400/15 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200">
                 Public
               </span>
@@ -173,6 +186,12 @@ function IdePage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
+            >
+              Back to Dashboard
+            </button>
             <div className="flex items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-400/12">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
@@ -235,7 +254,6 @@ function IdePage() {
                   <div className="min-h-0 flex-1 bg-zinc-950/90">
                     {activeFile ? (
                       <CodeEditor
-                        key={activeFile.id}
                         workspaceId={workspaceId}
                         fileId={activeFile.id}
                         language={activeFile.language}
