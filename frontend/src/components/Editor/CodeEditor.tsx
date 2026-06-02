@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import * as Y from 'yjs';
 // @ts-ignore
@@ -9,12 +9,11 @@ interface CodeEditorProps {
   workspaceId: string;
   fileId: string;
   language: string;
-  initialContent?: string;
   onCodeChange?: (code: string) => void;
   onEditorReady?: (editor: any) => void;
 }
 
-export default function CodeEditor({ workspaceId, fileId, language, initialContent, onCodeChange, onEditorReady }: CodeEditorProps) {
+export default function CodeEditor({ workspaceId, fileId, language, onCodeChange, onEditorReady }: CodeEditorProps) {
   const [editor, setEditor] = useState<any>(null);
 
   useEffect(() => {

@@ -161,11 +161,18 @@ router.post('/:id/files', async (req: AuthRequest, res: Response): Promise<void>
   try {
     const { id } = req.params;
     const { name, type, parent_id, language } = req.body;
+
+    if (!name || !type || !['file', 'directory'].includes(type)) {
+      res.status(400).json({ error: 'Name and valid type are required' });
+      return;
+    }
+
+    const resolvedLanguage = type === 'file' ? (language || 'javascript') : null;
     
     const newFile = await getPool().query(
       `INSERT INTO files (workspace_id, name, type, parent_id, language) 
        VALUES ($1, $2, $3, $4, $5) RETURNING id, parent_id, name, type, language`,
-      [id, name, type, parent_id || null, language || 'javascript']
+      [id, name, type, parent_id || null, resolvedLanguage]
     );
     res.status(201).json(newFile.rows[0]);
   } catch (err: any) {

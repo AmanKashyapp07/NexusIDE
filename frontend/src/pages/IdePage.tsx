@@ -8,7 +8,6 @@ import { Play, Cloud, Users, Book, LogOut, Loader2 } from 'lucide-react';
 function IdePage() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [fileOutputs, setFileOutputs] = useState<Record<string, string>>({});
-  const [fileContents, setFileContents] = useState<Record<string, string>>({});
   const [user, setUser] = useState<{ username: string; id: string } | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [workspaceTitle, setWorkspaceTitle] = useState<string>('Loading...');
@@ -76,12 +75,15 @@ function IdePage() {
     if (files.length === 0) return;
     
     if (!urlFileId) {
-      navigate(`/ide/${urlWorkspaceId}/${files[0].id}`, { replace: true });
+      const firstFile = files.find((file) => file.type === 'file');
+      if (firstFile) {
+        navigate(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
+      }
       return;
     }
 
-    const fileToSelect = files.find(f => f.id === urlFileId) || files[0];
-    if (activeFile?.id !== fileToSelect.id) {
+    const fileToSelect = files.find((file) => file.id === urlFileId && file.type === 'file') || files.find((file) => file.type === 'file') || null;
+    if (fileToSelect && activeFile?.id !== fileToSelect.id) {
       setActiveFile(fileToSelect);
       if (fileToSelect.id !== urlFileId) {
         navigate(`/ide/${urlWorkspaceId}/${fileToSelect.id}`, { replace: true });
@@ -94,7 +96,7 @@ function IdePage() {
     navigate('/login');
   };
 
-  const handleFileCreate = async (name: string, type: 'file' | 'directory', language: string) => {
+  const handleFileCreate = async (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => {
     if (!workspaceId) return;
 
     try {
@@ -105,7 +107,7 @@ function IdePage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ name, type, language }),
+        body: JSON.stringify({ name, type, parent_id: parentId, language }),
       });
 
       const newFile = await res.json();
@@ -273,9 +275,7 @@ function IdePage() {
                       <CodeEditor
                         workspaceId={workspaceId}
                         fileId={activeFile.id}
-                        language={activeFile.language}
-                        initialContent={fileContents[activeFile.id] || ''}
-                        onCodeChange={(code) => setFileContents((prev) => ({ ...prev, [activeFile.id]: code }))}
+                        language={activeFile.language || 'javascript'}
                         onEditorReady={(editor) => {
                           editorRef.current = editor;
                         }}
