@@ -35,7 +35,7 @@ export default function AuthPage() {
       }
 
       localStorage.setItem('token', data.token);
-      navigate('/');
+      navigate('/ide');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -54,7 +54,7 @@ export default function AuthPage() {
             <div className="max-w-xl space-y-8">
               <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-cyan-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_18px_rgba(34,211,238,0.9)]" />
-                Collaborative workspace
+                Collaborative Cloud IDE
               </div>
 
               <div className="space-y-4">
@@ -66,16 +66,16 @@ export default function AuthPage() {
                     Ship code faster with a workspace that feels calm and focused.
                   </h1>
                   <p className="max-w-xl text-base leading-7 text-zinc-400 sm:text-lg">
-                    Sign in to pick up where you left off, or create a new account to start a fresh project with realtime syncing.
+                    Authenticate to access your active projects, or create a developer profile to start building in isolated, real-time environments.
                   </p>
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-3">
                 {[
-                  'Realtime collaboration',
-                  'Persistent workspace state',
-                  'Fast auth flow',
+                  'Conflict-Free Concurrency',
+                  'Persistent Session States',
+                  'Isolated Sandboxes',
                 ].map((item) => (
                   <div key={item} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                     {item}
@@ -86,9 +86,9 @@ export default function AuthPage() {
 
             <div className="mt-10 grid gap-3 border-t border-white/10 pt-6 sm:grid-cols-3">
               {[
-                ['Secure', 'Token-based access'],
-                ['Fast', 'Quick session recovery'],
-                ['Modern', 'Glassmorphism interface'],
+                ['Immutable Access', 'Token-based security layers'],
+                ['High Availability', 'Sub-100ms environment recovery'],
+                ['Decoupled UI', 'Engineered glassmorphism interface'],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl bg-white/5 p-4">
                   <div className="text-xs uppercase tracking-[0.24em] text-zinc-500">{label}</div>
@@ -105,10 +105,10 @@ export default function AuthPage() {
                   <Cloud size={30} className="text-cyan-300" />
                 </div>
                 <h2 className="text-2xl font-semibold tracking-tight text-white">
-                  {isLogin ? 'Welcome back' : 'Create your account'}
+                  {isLogin ? 'Welcome back' : 'Create developer account'}
                 </h2>
                 <p className="mt-2 max-w-sm text-sm leading-6 text-zinc-400">
-                  {isLogin ? 'Enter your credentials to continue.' : 'Set up your workspace in a few quick steps.'}
+                  {isLogin ? 'Enter your credentials to access your dashboard.' : 'Set up your identity profile to begin.'}
                 </p>
               </div>
 
@@ -131,14 +131,14 @@ export default function AuthPage() {
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       className="block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/7 focus:border-cyan-400/40 focus:ring-4 focus:ring-cyan-400/10"
-                      placeholder="johndoe"
+                      placeholder="e.g., amankashyap"
                     />
                   </div>
 
                   {!isLogin && (
                     <div className="animate-in fade-in slide-in-from-top-2 duration-300">
                       <label className="mb-2 block text-sm font-medium text-zinc-300">
-                        Email address
+                        Email Address
                       </label>
                       <input
                         type="email"
@@ -146,7 +146,7 @@ export default function AuthPage() {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         className="block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/7 focus:border-cyan-400/40 focus:ring-4 focus:ring-cyan-400/10"
-                        placeholder="you@example.com"
+                        placeholder="developer@example.com"
                       />
                     </div>
                   )}
@@ -179,10 +179,10 @@ export default function AuthPage() {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Processing...
+                        {isLogin ? 'Authenticating...' : 'Creating Profile...'}
                       </>
                     ) : (
-                      isLogin ? 'Sign in' : 'Create account'
+                      isLogin ? 'Sign In' : 'Create Account'
                     )}
                   </span>
                 </button>
@@ -190,7 +190,7 @@ export default function AuthPage() {
 
               <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-center">
                 <p className="text-sm text-zinc-400">
-                  {isLogin ? "Don't have an account?" : 'Already have an account?'}{' '}
+                  {isLogin ? "Don't have an account?" : 'Already have a profile?'}{' '}
                   <button
                     onClick={() => {
                       setIsLogin(!isLogin);

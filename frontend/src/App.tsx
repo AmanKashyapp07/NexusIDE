@@ -7,8 +7,9 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<AuthPage />} />
-        <Route path="/" element={<IdePage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/ide" element={<IdePage />} />
+        <Route path="/" element={<Navigate to="/ide" replace />} />
+        <Route path="*" element={<Navigate to="/ide" replace />} />
       </Routes>
     </BrowserRouter>
   );
