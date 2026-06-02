@@ -13,6 +13,7 @@ function IdePage() {
   const [workspaceTitle, setWorkspaceTitle] = useState<string>('Loading...');
   const [files, setFiles] = useState<AppFile[]>([]);
   const [activeFile, setActiveFile] = useState<AppFile | null>(null);
+  const [activeCollaborators, setActiveCollaborators] = useState<any[]>([]);
 
   const editorRef = useRef<any>(null);
   const navigate = useNavigate();
@@ -202,6 +203,20 @@ function IdePage() {
           </div>
 
           <div className="flex items-center gap-3">
+            {activeCollaborators.length > 0 && (
+              <div className="flex -space-x-2 mr-2">
+                {activeCollaborators.map((collaborator, index) => (
+                  <div 
+                    key={index} 
+                    className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#050608] text-[10px] font-bold text-white shadow-sm"
+                    style={{ backgroundColor: collaborator.color }}
+                    title={collaborator.name}
+                  >
+                    {collaborator.name.substring(0, 2).toUpperCase()}
+                  </div>
+                ))}
+              </div>
+            )}
             <button
               onClick={() => navigate('/dashboard')}
               className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
@@ -253,13 +268,33 @@ function IdePage() {
                     </div>
 
                     <button
-                      onClick={handleExecute}
-                      disabled={isExecuting}
-                      className="flex items-center gap-2 rounded-full border border-cyan-300/20 bg-[linear-gradient(135deg,#06b6d4,#2563eb)] px-4 py-2 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(8,145,178,0.22)] transition duration-200 hover:shadow-[0_18px_36px_rgba(37,99,235,0.35)] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isExecuting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
-                      {isExecuting ? 'Running...' : 'Run Code'}
-                    </button>
+  onClick={handleExecute}
+  disabled={isExecuting}
+  className="
+    flex items-center gap-2
+    rounded-full
+    border border-cyan-300/20
+    bg-[linear-gradient(135deg,#06b6d4,#2563eb)]
+    px-4 py-2
+    text-sm font-semibold text-white
+    shadow-[0_16px_30px_rgba(8,145,178,0.22)]
+    transition-all duration-200
+    hover:scale-[1.02]
+    hover:shadow-[0_18px_36px_rgba(37,99,235,0.35)]
+    active:scale-[0.98]
+    cursor-pointer
+    disabled:cursor-not-allowed
+    disabled:opacity-60
+  "
+>
+  {isExecuting ? (
+    <Loader2 size={14} className="animate-spin" />
+  ) : (
+    <Play size={14} fill="currentColor" />
+  )}
+
+  {isExecuting ? 'Running...' : 'Run Code'}
+</button>
                   </div>
                 )}
               </div>
@@ -275,6 +310,8 @@ function IdePage() {
                         workspaceId={workspaceId}
                         fileId={activeFile.id}
                         language={activeFile.language || 'javascript'}
+                        currentUser={user}
+                        onAwarenessChange={setActiveCollaborators}
                         onEditorReady={(editor) => {
                           editorRef.current = editor;
                         }}

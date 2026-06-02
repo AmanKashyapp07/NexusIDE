@@ -54,6 +54,25 @@ setPersistence({
       } catch (err) {
         console.error('Error loading state from DB:', err);
       }
+
+      // Automatically save to Postgres on document updates, debounced by 2 seconds
+      // This prevents data loss if the server crashes before writeState is naturally called by y-websocket.
+      let saveTimeout: NodeJS.Timeout | null = null;
+      ydoc.on('update', () => {
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(async () => {
+          try {
+            const state = Y.encodeStateAsUpdate(ydoc);
+            const contentText = ydoc.getText('monaco').toString();
+            await getPool().query(
+              'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
+              [Buffer.from(state), contentText, fileId]
+            );
+          } catch (err) {
+            console.error('Error auto-saving state to DB:', err);
+          }
+        }, 2000);
+      });
     }
   },
   writeState: async (docName: string, ydoc: Y.Doc) => {
