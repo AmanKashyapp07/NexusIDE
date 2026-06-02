@@ -17,7 +17,7 @@ function IdePage() {
 
   const editorRef = useRef<any>(null);
   const navigate = useNavigate();
-  const { workspaceId: urlWorkspaceId } = useParams<{workspaceId: string}>();
+  const { workspaceId: urlWorkspaceId, fileId: urlFileId } = useParams<{workspaceId: string, fileId: string}>();
 
   useEffect(() => {
     const initWorkspace = async () => {
@@ -59,10 +59,6 @@ function IdePage() {
         });
         const filesData = await filesRes.json();
         setFiles(filesData);
-
-        if (filesData.length > 0) {
-          setActiveFile(filesData[0]);
-        }
       } catch (err) {
         console.error(err);
         navigate('/login');
@@ -75,6 +71,23 @@ function IdePage() {
       navigate('/dashboard');
     }
   }, [navigate, urlWorkspaceId]);
+
+  useEffect(() => {
+    if (files.length === 0) return;
+    
+    if (!urlFileId) {
+      navigate(`/ide/${urlWorkspaceId}/${files[0].id}`, { replace: true });
+      return;
+    }
+
+    const fileToSelect = files.find(f => f.id === urlFileId) || files[0];
+    if (activeFile?.id !== fileToSelect.id) {
+      setActiveFile(fileToSelect);
+      if (fileToSelect.id !== urlFileId) {
+        navigate(`/ide/${urlWorkspaceId}/${fileToSelect.id}`, { replace: true });
+      }
+    }
+  }, [urlFileId, files, urlWorkspaceId, navigate, activeFile]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -99,7 +112,9 @@ function IdePage() {
       if (!res.ok) throw new Error(newFile.error);
 
       setFiles((prev) => [...prev, newFile].sort((a, b) => a.name.localeCompare(b.name)));
-      if (type === 'file') setActiveFile(newFile);
+      if (type === 'file') {
+        navigate(`/ide/${urlWorkspaceId}/${newFile.id}`);
+      }
     } catch (err: any) {
       alert(err.message);
     }
@@ -215,7 +230,9 @@ function IdePage() {
             <Sidebar
               files={files}
               activeFileId={activeFile?.id || null}
-              onFileSelect={setActiveFile}
+              onFileSelect={(file) => {
+                navigate(`/ide/${urlWorkspaceId}/${file.id}`);
+              }}
               onFileCreate={handleFileCreate}
               onFileDelete={handleFileDelete}
             />

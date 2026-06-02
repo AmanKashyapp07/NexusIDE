@@ -205,3 +205,14 @@ router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> =
 });
 
 export default router;
+
+
+// what each route does -
+// GET /:id - Get workspace details of a specific workspace by ID
+// PUT /:id - Update workspace details of a specific workspace by ID (e.g. rename)
+// DELETE /:id - Delete workspace by ID (and all associated files)
+// GET /default - Get all workspaces for the authenticated user, or create a default one if none exist
+// GET /:id/files - Get all files in a workspace by workspace ID
+// POST /:id/files - Create a new file in a workspace by workspace ID (expects name, type, parent_id, language in body)
+// DELETE /:id/files/:fileId - Delete a file from a workspace by file ID
+// POST /execute - Execute code and return output (expects code and language in body)
