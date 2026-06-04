@@ -4,7 +4,7 @@ import CodeEditor from '../components/Editor/CodeEditor';
 import OutputPanel from '../components/Terminal/OutputPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import VoiceChat from '../components/Voice/VoiceChat';
-import { Play, Cloud, Users, Book, LogOut, Loader2 } from 'lucide-react';
+import { Play, Zap, Users, Book, LogOut, Loader2 } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-ignore
 import { WebsocketProvider } from 'y-websocket';
@@ -226,10 +226,13 @@ function IdePage() {
 
   if (!user || !workspaceId) {
     return (
-      <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#050608] text-zinc-300">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.14),transparent_28%)]" />
-        <div className="relative flex flex-col items-center gap-4 rounded-[1.75rem] border border-white/10 bg-white/5 px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
-          <Loader2 className="h-8 w-8 animate-spin text-cyan-300" />
+      <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#07060b] text-zinc-300">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none nx-orb-dim">
+          <div className="nx-orb nx-orb-1" />
+          <div className="nx-orb nx-orb-2" />
+        </div>
+        <div className="relative flex flex-col items-center gap-4 rounded-[1.75rem] nx-glass-strong px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.5)]">
+          <Loader2 className="h-8 w-8 animate-spin text-violet-300" />
           <p className="text-sm text-zinc-400">Initializing your workspace...</p>
         </div>
       </div>
@@ -260,21 +263,25 @@ function IdePage() {
   };
 
   return (
-    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#050608] text-zinc-300 selection:bg-cyan-400/25">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.08),transparent_28%),radial-gradient(circle_at_85%_15%,rgba(59,130,246,0.08),transparent_24%)]" />
+    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#07060b] text-zinc-300 selection:bg-violet-400/25">
+      {/* Very subtle ambient orbs for IDE (dimmed) */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none nx-orb-dim">
+        <div className="nx-orb nx-orb-1" />
+        <div className="nx-orb nx-orb-2" />
+      </div>
       
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         {/* Added z-50 to header so Voice Chat floats over the code editor perfectly */}
-       <header className="relative z-50 flex items-center justify-between border-b border-white/10 bg-white/5 px-5 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18)] backdrop-blur-2xl sm:px-6">
+       <header className="relative z-50 flex items-center justify-between border-b border-violet-500/10 bg-[rgba(13,12,20,0.75)] px-5 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18),0_0_1px_rgba(139,92,246,0.1)] backdrop-blur-2xl sm:px-6">
           <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-400/15 bg-cyan-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-              <Cloud className="text-cyan-300" size={18} />
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-violet-400/15 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <Zap className="text-violet-300" size={18} />
             </div>
             <div className="flex items-center text-sm font-medium">
               <span className="cursor-pointer text-zinc-400 transition-colors hover:text-zinc-200">{user.username}</span>
               <span className="mx-2 text-zinc-700">/</span>
-              <span className="cursor-pointer font-semibold text-white transition-colors hover:text-cyan-200">{workspaceTitle}</span>
-              <span className="ml-3 rounded-full border border-cyan-400/15 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200">
+              <span className="cursor-pointer font-semibold text-white transition-colors hover:text-violet-200">{workspaceTitle}</span>
+              <span className="ml-3 rounded-full border border-violet-400/15 bg-violet-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em] text-violet-200">
                 Public
               </span>
             </div>
@@ -302,7 +309,7 @@ function IdePage() {
                 <span className={`relative inline-flex h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-400' : connectionStatus === 'disconnected' ? 'bg-red-400' : 'bg-amber-400'
                   }`} />
               </span>
-              {connectionStatus === 'connected' ? <Users size={14} className="text-emerald-200/80" /> : connectionStatus === 'disconnected' ? <Cloud size={14} className="text-red-200/80" /> : <Loader2 size={14} className="animate-spin text-amber-200/80" />}
+              {connectionStatus === 'connected' ? <Users size={14} className="text-emerald-200/80" /> : connectionStatus === 'disconnected' ? <Zap size={14} className="text-red-200/80" /> : <Loader2 size={14} className="animate-spin text-amber-200/80" />}
               <span>
                 {connectionStatus === 'connected' ? 'Live Sync' : connectionStatus === 'disconnected' ? 'Offline' : 'Connecting...'}
               </span>
@@ -315,10 +322,10 @@ function IdePage() {
                   {activeCollaborators.map((collaborator, index) => (
                     <div
                       key={collaborator.clientId || index}
-                      className="group relative flex h-8 w-8 cursor-default items-center justify-center rounded-full border-2 border-[#050608] text-xs font-bold text-white transition-transform hover:z-10 hover:-translate-y-1"
+                      className="group relative flex h-8 w-8 cursor-default items-center justify-center rounded-full border-2 border-[#07060b] text-xs font-bold text-white transition-transform hover:z-10 hover:-translate-y-1"
                       style={{
-                        backgroundColor: collaborator.color || '#06b6d4',
-                        boxShadow: `0 0 12px ${collaborator.color || '#06b6d4'}40`
+                        backgroundColor: collaborator.color || '#8b5cf6',
+                        boxShadow: `0 0 12px ${collaborator.color || '#8b5cf6'}40`
                       }}
                     >
                       {/* Avatar Initials */}
@@ -358,7 +365,7 @@ function IdePage() {
         </header>
 
         <div className="flex min-h-0 flex-1 overflow-hidden p-4 sm:p-5">
-          <div className="flex min-h-0 w-full overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/5 shadow-[0_24px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+          <div className="flex min-h-0 w-full overflow-hidden rounded-[1.75rem] border border-white/[0.08] bg-[rgba(13,12,20,0.6)] shadow-[0_24px_90px_rgba(0,0,0,0.45),0_0_1px_rgba(139,92,246,0.08)] backdrop-blur-2xl">
             <Sidebar
               files={files}
               activeFileId={activeFile?.id || null}
@@ -369,10 +376,10 @@ function IdePage() {
               onFileDelete={handleFileDelete}
             />
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(9,9,11,0.92),rgba(4,4,5,0.98))]">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-3 sm:px-6">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(13,12,20,0.95),rgba(7,6,11,0.98))]">
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3 sm:px-6">
                 <div className="flex items-center gap-2.5 text-sm">
-                  <Book size={16} className="text-cyan-300/80" />
+                  <Book size={16} className="text-violet-300/80" />
 
                   {activeFile ? (
                     <div className="flex items-center">
@@ -411,16 +418,16 @@ function IdePage() {
                       onClick={handleExecute}
                       disabled={isExecuting}
                       className="
+                        nx-btn-shimmer nx-btn-gradient
                         flex items-center gap-2
                         rounded-full
-                        border border-cyan-300/20
-                        bg-[linear-gradient(135deg,#06b6d4,#2563eb)]
+                        border border-violet-300/20
                         px-4 py-2
                         text-sm font-semibold text-white
-                        shadow-[0_16px_30px_rgba(8,145,178,0.22)]
+                        shadow-[0_16px_30px_rgba(139,92,246,0.2)]
                         transition-all duration-200
                         hover:scale-[1.02]
-                        hover:shadow-[0_18px_36px_rgba(37,99,235,0.35)]
+                        hover:shadow-[0_18px_36px_rgba(99,102,241,0.3)]
                         active:scale-[0.98]
                         cursor-pointer
                         disabled:cursor-not-allowed
@@ -439,11 +446,11 @@ function IdePage() {
               </div>
 
               <main className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.42fr)] lg:p-5">
-                <section className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-zinc-950/80 shadow-[0_16px_50px_rgba(0,0,0,0.3)]">
-                  <div className="border-b border-white/10 bg-white/5 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                <section className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/[0.08] bg-[rgba(7,6,11,0.9)] shadow-[0_16px_50px_rgba(0,0,0,0.3)]">
+                  <div className="border-b border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
                     Editor
                   </div>
-                  <div className="min-h-0 flex-1 bg-zinc-950/90">
+                  <div className="min-h-0 flex-1 bg-[rgba(7,6,11,0.95)]">
                     {activeFile ? (
                       <CodeEditor
                         workspaceId={workspaceId}
@@ -458,15 +465,15 @@ function IdePage() {
                       />
                     ) : (
                       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-zinc-500">
-                        <Cloud className="h-12 w-12 opacity-20" />
+                        <Zap className="h-12 w-12 opacity-20" />
                         <p>Select or create a file to start coding.</p>
                       </div>
                     )}
                   </div>
                 </section>
 
-                <section className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-zinc-950/80 shadow-[0_16px_50px_rgba(0,0,0,0.3)]">
-                  <div className="border-b border-white/10 bg-white/5 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                <section className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/[0.08] bg-[rgba(7,6,11,0.9)] shadow-[0_16px_50px_rgba(0,0,0,0.3)]">
+                  <div className="border-b border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
                     Terminal
                   </div>
                   <div className="min-h-0 flex-1">

@@ -30,6 +30,12 @@ export async function executeCode(code: string, language: string): Promise<strin
       await fs.writeFile(filePath, code);
       // Compile and then run
       command = `g++ ${filePath} -o ${exePath} && ${exePath}`;
+    } else if (language === 'c') {
+      filePath = path.join(tempDir, `${fileId}.c`);
+      const exePath = path.join(tempDir, `${fileId}.out`);
+      await fs.writeFile(filePath, code);
+      // Compile with gcc and then run
+      command = `gcc ${filePath} -o ${exePath} && ${exePath}`;
     } else if (language === 'bash') {
       filePath = path.join(tempDir, `${fileId}.sh`);
       await fs.writeFile(filePath, code);

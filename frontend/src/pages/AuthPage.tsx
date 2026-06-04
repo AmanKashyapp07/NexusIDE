@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cloud } from 'lucide-react';
+import { Zap } from 'lucide-react';
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -44,26 +44,35 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#050608] text-zinc-200 selection:bg-cyan-400/25">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_28%),radial-gradient(circle_at_80%_20%,rgba(59,130,246,0.14),transparent_24%),radial-gradient(circle_at_bottom,rgba(14,165,233,0.10),transparent_30%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:72px_72px] opacity-20 [mask-image:radial-gradient(circle_at_center,black,transparent_78%)]" />
+    <div className="relative min-h-screen overflow-hidden bg-[#07060b] text-zinc-200 selection:bg-violet-400/25">
+      {/* Animated Aurora Orbs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="nx-orb nx-orb-1" />
+        <div className="nx-orb nx-orb-2" />
+        <div className="nx-orb nx-orb-3" />
+      </div>
+
+      {/* Grid Overlay */}
+      <div className="absolute inset-0 nx-grid-overlay opacity-40" />
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-10 sm:px-6 lg:px-8">
         <div className="grid w-full gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-          <section className="flex flex-col justify-between rounded-[2rem] border border-white/10 bg-white/5 p-8 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-10 lg:p-12">
+          {/* Left Hero Panel */}
+          <section className="flex flex-col justify-between rounded-[2rem] nx-glass-strong p-8 shadow-[0_30px_80px_rgba(0,0,0,0.45)] sm:p-10 lg:p-12">
             <div className="max-w-xl space-y-8">
-              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-cyan-200">
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_18px_rgba(34,211,238,0.9)]" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-violet-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-violet-400 shadow-[0_0_18px_rgba(139,92,246,0.9)]" />
                 Collaborative Cloud IDE
               </div>
 
               <div className="space-y-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/8 shadow-inner shadow-cyan-500/10">
-                  <Cloud size={28} className="text-cyan-300" />
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] shadow-inner shadow-violet-500/10">
+                  <Zap size={28} className="text-violet-300" />
                 </div>
                 <div className="space-y-3">
                   <h1 className="max-w-lg text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                    Ship code faster with a workspace that feels calm and focused.
+                    Ship code faster with a workspace that feels{' '}
+                    <span className="nx-text-gradient">calm and focused.</span>
                   </h1>
                   <p className="max-w-xl text-base leading-7 text-zinc-400 sm:text-lg">
                     Authenticate to access your active projects, or create a developer profile to start building in isolated, real-time environments.
@@ -77,7 +86,7 @@ export default function AuthPage() {
                   'Persistent Session States',
                   'Isolated Sandboxes',
                 ].map((item) => (
-                  <div key={item} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                  <div key={item} className="rounded-2xl border border-violet-500/10 bg-violet-500/[0.04] px-4 py-3 text-sm text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-colors hover:border-violet-500/20 hover:bg-violet-500/[0.08]">
                     {item}
                   </div>
                 ))}
@@ -90,7 +99,7 @@ export default function AuthPage() {
                 ['High Availability', 'Sub-100ms environment recovery'],
                 ['Decoupled UI', 'Engineered glassmorphism interface'],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl bg-white/5 p-4">
+                <div key={label} className="rounded-2xl bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.06]">
                   <div className="text-xs uppercase tracking-[0.24em] text-zinc-500">{label}</div>
                   <div className="mt-2 text-sm text-zinc-200">{value}</div>
                 </div>
@@ -98,11 +107,12 @@ export default function AuthPage() {
             </div>
           </section>
 
+          {/* Right Auth Form Panel */}
           <section className="flex items-center justify-center">
-            <div className="w-full max-w-[32rem] rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6 shadow-[0_24px_90px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:p-8">
+            <div className="w-full max-w-[32rem] rounded-[2rem] nx-glass-strong p-6 shadow-[0_24px_90px_rgba(0,0,0,0.5),0_0_60px_rgba(139,92,246,0.06)] sm:p-8">
               <div className="mb-8 flex flex-col items-center text-center">
-                <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  <Cloud size={30} className="text-cyan-300" />
+                <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-400/15 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                  <Zap size={30} className="text-violet-300" />
                 </div>
                 <h2 className="text-2xl font-semibold tracking-tight text-white">
                   {isLogin ? 'Welcome back' : 'Create developer account'}
@@ -114,7 +124,7 @@ export default function AuthPage() {
 
               <form className="space-y-5" onSubmit={handleSubmit}>
                 {error && (
-                  <div className="flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300 shadow-[0_0_0_1px_rgba(239,68,68,0.04)] animate-in fade-in zoom-in-95 duration-300">
+                  <div className="flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300 shadow-[0_0_0_1px_rgba(239,68,68,0.04)]">
                     <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-red-400 shadow-[0_0_14px_rgba(248,113,113,0.85)]" />
                     <span>{error}</span>
                   </div>
@@ -130,13 +140,13 @@ export default function AuthPage() {
                       required
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/7 focus:border-cyan-400/40 focus:ring-4 focus:ring-cyan-400/10"
+                      className="nx-input-glow block w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/[0.06]"
                       placeholder="e.g., amankashyap"
                     />
                   </div>
 
                   {!isLogin && (
-                    <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div>
                       <label className="mb-2 block text-sm font-medium text-zinc-300">
                         Email Address
                       </label>
@@ -145,7 +155,7 @@ export default function AuthPage() {
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/7 focus:border-cyan-400/40 focus:ring-4 focus:ring-cyan-400/10"
+                        className="nx-input-glow block w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/[0.06]"
                         placeholder="developer@example.com"
                       />
                     </div>
@@ -160,7 +170,7 @@ export default function AuthPage() {
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/7 focus:border-cyan-400/40 focus:ring-4 focus:ring-cyan-400/10"
+                      className="nx-input-glow block w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3.5 text-white placeholder:text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition duration-200 hover:border-white/15 hover:bg-white/[0.06]"
                       placeholder="••••••••"
                     />
                   </div>
@@ -169,9 +179,8 @@ export default function AuthPage() {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="group relative flex w-full items-center justify-center overflow-hidden rounded-2xl border border-cyan-300/20 bg-[linear-gradient(135deg,#06b6d4,#2563eb)] px-4 py-3.5 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(8,145,178,0.22)] transition duration-200 hover:shadow-[0_18px_36px_rgba(37,99,235,0.35)] focus:outline-none focus:ring-4 focus:ring-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="nx-btn-shimmer nx-btn-gradient group relative flex w-full items-center justify-center rounded-2xl border border-violet-400/20 px-4 py-3.5 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(139,92,246,0.2)] transition duration-200 hover:shadow-[0_18px_36px_rgba(99,102,241,0.3)] focus:outline-none focus:ring-4 focus:ring-violet-400/20 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="absolute inset-0 bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.2),transparent)] translate-x-[-120%] opacity-0 transition duration-700 group-hover:translate-x-[120%] group-hover:opacity-100" />
                   <span className="relative flex items-center gap-2">
                     {isLoading ? (
                       <>
@@ -188,7 +197,7 @@ export default function AuthPage() {
                 </button>
               </form>
 
-              <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-center">
+              <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-center">
                 <p className="text-sm text-zinc-400">
                   {isLogin ? "Don't have an account?" : 'Already have a profile?'}{' '}
                   <button
@@ -196,7 +205,7 @@ export default function AuthPage() {
                       setIsLogin(!isLogin);
                       setError('');
                     }}
-                    className="font-medium text-white underline decoration-white/20 underline-offset-4 transition hover:text-cyan-300 hover:decoration-cyan-300/50 focus:outline-none"
+                    className="font-medium text-white underline decoration-violet-400/30 underline-offset-4 transition hover:text-violet-300 hover:decoration-violet-300/50 focus:outline-none"
                   >
                     {isLogin ? 'Sign up for free' : 'Sign in instead'}
                   </button>

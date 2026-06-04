@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cloud, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X } from 'lucide-react';
+import { Zap, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X } from 'lucide-react';
 
 interface Workspace {
   id: string;
@@ -147,10 +147,13 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#050608] text-zinc-300">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.14),transparent_28%)]" />
-        <div className="relative flex flex-col items-center gap-4 rounded-[1.75rem] border border-white/10 bg-white/5 px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
-          <Loader2 className="h-8 w-8 animate-spin text-cyan-300" />
+      <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#07060b] text-zinc-300">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="nx-orb nx-orb-1" />
+          <div className="nx-orb nx-orb-2" />
+        </div>
+        <div className="relative flex flex-col items-center gap-4 rounded-[1.75rem] nx-glass-strong px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.5)]">
+          <Loader2 className="h-8 w-8 animate-spin text-violet-300" />
           <p className="text-sm text-zinc-400">Loading your dashboard...</p>
         </div>
       </div>
@@ -158,15 +161,22 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#050608] text-zinc-200 selection:bg-cyan-400/25 font-sans">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.08),transparent_28%),radial-gradient(circle_at_85%_15%,rgba(59,130,246,0.08),transparent_24%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:72px_72px] opacity-10 [mask-image:radial-gradient(circle_at_center,black,transparent_78%)]" />
+    <div className="relative min-h-screen overflow-hidden bg-[#07060b] text-zinc-200 selection:bg-violet-400/25 font-sans">
+      {/* Animated Aurora Orbs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="nx-orb nx-orb-1" />
+        <div className="nx-orb nx-orb-2" />
+        <div className="nx-orb nx-orb-3" />
+      </div>
+
+      {/* Grid Overlay */}
+      <div className="absolute inset-0 nx-grid-overlay opacity-30" />
 
       <div className="relative mx-auto max-w-6xl px-6 py-12">
         <header className="flex items-center justify-between mb-12 border-b border-white/10 pb-6">
           <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-              <Cloud className="text-cyan-300" size={24} />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <Zap className="text-violet-300" size={24} />
             </div>
             <div>
               <h1 className="text-2xl font-semibold text-white tracking-tight">Welcome, {user?.username}</h1>
@@ -186,7 +196,7 @@ export default function DashboardPage() {
           <section>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-medium text-white flex items-center gap-2">
-                <FolderCode size={18} className="text-cyan-400" />
+                <FolderCode size={18} className="text-violet-400" />
                 Your Workspaces
               </h2>
             </div>
@@ -205,7 +215,7 @@ export default function DashboardPage() {
                     onClick={() => {
                       if (editingWorkspaceId !== ws.id) navigate(`/ide/${ws.id}`);
                     }}
-                    className={`group relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_4px_20px_rgba(0,0,0,0.2)] backdrop-blur-md transition-all duration-300 hover:border-cyan-400/30 hover:bg-white/10 hover:shadow-[0_8px_30px_rgba(34,211,238,0.15)] ${editingWorkspaceId === ws.id ? 'cursor-default ring-1 ring-cyan-500/50' : 'cursor-pointer'}`}
+                    className={`group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.2)] backdrop-blur-md transition-all duration-300 hover:border-violet-400/30 hover:bg-white/[0.07] hover:shadow-[0_8px_30px_rgba(139,92,246,0.12)] hover:scale-[1.02] ${editingWorkspaceId === ws.id ? 'cursor-default ring-1 ring-violet-500/50' : 'cursor-pointer'}`}
                   >
                     <div className="flex items-start justify-between min-h-[2rem]">
                       {editingWorkspaceId === ws.id ? (
@@ -216,7 +226,7 @@ export default function DashboardPage() {
                             value={editingTitle}
                             onChange={(e) => setEditingTitle(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
-                            className="flex-1 rounded-lg border border-cyan-500/30 bg-black/50 px-3 py-1 text-sm text-white outline-none focus:border-cyan-400"
+                            className="flex-1 rounded-lg border border-violet-500/30 bg-black/50 px-3 py-1 text-sm text-white outline-none focus:border-violet-400"
                           />
                           <button type="submit" className="rounded-lg p-1.5 text-emerald-400 hover:bg-emerald-500/20" onClick={(e) => handleEditSave(e, ws.id)}>
                             <Check size={16} />
@@ -227,12 +237,12 @@ export default function DashboardPage() {
                         </form>
                       ) : (
                         <>
-                          <h3 className="text-lg font-medium text-zinc-100 group-hover:text-cyan-100 transition-colors pr-16">{ws.title}</h3>
+                          <h3 className="text-lg font-medium text-zinc-100 group-hover:text-violet-100 transition-colors pr-16">{ws.title}</h3>
 
                           <div className="absolute right-4 top-4 flex opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                             <button
                               onClick={(e) => handleEditStart(e, ws.id, ws.title)}
-                              className="cursor-pointer rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-cyan-300"
+                              className="cursor-pointer rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-violet-300"
                               title="Edit Title"
                             >
                               <Edit2 size={16} />
@@ -264,7 +274,7 @@ export default function DashboardPage() {
           </section>
 
           <aside className="space-y-6">
-            <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950/50 p-6 backdrop-blur-xl shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
+            <div className="rounded-[1.5rem] nx-glass-strong p-6 shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
               <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400 mb-4">Create New</h3>
               <form onSubmit={handleCreate} className="space-y-4">
                 <input
@@ -273,12 +283,12 @@ export default function DashboardPage() {
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Workspace Name"
-                  className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-zinc-600 shadow-inner outline-none transition duration-200 hover:border-white/20 focus:border-cyan-400/50 focus:ring-4 focus:ring-cyan-400/10"
+                  className="nx-input-glow block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-zinc-600 shadow-inner outline-none transition duration-200 hover:border-white/20"
                 />
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/20 bg-[linear-gradient(135deg,#06b6d4,#2563eb)] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(8,145,178,0.2)] transition duration-200 hover:shadow-[0_12px_25px_rgba(37,99,235,0.3)] disabled:opacity-50"
+                  className="nx-btn-shimmer nx-btn-gradient flex w-full items-center justify-center gap-2 rounded-xl border border-violet-300/20 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(139,92,246,0.2)] transition duration-200 hover:shadow-[0_12px_25px_rgba(99,102,241,0.3)] disabled:opacity-50"
                 >
                   {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
                   New Workspace
@@ -286,7 +296,7 @@ export default function DashboardPage() {
               </form>
             </div>
 
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6 backdrop-blur-xl shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
+            <div className="rounded-[1.5rem] nx-glass-strong p-6 shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
               <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400 mb-4">Join Existing</h3>
               <form onSubmit={handleJoin} className="space-y-4">
                 <input
@@ -295,7 +305,7 @@ export default function DashboardPage() {
                   value={joinId}
                   onChange={(e) => setJoinId(e.target.value)}
                   placeholder="Paste UUID..."
-                  className="block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm font-mono text-white placeholder:text-zinc-600 placeholder:font-sans shadow-inner outline-none transition duration-200 hover:border-white/20 focus:border-emerald-400/50 focus:ring-4 focus:ring-emerald-400/10"
+                  className="nx-input-glow block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm font-mono text-white placeholder:text-zinc-600 placeholder:font-sans shadow-inner outline-none transition duration-200 hover:border-white/20"
                 />
                 <button
                   type="submit"

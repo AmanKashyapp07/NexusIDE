@@ -74,7 +74,8 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
       lang = 'javascript'; // Default
       const nameLower = newFileName.toLowerCase();
       if (nameLower.endsWith('.py')) lang = 'python';
-      else if (nameLower.endsWith('.cpp')) lang = 'cpp';
+      else if (nameLower.endsWith('.cpp') || nameLower.endsWith('.cc') || nameLower.endsWith('.cxx')) lang = 'cpp';
+      else if (nameLower.endsWith('.c') || nameLower.endsWith('.h')) lang = 'c';
       else if (nameLower.endsWith('.ts') || nameLower.endsWith('.tsx')) lang = 'typescript';
       else if (nameLower.endsWith('.sh')) lang = 'bash';
       else if (nameLower.endsWith('.css')) lang = 'css';
@@ -117,7 +118,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
         style={{ paddingLeft: `${depth * 16 + 24}px` }}
       >
         {isFolder ? (
-          <FolderCode size={15} className="text-cyan-400/70" />
+          <FolderCode size={15} className="text-violet-400/70" />
         ) : (
           <FileCode size={15} className="text-zinc-400" />
         )}
@@ -131,7 +132,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
             if (e.key === 'Escape') cancelCreate();
           }}
           onBlur={cancelCreate} // Hides input if user clicks away
-          className="h-6 flex-1 rounded-[4px] border border-cyan-500/50 bg-black/40 px-1.5 text-[13px] text-zinc-200 outline-none focus:border-cyan-400 focus:bg-black/60"
+          className="h-6 flex-1 rounded-[4px] border border-violet-500/50 bg-black/40 px-1.5 text-[13px] text-zinc-200 outline-none focus:border-violet-400 focus:bg-black/60"
         />
       </div>
     );
@@ -156,15 +157,15 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
               }
             }}
             style={{ paddingLeft: `${depth * 16 + 4}px` }}
-            className={`group relative flex h-[28px] cursor-pointer items-center justify-between pr-2 transition-colors ${
+            className={`group relative flex h-[28px] cursor-pointer items-center justify-between pr-2 transition-all duration-200 ${
               activeFileId === file.id
-                ? 'bg-cyan-500/10 text-cyan-300'
-                : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+                ? 'bg-violet-500/10 text-violet-200'
+                : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
             }`}
           >
-            {/* Active Indicator Line */}
+            {/* Active Indicator Line — Gradient bar */}
             {activeFileId === file.id && (
-              <span className="absolute left-0 top-0 h-full w-[2px] bg-cyan-400" />
+              <span className="absolute left-0 top-0 h-full w-[2px] nx-active-bar" />
             )}
 
             <div className="flex min-w-0 flex-1 items-center gap-1.5 pl-1">
@@ -180,9 +181,9 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
               )}
 
               {isFolder ? (
-                <FolderCode size={15} className={isExpanded ? 'text-cyan-400/80' : 'text-zinc-500 group-hover:text-cyan-400/60'} />
+                <FolderCode size={15} className={isExpanded ? 'text-violet-400/80' : 'text-zinc-500 group-hover:text-violet-400/60'} />
               ) : (
-                <FileCode size={15} className={activeFileId === file.id ? 'text-cyan-300' : 'text-zinc-500 group-hover:text-zinc-400'} />
+                <FileCode size={15} className={activeFileId === file.id ? 'text-violet-300' : 'text-zinc-500 group-hover:text-zinc-400'} />
               )}
               <span className="truncate text-[13px] tracking-wide">{file.name}</span>
             </div>
@@ -260,14 +261,14 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
         <div className="flex items-center gap-1">
           <button
             onClick={() => openCreateForm('file')}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-cyan-300"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
             title="New File at Root"
           >
             <FilePlus size={14} />
           </button>
           <button
             onClick={() => openCreateForm('directory')}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-cyan-300"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
             title="New Folder at Root"
           >
             <FolderPlus size={14} />

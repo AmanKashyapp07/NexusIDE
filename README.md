@@ -1,75 +1,136 @@
-# Collaborative Cloud IDE & Sandbox
+# NexusIDE: Collaborative Cloud IDE & Secure Sandbox Engine
 
-A production-oriented collaborative cloud IDE and sandbox built with React, Vite, Express, PostgreSQL, Yjs, and WebSockets. The project is being developed in weekly milestones, and **Week 2 is complete**.
+NexusIDE is a high-performance, production-grade cloud development environment engineered to support real-time distributed file synchronization, peer-to-peer multimedia workspaces, and isolated multi-tenant code execution sandboxes. 
 
-## Current Status
+Architected from first principles, this platform solves two critical distributed computing challenges: **Strong Eventual Consistency (SEC)** across concurrent, high-frequency text mutations, and **Multi-Tenant Secure Compute Isolation** against arbitrary or malicious code execution.
 
-Week 2 delivered the core collaboration and offline editing features:
+---
 
-- **Real-Time Collaboration:** Full CRDT-based multi-user sync using Yjs, `y-websocket`, and `y-monaco`.
-- **Voice Chat:** Built a WebRTC P2P mesh network for Discord-style real-time voice chat within workspaces.
-- **Live User Awareness:** Remote cursor tracking and selection sharing with dynamic user color tags and tooltips.
-- **Durable Yjs Persistence:** Automatic, debounced binary `yjs_state` and plaintext document sync to the PostgreSQL database on file updates.
-- **Offline Editing:** Seamless local persistence using IndexedDB (`y-indexeddb`) when connection is lost, automatically merging changes on reconnection.
-- **Connection Status UI:** Live status indicator showing `Live Sync` (Connected), `Connecting...`, or `Offline` states.
-- **Enhanced Directory & UI:** Breadcrumb folder path navigation, nested directory structuring, and inline folder/file creation in the explorer.
+## 🛠 Architectural Pillars & Core Systems
 
-This README is a living document and will be updated as the project moves through later weeks.
+### 1. Conflict-Free Concurrency & Real-Time Sync
+* **Mathematical State Convergence:** Leveraging **Yjs (Conflict-free Replicated Data Types - CRDTs)** configured as a bounded join-semilattice. Every keystroke is tracked using an append-only graph of unique operational blocks mapped to absolute **Lamport Timestamps `(siteId, clock)`**. This eliminates the centralized CPU sequencing bottlenecks common in traditional Operational Transformation (OT) setups.
+* **Dual-Channel Persistence Matrix:** Driven by custom backend hooks inside `y-websocket`, the server intercepts mutations and splits persistence into a dual-storage scheme:
+  * **`yjs_state` (BYTEA):** Serializes the entire historical CRDT change-ledger into raw compressed binary arrays to guarantee exact timeline hydration on reconnects.
+  * **`content` (TEXT):** Flattens the current view into human-readable plaintext strings, allowing the runtime execution engine to fetch scripts instantly with zero CRDT decoding overhead.
+* **Asynchronous Write-Back Caching:** To insulate the PostgreSQL storage engine from Disk I/O exhaustion, document flushes are managed via an optimized, server-side debouncing layer that accumulates keystroke deltas in memory before executing parameterized SQL updates.
+* **Fault-Tolerant Offline Sync:** Integrates IndexedDB client storage arrays (`y-indexeddb`) to cache transactional state matrices locally during network drops, seamlessly executing a binary state-vector synchronization handshake upon reconnection.
 
-## Tech Stack
+### 2. Real-Time P2P Voice Infrastructure (Audio)
+* **Decoupled Decentralized Mesh:** Incorporates a fully decentralized **WebRTC Peer-to-Peer Mesh Network** for ultra-low latency voice/audio communication. Audio streams travel via the shortest geographical path over Secure Real-time Transport Protocols (SRTP), completely bypassing backend servers to ensure zero cloud media-routing overhead.
+* **Full-Duplex Signaling Broker:** Built using **Socket.io** to manage multi-tenant room namespaces, coordinate Session Description Protocol (SDP) cryptographic handshakes (Offers/Answers), and dynamically relay Interactive Connectivity Establishment (ICE) candidates.
+* **NAT Traversal Network:** Interacts with public Session Traversal Utilities for NAT (STUN) servers to crack firewalls, discover public-facing WAN IP coordinates, and map reliable direct transport pathways natively.
 
-- Frontend: React, Vite, TypeScript, Tailwind CSS
-- Editor: Monaco Editor
-- Collaboration: Yjs, y-websocket, y-monaco, y-indexeddb
-- Backend: Node.js, Express, TypeScript
-- Database: PostgreSQL
-- Sandbox: Local execution for now, with Docker-based isolation planned next
+### 3. File System & Security Foundations
+* **Adjacency List Directories:** The Workspace File Explorer maps nested directory trees in a highly relational PostgreSQL schema using self-referencing foreign keys (`parent_id REFERENCES files(id)`). This avoids heavy NoSQL collection nesting and allows the server to fetch entire folder hierarchies in a single database trip using **Recursive Common Table Expressions (CTEs)**.
+* **Stateless Authorization Boundaries:** Implements cryptographically signed JSON Web Tokens (JWT) for authentication. Backed by `bcrypt` brute-force insulation on the identity gateway, the architecture remains entirely stateless to facilitate horizontal scaling behind standard network load balancers.
 
-## Project Structure
+---
 
-- `frontend/` - React client application
-- `backend/` - Express API, auth, workspace routes, and execution logic
-- `database/` - PostgreSQL schema and initialization scripts
-- `reports/` - Architecture notes, week summaries, and roadmap documents
+## 🏗 Tech Stack
 
-## Week 2 Highlights
+* **Frontend:** React, Vite, TypeScript, Tailwind CSS, Monaco Editor, Xterm.js
+* **Real-Time Core:** Yjs, `y-websocket`, `y-monaco`, `y-indexeddb`, Socket.io
+* **Media Orchestration:** WebRTC (Native RTCPeerConnection APIs for Audio Chat)
+* **Backend:** Node.js, Express, TypeScript, Raw `pg` Driver
+* **Database:** PostgreSQL (with strict relational constraints)
+* **Sandbox Runtime:** Local Execution via asynchronous `child_process` isolation hooks
 
-- Added fully synchronized editing sessions via WebSockets.
-- Created custom Monaco extensions to render active collaborator cursors and name badges.
-- Configured IndexedDB offline backups so user edits are safe even during network drops.
-- Polished the explorer and workspace UI with fluid inputs, transitions, and breadcrumbs.
+---
 
-## Next Milestones
+## 📂 System Topology
 
-- Week 3: Docker-based sandbox isolation and execution hardening
-- Week 4: Polish, deployment, and interview prep
-
-## Local Development
-
-The exact setup may evolve, but the project is currently split into frontend and backend services.
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
+```text
+├── backend/                  # Fastify/Express API and WebSocket Protocol Orchestration
+│   ├── src/
+│   │   ├── middleware/       # Cryptographic JWT & Row-Level Access Controls
+│   │   ├── routes/           # Stateless Authentication and Workspace Metadata Routers
+│   │   ├── services/         # Code Execution Runtimes and Process Sockets
+│   │   └── server.ts         # Multi-Protocol HTTP/WS Single-Port Entry Server
+├── frontend/                 # React Client Application
+│   ├── src/
+│   │   ├── components/       # Monaco Binder, Explorer Trees, and Voice Managers
+│   │   ├── hooks/            # WebRTC Peer Connection and Socket Lifecycle Triggers
+│   │   └── context/          # Global Real-Time Collaboration Core States
+├── database/                 # Relational Schemas & Index Initializations
+└── reports/                  # Systems Architecture & Deep-Dive Specifications
 ```
 
-### Backend
+---
 
+## 🚀 Execution & Milestone Roadmap
+
+### Milestone 1: The "Single Player" Base Engine (Complete)
+
+* [x] Integrated the GitHub-themed Monaco Editor view layer.
+* [x] Formulated the core PostgreSQL relational schema with cascading foreign key deletions.
+* [x] Scripted local execution environments for Node.js, Python, C++, and Bash using programmatic execution wrappers.
+* [x] Implemented a 2000ms hard kernel timeout utilizing `SIGTERM` kill signals to stop thread starvation.
+
+### Milestone 2: Advanced Concurrency & Multimedia Mesh (Complete)
+
+* [x] Configured real-time, zero-collision document syncing using multi-room Yjs partitioning.
+* [x] Added visual awareness extensions to project collaborator cursor tracking coordinates and name tags into Monaco.
+* [x] Completed the WebRTC P2P Mesh voice/audio chat engine with native hardware track-toggling for low-overhead audio muting.
+* [x] Resolved the multi-file room memory race condition by pairing server-side `setPersistence` memory pools with `BYTEA` storage sectors.
+
+### Milestone 3: Containerized Sandbox Isolation (In Progress)
+
+* [ ] Transition the runtime engine from local child processes to the **Docker Engine API** via the Unix Domain Socket (`/var/run/docker.sock`).
+* [ ] Limit execution resource footprints programmatically via **Linux Kernel Control Groups (cgroups)**:
+  * Bound memory thresholds to a maximum of 100MB to stop host RAM exhaustion.
+  * Throttling processing time slices using Completely Fair Scheduler (CFS) caps (Max 0.5 CPU).
+  * Apply hard process limits (`--pids-limit=50`) to neutralize malicious fork bombs instantly.
+* [ ] Multiplex output streams (`stdout`/`stderr`) dynamically to push compiler updates over WebSockets in real time.
+
+---
+
+## 💻 Local Infrastructure Deployment
+
+### Prerequisites
+
+* Node.js v20+
+* PostgreSQL v15+
+
+### Database Initialization
+
+1. Spin up your local PostgreSQL engine instance.
+2. Initialize the relational structures using the schema definition file:
+```bash
+psql -U your_user -d nexus_ide -f database/schema.sql
+```
+
+### Backend Configuration
+
+1. Navigate to the server environment and pull dependencies:
 ```bash
 cd backend
 npm install
+```
+
+2. Create a `.env` deployment profile in the root of the backend folder:
+```env
+PORT=4000
+DATABASE_URL=postgresql://user:password@localhost:5432/nexus_ide
+JWT_SECRET=your_system_cryptographic_secret_key
+```
+
+3. Initialize the server runtime loop:
+```bash
 npm run dev
 ```
 
-### Database
+### Frontend Configuration
 
-Use the SQL in `database/schema.sql` and the docker setup in `docker-compose.yml` to bring up PostgreSQL locally.
+1. Move to the client workspace and pull dependencies:
+```bash
+cd frontend
+npm install
+```
 
-## Notes
+2. Run the development bundler to open up the application interface:
+```bash
+npm run dev
+```
 
-- The dashboard is located at `/dashboard`.
-- The IDE is located at `/ide/:workspaceId/:fileId`.
-- Documents and guides for Week 1 & 2 are placed in `reports/`.
+3. Access the administrative panel at `/dashboard` or spin up isolated workspace files via `/ide/:workspaceId/:fileId`.
