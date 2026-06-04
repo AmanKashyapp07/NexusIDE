@@ -4,6 +4,9 @@ import CodeEditor from '../components/Editor/CodeEditor';
 import OutputPanel from '../components/Terminal/OutputPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import { Play, Cloud, Users, Book, LogOut, Loader2 } from 'lucide-react';
+import * as Y from 'yjs';
+// @ts-ignore
+import { WebsocketProvider } from 'y-websocket';
 
 function IdePage() {
   const [isExecuting, setIsExecuting] = useState(false);
@@ -16,8 +19,24 @@ function IdePage() {
   const [activeCollaborators, setActiveCollaborators] = useState<any[]>([]);
 
   const editorRef = useRef<any>(null);
+  const workspaceWsProviderRef = useRef<any>(null);
   const navigate = useNavigate();
   const { workspaceId: urlWorkspaceId, fileId: urlFileId } = useParams<{workspaceId: string, fileId: string}>();
+
+  const fetchFiles = async (wsId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const filesRes = await fetch(`http://localhost:4000/api/workspace/${wsId}/files`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (filesRes.ok) {
+        const filesData = await filesRes.json();
+        setFiles(filesData);
+      }
+    } catch (err) {
+      console.error('Failed to fetch files', err);
+    }
+  };
 
   useEffect(() => {
     const initWorkspace = async () => {
@@ -54,11 +73,7 @@ function IdePage() {
         setWorkspaceId(wsData.id);
         setWorkspaceTitle(wsData.title);
 
-        const filesRes = await fetch(`http://localhost:4000/api/workspace/${wsData.id}/files`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const filesData = await filesRes.json();
-        setFiles(filesData);
+        await fetchFiles(wsData.id);
       } catch (err) {
         console.error(err);
         navigate('/login');
@@ -71,6 +86,31 @@ function IdePage() {
       navigate('/dashboard');
     }
   }, [navigate, urlWorkspaceId]);
+
+  // Workspace-level Yjs Sync for File Tree Updates
+  useEffect(() => {
+    if (!urlWorkspaceId) return;
+    
+    const ydoc = new Y.Doc();
+    const wsProvider = new WebsocketProvider(
+      'ws://localhost:4000',
+      `workspace-${urlWorkspaceId}`,
+      ydoc
+    );
+    workspaceWsProviderRef.current = wsProvider;
+
+    const eventsMap = ydoc.getMap('workspace-events');
+    eventsMap.observe(() => {
+      // A file was created or deleted by someone else
+      fetchFiles(urlWorkspaceId);
+    });
+
+    return () => {
+      wsProvider.destroy();
+      ydoc.destroy();
+      workspaceWsProviderRef.current = null;
+    };
+  }, [urlWorkspaceId]);
 
   useEffect(() => {
     if (files.length === 0) return;
@@ -115,6 +155,12 @@ function IdePage() {
       if (!res.ok) throw new Error(newFile.error);
 
       setFiles((prev) => [...prev, newFile].sort((a, b) => a.name.localeCompare(b.name)));
+      
+      // Notify other clients in the workspace
+      if (workspaceWsProviderRef.current) {
+        workspaceWsProviderRef.current.doc.getMap('workspace-events').set('lastFileUpdate', Date.now());
+      }
+      
       if (type === 'file') {
         navigate(`/ide/${urlWorkspaceId}/${newFile.id}`);
       }
@@ -137,6 +183,11 @@ function IdePage() {
       if (activeFile?.id === id) {
         setActiveFile(null);
         editorRef.current?.setValue('');
+      }
+
+      // Notify other clients in the workspace
+      if (workspaceWsProviderRef.current) {
+        workspaceWsProviderRef.current.doc.getMap('workspace-events').set('lastFileUpdate', Date.now());
       }
     } catch (err) {
       console.error(err);
