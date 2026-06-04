@@ -23,7 +23,7 @@ html, body {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Yjs Monaco Remote Cursor Styles */
+/* Base Yjs Monaco Remote Cursor Styles */
 .yRemoteSelection {
   opacity: 0.25;
 }
@@ -32,28 +32,4 @@ html, body {
   position: absolute;
   border-left: 2px solid;
   box-sizing: border-box;
-}
-
-.yRemoteSelectionHead::after {
-  position: absolute;
-  content: "Collaborator";
-  top: -18px;
-  left: -2px;
-  background-color: inherit;
-  color: #fff;
-  font-family: sans-serif;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 4px;
-  border-radius: 4px;
-  border-bottom-left-radius: 0;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-}
-
-.yRemoteSelectionHead:hover::after {
-  opacity: 1;
 }

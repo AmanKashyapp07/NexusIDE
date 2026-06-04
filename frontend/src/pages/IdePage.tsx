@@ -253,43 +253,38 @@ function IdePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {activeCollaborators.length > 0 && (
-              <div className="flex -space-x-2 mr-2">
-                {activeCollaborators.map((collaborator, index) => (
-                  <div 
-                    key={index} 
-                    className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#050608] text-[10px] font-bold text-white shadow-sm"
-                    style={{ backgroundColor: collaborator.color }}
-                    title={collaborator.name}
-                  >
-                    {collaborator.name.substring(0, 2).toUpperCase()}
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
-            >
-              Back to Dashboard
-            </button>
-            <div className="flex items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-400/12">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-              </span>
-              <Users size={14} className="text-emerald-200/80" />
-              <span>Live Sync</span>
+          {/* Upgraded Collaborators Section */}
+<div className="flex items-center gap-3 mr-2">
+  {activeCollaborators.length > 0 && (
+    <div className="flex items-center">
+      <div className="flex -space-x-3 transition-all duration-300 hover:space-x-1">
+        {activeCollaborators.map((collaborator, index) => (
+          <div 
+            key={collaborator.clientId || index} 
+            className="group relative flex h-8 w-8 cursor-default items-center justify-center rounded-full border-2 border-[#050608] text-xs font-bold text-white transition-transform hover:z-10 hover:-translate-y-1"
+            style={{ 
+              backgroundColor: collaborator.color || '#06b6d4',
+              boxShadow: `0 0 12px ${collaborator.color || '#06b6d4'}40`
+            }}
+          >
+            {/* Avatar Initials */}
+            {collaborator.name ? collaborator.name.substring(0, 2).toUpperCase() : '??'}
+
+            {/* Premium Tooltip */}
+            <div className="pointer-events-none absolute -bottom-10 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-medium tracking-wide text-zinc-200 opacity-0 shadow-xl transition-all duration-200 group-hover:-translate-y-1 group-hover:opacity-100">
+              {collaborator.name}
+              {/* Tooltip Arrow */}
+              <div className="absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-white/10 bg-zinc-900" />
             </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-300"
-            >
-              <LogOut size={14} />
-              Logout
-            </button>
           </div>
+        ))}
+      </div>
+      <span className="ml-3 text-[11px] font-medium tracking-wide text-zinc-500">
+        {activeCollaborators.length} {activeCollaborators.length === 1 ? 'Online' : 'Online'}
+      </span>
+    </div>
+  )}
+</div>
         </header>
 
         <div className="flex min-h-0 flex-1 overflow-hidden p-4 sm:p-5">

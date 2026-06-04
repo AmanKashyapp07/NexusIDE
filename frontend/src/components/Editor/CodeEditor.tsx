@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import * as Y from 'yjs'; // Yjs is a powerful library for building collaborative applications. It provides a shared data structure (Y.Doc) that can be synchronized across multiple clients in real-time. In this code, we use Yjs to enable collaborative editing in the Monaco code editor. The WebsocketProvider from y-websocket allows us to connect to a WebSocket server for real-time communication, while the MonacoBinding from y-monaco binds the Yjs document to the Monaco editor instance, ensuring that changes made by one user are reflected in all connected clients. This setup allows multiple users to edit the same code file simultaneously, with changes being synchronized seamlessly across all clients.
+import * as Y from 'yjs'; 
 // @ts-ignore
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
-// websocket provider is a Yjs connector that enables real-time synchronization of shared data structures (Y.Doc) across multiple clients using WebSockets. It connects to a specified WebSocket server and room, allowing clients to join the same collaborative session and synchronize their changes in real-time. The MonacoBinding is a Yjs binding that connects a Y.Doc text type to a Monaco editor instance, enabling collaborative editing of code. It ensures that changes made in the Monaco editor are reflected in the Y.Doc and vice versa, allowing multiple users to edit the same code file simultaneously with real-time updates.
+
 interface CodeEditorProps {
   workspaceId: string;
   fileId: string;
@@ -77,10 +77,6 @@ export default function CodeEditor({ workspaceId, fileId, language, currentUser,
       wsProvider.awareness
     );
 
-    // The backend now handles loading the initial state from the database.
-    // We no longer need to manually inject initialContent here, doing so 
-    // causes duplication when the server loads state asynchronously.
-
     return () => {
       binding.destroy();
       wsProvider.destroy();
@@ -100,38 +96,58 @@ export default function CodeEditor({ workspaceId, fileId, language, currentUser,
       <style>
         {awarenessStates.map(([clientId, state]) => {
           if (!state.user || !state.user.color) return '';
+          
+          const color = state.user.color;
+          const name = state.user.name || 'Anonymous';
+          
           return `
             .yRemoteSelection-${clientId} {
-              background-color: ${state.user.color}40 !important;
+              background-color: ${color}25 !important;
             }
             .yRemoteSelectionHead-${clientId} {
               position: absolute;
-              border-left: 2px solid ${state.user.color} !important;
+              border-left: 2px solid ${color} !important;
               box-sizing: border-box;
               height: 100%;
+              z-index: 10;
             }
+            /* The little square top on the cursor (Caret Head) */
+            .yRemoteSelectionHead-${clientId}::before {
+              content: '';
+              position: absolute;
+              top: -2px;
+              left: -2px;
+              width: 4px;
+              height: 4px;
+              background-color: ${color};
+              border-radius: 1px;
+            }
+            /* The Name Tag Flag */
             .yRemoteSelectionHead-${clientId}::after {
               position: absolute;
-              content: "${state.user.name}";
-              top: -18px;
+              content: "${name}";
+              top: -24px;
               left: -2px;
-              background-color: ${state.user.color} !important;
-              color: #fff;
-              font-family: sans-serif;
-              font-size: 10px;
+              background-color: ${color} !important;
+              color: #ffffff;
+              font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              font-size: 11px;
               font-weight: 600;
-              padding: 2px 4px;
-              border-radius: 4px;
-              border-bottom-left-radius: 0;
+              line-height: 1;
+              padding: 4px 6px;
+              border-radius: 4px 4px 4px 0px;
               white-space: nowrap;
               pointer-events: none;
               opacity: 0;
-              transition: opacity 0.2s;
-              box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-              z-index: 10;
+              transform: translateY(4px);
+              transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+              z-index: 20;
             }
+            /* Show on hover */
             .yRemoteSelectionHead-${clientId}:hover::after {
               opacity: 1;
+              transform: translateY(0);
             }
           `;
         }).join('\n')}
