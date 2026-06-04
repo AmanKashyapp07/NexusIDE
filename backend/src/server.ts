@@ -5,6 +5,7 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
+import { Server as SocketIOServer } from 'socket.io';
 import { getPool } from './db';
 import * as Y from 'yjs';
 // y-websocket utility functions for handling Yjs document connections
@@ -103,6 +104,53 @@ wss.on('connection', (ws, req) => {
   // Delegate the socket to y-websocket's connection handler
   setupWSConnection(ws, req, { docName });
 });  
+
+// WebRTC Signaling Server for Voice Chat
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
+
+io.on('connection', (socket) => {
+  socket.on('join-voice-room', async ({ workspaceId, user }) => {
+    socket.join(workspaceId);
+    
+    // Store data on socket for disconnect handling
+    socket.data.workspaceId = workspaceId;
+    socket.data.user = user;
+
+    // Notify others in the room that a new user joined
+    socket.to(workspaceId).emit('user-joined-voice', { socketId: socket.id, user });
+    
+    // Send back the list of existing clients in the room to the new user
+    const sockets = await io.in(workspaceId).fetchSockets();
+    const existingPeers = sockets
+      .filter(s => s.id !== socket.id)
+      .map(s => ({ socketId: s.id, user: s.data.user }));
+      
+    socket.emit('existing-voice-users', existingPeers);
+  });
+
+  socket.on('webrtc-offer', ({ offer, to, user }) => {
+    socket.to(to).emit('webrtc-offer', { offer, from: socket.id, user });
+  });
+
+  socket.on('webrtc-answer', ({ answer, to }) => {
+    socket.to(to).emit('webrtc-answer', { answer, from: socket.id });
+  });
+
+  socket.on('webrtc-ice-candidate', ({ candidate, to }) => {
+    socket.to(to).emit('webrtc-ice-candidate', { candidate, from: socket.id });
+  });
+
+  socket.on('disconnect', () => {
+    if (socket.data.workspaceId) {
+      io.to(socket.data.workspaceId).emit('user-left-voice', socket.id);
+    }
+  });
+});
 
 const PORT = process.env.PORT || 4000;
 

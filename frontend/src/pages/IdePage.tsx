@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
 import OutputPanel from '../components/Terminal/OutputPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
+import VoiceChat from '../components/Voice/VoiceChat';
 import { Play, Cloud, Users, Book, LogOut, Loader2 } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-ignore
@@ -23,7 +24,7 @@ function IdePage() {
   const workspaceWsProviderRef = useRef<any>(null);
   const navigate = useNavigate();
   const { workspaceId: urlWorkspaceId, fileId: urlFileId } = useParams<{ workspaceId: string, fileId: string }>();
-
+  
   const fetchFiles = async (wsId: string) => {
     try {
       const token = localStorage.getItem('token');
@@ -234,6 +235,7 @@ function IdePage() {
       </div>
     );
   }
+
   // Helper to generate the full path breadcrumbs for the active file
   const getFileBreadcrumbs = () => {
     if (!activeFile) return [];
@@ -256,11 +258,14 @@ function IdePage() {
 
     return path;
   };
+
   return (
     <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#050608] text-zinc-300 selection:bg-cyan-400/25">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.08),transparent_28%),radial-gradient(circle_at_85%_15%,rgba(59,130,246,0.08),transparent_24%)]" />
+      
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-white/10 bg-white/5 px-5 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18)] backdrop-blur-2xl sm:px-6">
+        {/* Added z-50 to header so Voice Chat floats over the code editor perfectly */}
+       <header className="relative z-50 flex items-center justify-between border-b border-white/10 bg-white/5 px-5 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18)] backdrop-blur-2xl sm:px-6">
           <div className="flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-400/15 bg-cyan-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <Cloud className="text-cyan-300" size={18} />
@@ -275,8 +280,10 @@ function IdePage() {
             </div>
           </div>
 
-          {/* Right Side: Collaborators, Connection, and Actions */}
           <div className="flex items-center gap-3">
+
+            {/* Voice Chat Component */}
+            <VoiceChat workspaceId={workspaceId} user={user} />
 
             {/* Connection Indicator */}
             <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors mr-2 ${connectionStatus === 'connected'
@@ -332,7 +339,6 @@ function IdePage() {
               </div>
             )}
 
-            {/* Restored Missing Buttons */}
             <button
               onClick={() => navigate('/dashboard')}
               className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
@@ -405,28 +411,27 @@ function IdePage() {
                       onClick={handleExecute}
                       disabled={isExecuting}
                       className="
-    flex items-center gap-2
-    rounded-full
-    border border-cyan-300/20
-    bg-[linear-gradient(135deg,#06b6d4,#2563eb)]
-    px-4 py-2
-    text-sm font-semibold text-white
-    shadow-[0_16px_30px_rgba(8,145,178,0.22)]
-    transition-all duration-200
-    hover:scale-[1.02]
-    hover:shadow-[0_18px_36px_rgba(37,99,235,0.35)]
-    active:scale-[0.98]
-    cursor-pointer
-    disabled:cursor-not-allowed
-    disabled:opacity-60
-  "
+                        flex items-center gap-2
+                        rounded-full
+                        border border-cyan-300/20
+                        bg-[linear-gradient(135deg,#06b6d4,#2563eb)]
+                        px-4 py-2
+                        text-sm font-semibold text-white
+                        shadow-[0_16px_30px_rgba(8,145,178,0.22)]
+                        transition-all duration-200
+                        hover:scale-[1.02]
+                        hover:shadow-[0_18px_36px_rgba(37,99,235,0.35)]
+                        active:scale-[0.98]
+                        cursor-pointer
+                        disabled:cursor-not-allowed
+                        disabled:opacity-60
+                      "
                     >
                       {isExecuting ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : (
                         <Play size={14} fill="currentColor" />
                       )}
-
                       {isExecuting ? 'Running...' : 'Run Code'}
                     </button>
                   </div>

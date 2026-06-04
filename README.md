@@ -7,6 +7,7 @@ A production-oriented collaborative cloud IDE and sandbox built with React, Vite
 Week 2 delivered the core collaboration and offline editing features:
 
 - **Real-Time Collaboration:** Full CRDT-based multi-user sync using Yjs, `y-websocket`, and `y-monaco`.
+- **Voice Chat:** Built a WebRTC P2P mesh network for Discord-style real-time voice chat within workspaces.
 - **Live User Awareness:** Remote cursor tracking and selection sharing with dynamic user color tags and tooltips.
 - **Durable Yjs Persistence:** Automatic, debounced binary `yjs_state` and plaintext document sync to the PostgreSQL database on file updates.
 - **Offline Editing:** Seamless local persistence using IndexedDB (`y-indexeddb`) when connection is lost, automatically merging changes on reconnection.
