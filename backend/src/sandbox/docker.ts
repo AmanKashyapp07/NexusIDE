@@ -152,6 +152,8 @@ async function runInDocker(
   timeoutMs: number
 ): Promise<string> {
   let container: Docker.Container | null = null;
+  let stdoutData = '';
+  let stderrData = '';
 
   try {
     // ------------------------------------------------------------------
@@ -207,8 +209,6 @@ async function runInDocker(
     // the raw HTTP attach response metadata (the options JSON object) into
     // the stdout PassThrough stream before the real data arrives.
     // ------------------------------------------------------------------
-    let stdoutData = '';
-    let stderrData = '';
     let outputBytes = 0;
     let outputCapped = false;
     let frameBuffer = Buffer.alloc(0);
@@ -216,6 +216,33 @@ async function runInDocker(
     execStream.on('data', (chunk: Buffer) => {
       // Accumulate incoming bytes.
       frameBuffer = Buffer.concat([frameBuffer, chunk]);
+
+      // ----------------------------------------------------------------
+      // Skip leading non-frame garbage bytes.
+      //
+      // With hijack:true, Docker's first data chunk on the hijacked TCP
+      // socket contains the raw HTTP upgrade response metadata, e.g.
+      //   {"stream":true,"hijack":true,"stdin":true,"stdout":true,"stderr":true}
+      //
+      // This is NOT a valid Docker frame. A valid frame starts with:
+      //   Byte 0:   0x01 (stdout) or 0x02 (stderr)
+      //   Bytes 1-3: 0x00  0x00  0x00  (reserved, always zero)
+      //
+      // We scan forward one byte at a time until we find this 4-byte
+      // pattern, discarding everything before it. This is the standard
+      // approach for raw hijacked Docker stream handling.
+      // ----------------------------------------------------------------
+      while (frameBuffer.length >= 4) {
+        const b0 = frameBuffer[0];
+        if ((b0 === 1 || b0 === 2) &&
+            frameBuffer[1] === 0 &&
+            frameBuffer[2] === 0 &&
+            frameBuffer[3] === 0) {
+          break; // Found a valid frame header start
+        }
+        // Not a valid frame start — skip this byte.
+        frameBuffer = frameBuffer.slice(1);
+      }
 
       // Parse as many complete frames as we have buffered.
       while (frameBuffer.length >= 8) {
@@ -264,10 +291,6 @@ async function runInDocker(
     // After that, we flush two setImmediate ticks so any buffered 'data'
     // events already enqueued in the event loop get processed before we
     // read stdoutData / stderrData.
-    //
-    // NOTE: We do NOT wait on PassThrough 'end' events here because
-    // docker.modem.demuxStream does not end() the PassThrough streams
-    // when the source execStream closes — waiting on 'end' would hang forever.
     // ------------------------------------------------------------------
     await Promise.race([
       container.wait(),
@@ -276,8 +299,8 @@ async function runInDocker(
       )
     ]);
 
-    // Two event-loop ticks → all queued 'data' callbacks on stdoutStream /
-    // stderrStream have had a chance to run before we read the accumulated strings.
+    // Two event-loop ticks → all queued 'data' callbacks have had a
+    // chance to run before we read the accumulated strings.
     await new Promise<void>((res) => setImmediate(res));
     await new Promise<void>((res) => setImmediate(res));
 
@@ -290,10 +313,12 @@ async function runInDocker(
 
   } catch (err: any) {
     // Re-throw in a shape the caller (executeCode) already handles.
+    // IMPORTANT: preserve any partial output captured before the error/timeout
+    // so the user sees what their code printed before it was killed.
     if (err && err.killed) {
-      throw { killed: true, stdout: '', stderr: '' };
+      throw { killed: true, stdout: stdoutData, stderr: stderrData };
     }
-    throw { killed: false, stdout: '', stderr: '', message: err?.message ?? String(err) };
+    throw { killed: false, stdout: stdoutData, stderr: stderrData, message: err?.message ?? String(err) };
   } finally {
     // Always remove the container, even if we timed out or threw.
     if (container) {
