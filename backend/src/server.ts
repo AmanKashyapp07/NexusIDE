@@ -1,5 +1,9 @@
-import dotenv from 'dotenv'; // Load environment variables from .env file into process.env
+import dotenv from 'dotenv';
 dotenv.config();
+// dotenv reads the .env file and copies each KEY=VALUE pair into process.env.
+// Must run BEFORE any other import that reads process.env (e.g. database config).
+// In production you'd use real environment variables injected by the platform
+// (Kubernetes secrets, AWS Secrets Manager) instead of a .env file.
 
 import express from 'express';
 import http from 'http';
@@ -8,67 +12,210 @@ import { WebSocketServer } from 'ws';
 import { Server as SocketIOServer } from 'socket.io';
 import { getPool } from './db';
 import * as Y from 'yjs';
-// y-websocket utility functions for handling Yjs document connections
-// yjs is basically a CRDT library for real-time collaboration, and y-websocket is a simple WebSocket server that syncs Yjs documents between clients. We use its built-in persistence hooks to save/load document state from our PostgreSQL database.
-// @ts-ignore - No types available for y-websocket's utils module, so we ignore TypeScript errors here
+// @ts-ignore — no official TypeScript types for y-websocket's server utilities
 import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 import workspaceRoutes from './routes/workspace';
 import authRoutes from './routes/auth';
 import { requireAuth } from './middleware/auth';
 
-const app = express(); // Basic middleware
-// express() creates an Express application, which is a web server framework for Node.js. We use it to define our API routes and middleware. The app will handle HTTP requests, while the WebSocket server will handle real-time communication for document syncing.
+// =============================================================================
+// EXPRESS APPLICATION SETUP
+// =============================================================================
+//
+// WHY EXPRESS OVER RAW node:http?
+//   Express adds middleware chaining (app.use), routing (app.get/post/…),
+//   and request/response helpers on top of Node's http module. Writing all
+//   of that by hand in raw http would be hundreds of lines of boilerplate.
+//
+// ARCHITECTURE OVERVIEW:
+//
+//   Browser (React)
+//       │
+//       ├── HTTP REST (port 4000)  ──→ Express routes  ──→ PostgreSQL
+//       │     /api/auth/*                 (JWT auth, workspace CRUD,
+//       │     /api/workspace/*             code execution via Docker)
+//       │
+//       ├── WebSocket (ws://:4000/<docName>)
+//       │     y-websocket server  ──→ Yjs CRDT sync  ──→ PostgreSQL
+//       │     (real-time collaborative editing)
+//       │
+//       └── Socket.IO (ws://:4000, /socket.io namespace)
+//             WebRTC signaling for voice chat
+//             (offer/answer/ICE candidate relay)
+//
+// WHY ONE PORT FOR ALL THREE PROTOCOLS?
+//   HTTP, WebSocket, and Socket.IO all start as HTTP requests. WebSocket and
+//   Socket.IO use the HTTP Upgrade header to switch protocols. A single HTTP
+//   server can handle all three by inspecting the Upgrade header on each
+//   incoming connection and routing accordingly.
 
+const app = express();
+
+// ---------------------------------------------------------------------------
+// CORS — Cross-Origin Resource Sharing
+// ---------------------------------------------------------------------------
+// Browsers enforce the Same-Origin Policy: a page at http://localhost:5173
+// (Vite dev server) cannot make fetch() calls to http://localhost:4000 unless
+// the backend explicitly opts in via CORS response headers.
+//
+// cors() middleware adds:
+//   Access-Control-Allow-Origin: *
+//   Access-Control-Allow-Methods: GET,HEAD,PUT,PATCH,POST,DELETE
+//   Access-Control-Allow-Headers: Content-Type, Authorization, ...
+//
+// In production you'd restrict the origin:
+//   cors({ origin: 'https://yourdomain.com' })
+// to prevent other websites from calling your API on behalf of logged-in users
+// (CSRF via CORS exploit).
 app.use(cors());
-// cors() enables Cross-Origin Resource Sharing, allowing our frontend (which may be served from a different origin) to make API requests to this backend without being blocked by the browser's same-origin policy.
 
+// ---------------------------------------------------------------------------
+// JSON body parser
+// ---------------------------------------------------------------------------
+// Reads the raw request body bytes, parses them as JSON, and puts the result
+// on req.body. Without this, req.body would be undefined for POST/PUT requests.
+// Internally uses the 'body-parser' package, which buffers the stream into
+// memory — default limit is 100 KB (raise it if you accept large code files).
 app.use(express.json());
-// express.json() is built-in middleware that parses incoming JSON request bodies and makes them available on req.body. This is essential for our API routes, which expect JSON input for things like authentication and workspace management.
 
-// API routes
+// ---------------------------------------------------------------------------
+// ROUTES
+// ---------------------------------------------------------------------------
+// requireAuth is JWT middleware: it reads the Authorization: Bearer <token>
+// header, verifies the JWT signature, and attaches the decoded payload to
+// req.user. If the token is missing or invalid, it returns 401 immediately
+// without calling the next handler.
 app.use('/api/auth', authRoutes);
-// Protect workspace routes with authentication middleware
 app.use('/api/workspace', requireAuth, workspaceRoutes);
+// All workspace operations (file CRUD, code execution) are behind auth.
 
-// Create HTTP server to attach WebSocket server to
+// =============================================================================
+// HTTP SERVER — Shared by Express, WebSocket, and Socket.IO
+// =============================================================================
+// http.createServer(app) wraps the Express app in a Node.js HTTP server.
+// We do NOT call server.listen() yet — we configure WebSocket servers first.
+//
+// WHY NOT USE app.listen()?
+//   app.listen() creates its own internal HTTP server. We need a reference to
+//   the server object so we can attach WebSocketServer to it (wss = new
+//   WebSocketServer({ server })). If we used app.listen(), we'd have no way
+//   to get that server reference.
 const server = http.createServer(app);
 
-// Configure persistence handlers for Yjs documents
-// `bindState` loads persisted state (Yjs update or raw content) into the Y.Doc, which basically means when a client connects to a Yjs document, we check if we have a saved state for that document in the database. If we do, we load it into the Y.Doc instance so the client can sync with it. We support both the full Yjs binary state (if available) and fallback to plain text content for older documents that haven't been updated since we added Yjs support.
-// `writeState` saves the current Yjs state and plain content back to the DB, which basically means whenever a client makes changes to a Yjs document, we encode the full state as a binary update and also save the plain text content to the database. This way we can restore the document state later when clients reconnect or new clients join.
+// =============================================================================
+// YJS CRDT PERSISTENCE LAYER
+// =============================================================================
+//
+// WHAT IS CRDT?
+//   Conflict-free Replicated Data Type. A data structure designed for
+//   distributed systems where multiple nodes update their own copy concurrently
+//   without a central coordinator. The CRDT algorithm guarantees that all
+//   copies converge to the same state eventually, regardless of the order
+//   in which updates are received.
+//
+// YJS SPECIFICALLY — Y.Text:
+//   Yjs models a text document as a sequence of typed characters, each tagged
+//   with a unique logical timestamp (Lamport clock: clientID + sequenceNumber).
+//   When User A inserts "x" at position 5 and User B inserts "y" at position 5
+//   simultaneously, Yjs uses clientID as a tiebreaker to deterministically
+//   decide which character comes first — both users converge to the same result
+//   without server coordination.
+//
+// WHY NOT OPERATIONAL TRANSFORMATION (OT)?
+//   OT (used by Google Docs v1, ShareDB) requires a central server to receive
+//   ALL operations and transform them in order. This is:
+//     1. A single point of failure
+//     2. A bottleneck at scale
+//     3. Complex to implement correctly (proofs required for correctness)
+//   CRDTs are decentralized — any peer can apply updates in any order and
+//   eventually converge. Yjs can even sync offline changes made by a user.
+//
+// PERSISTENCE HOOK — setPersistence({ bindState, writeState }):
+//   y-websocket handles in-memory Yjs docs for connected users but doesn't
+//   know about our database. setPersistence lets us inject two hooks:
+//
+//   bindState(docName, ydoc):
+//     Called when the FIRST client connects to a document (doc is "cold").
+//     We load the saved Yjs binary state from PostgreSQL and apply it to ydoc
+//     so the new client syncs with the persisted document history.
+//
+//   writeState(docName, ydoc):
+//     Called when the LAST client disconnects (doc goes "cold" again).
+//     We save the full Yjs state as binary bytes to PostgreSQL for durability.
+//
+// WHY STORE BINARY (BYTEA) INSTEAD OF PLAIN TEXT?
+//   The Yjs state includes the full edit HISTORY — every insertion/deletion
+//   with its author and logical timestamp. This history is what enables
+//   correct CRDT merge when new clients connect. Plain text only stores the
+//   final string, losing the CRDT metadata needed for conflict resolution.
+//   Y.encodeStateAsUpdate(ydoc) produces a compact binary encoding of this.
 setPersistence({
   bindState: async (docName: string, ydoc: Y.Doc) => {
+    // docName format: "<workspaceId>-<fileId>" (set in CodeEditor.tsx)
     const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
     if (match) {
       const fileId = match[2];
       try {
-        const res = await getPool().query('SELECT content, yjs_state FROM files WHERE id = $1', [fileId]);
+        const res = await getPool().query(
+          'SELECT content, yjs_state FROM files WHERE id = $1',
+          [fileId]
+        );
         if (res.rows.length > 0) {
           const { content, yjs_state } = res.rows[0];
-          // Prefer Yjs binary state if available, otherwise seed with plain text
+
           if (yjs_state) {
+            // Apply the full binary Yjs state (includes complete edit history).
+            // Y.applyUpdate merges the saved state into the in-memory ydoc.
+            // "Merge" here is safe because Yjs updates are idempotent —
+            // applying the same update twice has no effect.
             Y.applyUpdate(ydoc, yjs_state);
           } else if (content) {
+            // Fallback for files created before Yjs was added: seed the ydoc
+            // with the plain text content. ydoc.getText('monaco') returns the
+            // Y.Text shared type that the Monaco editor is bound to.
+            // 'monaco' is just a string key — a namespace within the Y.Doc.
             ydoc.getText('monaco').insert(0, content);
           }
         }
       } catch (err) {
         console.error('Error loading state from DB:', err);
+        // Non-fatal: the user gets an empty document instead of the saved one.
+        // Better than crashing the WebSocket connection for all users.
       }
 
-      // Automatically save to Postgres on document updates, debounced by 2 seconds
-      // This prevents data loss if the server crashes before writeState is naturally called by y-websocket.
+      // AUTO-SAVE ON EVERY UPDATE — debounced 2 seconds.
+      //
+      // WHY DEBOUNCE?
+      //   Yjs fires an 'update' event on EVERY character typed. A user typing
+      //   at 60 WPM generates ~5 updates/second. Without debouncing, we'd run
+      //   5 PostgreSQL UPDATE queries per second per user — a serious load spike.
+      //   Debouncing delays the save until typing pauses for 2 seconds, batching
+      //   many keystrokes into one DB write.
+      //
+      // WHY SAVE HERE AND NOT ONLY IN writeState?
+      //   writeState fires when the LAST client disconnects. If the server
+      //   crashes before that (power cut, OOM kill), writeState never fires
+      //   and all in-flight edits are lost. This debounced auto-save acts as
+      //   a durability safety net — at most 2 seconds of work is lost on crash.
       let saveTimeout: NodeJS.Timeout | null = null;
       ydoc.on('update', () => {
         if (saveTimeout) clearTimeout(saveTimeout);
         saveTimeout = setTimeout(async () => {
           try {
             const state = Y.encodeStateAsUpdate(ydoc);
+            // encodeStateAsUpdate serializes the ENTIRE current state of the
+            // Y.Doc as a binary update message. Any peer applying this update
+            // will end up with the exact same document state.
             const contentText = ydoc.getText('monaco').toString();
             await getPool().query(
               'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
               [Buffer.from(state), contentText, fileId]
             );
+            // We store BOTH:
+            //   yjs_state (BYTEA): full CRDT state for collaborative sync
+            //   content (TEXT): human-readable plain text for non-Yjs consumers
+            //                   (e.g. running code via the execute endpoint which
+            //                    reads the code string directly)
           } catch (err) {
             console.error('Error auto-saving state to DB:', err);
           }
@@ -76,12 +223,14 @@ setPersistence({
       });
     }
   },
+
   writeState: async (docName: string, ydoc: Y.Doc) => {
+    // Called by y-websocket when the last client disconnects from this document.
+    // Performs a final authoritative save of the complete Yjs state.
     const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
     if (match) {
       const fileId = match[2];
       try {
-        // Encode full Yjs state as an update and also persist the plain text
         const state = Y.encodeStateAsUpdate(ydoc);
         const content = ydoc.getText('monaco').toString();
         await getPool().query(
@@ -95,17 +244,89 @@ setPersistence({
   }
 });
 
-// WebSocket server used by y-websocket to sync Yjs documents in real-time
+// =============================================================================
+// YJS WEBSOCKET SERVER — Real-time collaborative editing
+// =============================================================================
+//
+// HOW Y-WEBSOCKET WORKS INTERNALLY:
+//   1. Client (CodeEditor.tsx) creates a Y.Doc and a WebsocketProvider pointing
+//      at ws://localhost:4000/<docName>.
+//   2. WebsocketProvider connects here (wss). setupWSConnection attaches Yjs
+//      sync protocol handlers to the socket.
+//   3. On connect, the server and client exchange "sync step 1" messages to
+//      determine what updates each side is missing (using Yjs state vectors).
+//   4. Each side sends the missing updates — client and server converge.
+//   5. Subsequently, every local edit is immediately broadcast to all connected
+//      peers for that docName (room), keeping all editors in sync with <50ms
+//      latency on LAN.
+//
+// AWARENESS PROTOCOL:
+//   Alongside document sync, Yjs also syncs ephemeral "awareness" state —
+//   things that don't need to persist: cursor position, user name, color.
+//   This is how the live cursor indicators (colored caret + name tag) work.
+//   Awareness state is NOT persisted to PostgreSQL — it's in-memory only.
+//
+// WHY WEBSOCKET INSTEAD OF POLLING?
+//   Polling (setInterval fetch every N seconds) introduces latency proportional
+//   to the interval and wastes bandwidth with empty responses. WebSocket
+//   maintains a persistent connection with no per-message overhead after the
+//   initial handshake, enabling true real-time sync (<10ms propagation in
+//   ideal conditions).
 const wss = new WebSocketServer({ server });
+// Attaching to `server` means the WebSocket server shares port 4000 with
+// Express. Incoming connections are differentiated by the Upgrade header:
+//   Upgrade: websocket → handled by wss
+//   (no Upgrade header) → handled by Express
 
 wss.on('connection', (ws, req) => {
-  // Extract the Yjs document name from the request URL (strip leading '/')
+  // Extract the Yjs document name from the URL path.
+  // Client connects to ws://localhost:4000/<workspaceId>-<fileId>
+  // req.url = "/<workspaceId>-<fileId>" (may include ?<querystring>)
   const docName = req.url?.slice(1).split('?')[0] || 'default';
-  // Delegate the socket to y-websocket's connection handler
-  setupWSConnection(ws, req, { docName });
-});  
 
-// WebRTC Signaling Server for Voice Chat
+  // setupWSConnection handles the entire Yjs sync protocol over this socket:
+  //   - Sync step 1 & 2 (state vector exchange + missing update transmission)
+  //   - Awareness updates (cursor positions, user info)
+  //   - Persistence hooks (calls our bindState/writeState at appropriate times)
+  setupWSConnection(ws, req, { docName });
+});
+
+// =============================================================================
+// SOCKET.IO SERVER — WebRTC Signaling for Voice Chat
+// =============================================================================
+//
+// WHY SOCKET.IO ON TOP OF WEBSOCKET?
+//   Socket.IO adds rooms (named channels), event-based messaging, and automatic
+//   reconnection on top of raw WebSocket. For signaling, these features save
+//   significant boilerplate.
+//
+// WHAT IS WEBRTC SIGNALING?
+//   WebRTC enables peer-to-peer audio/video between browsers, but peers first
+//   need to exchange connection metadata through a third-party server. This is
+//   called "signaling". Our Socket.IO server is that signaling channel.
+//
+// THE WEBRTC HANDSHAKE FLOW (3-way):
+//   1. OFFER:
+//      Peer A calls RTCPeerConnection.createOffer() to describe its media
+//      capabilities (codecs, bitrates) in SDP (Session Description Protocol)
+//      format. It sends this offer to our server, which relays it to Peer B.
+//
+//   2. ANSWER:
+//      Peer B receives the offer, creates an RTCPeerConnection, sets the remote
+//      description (Peer A's offer), calls createAnswer(), and sends it back
+//      through our server to Peer A.
+//
+//   3. ICE CANDIDATES:
+//      ICE (Interactive Connectivity Establishment) finds the best network path
+//      between peers. Each peer discovers its own candidates (local IP, STUN
+//      server reflexive IP, TURN relay) and sends them through the signaling
+//      server to the other peer. Once both have enough candidates, WebRTC
+//      attempts to establish a direct P2P connection.
+//
+// AFTER SIGNALING:
+//   Audio data flows DIRECTLY between browsers (P2P) without touching our
+//   server. Our server is only involved during the 3-way handshake above.
+//   This keeps voice latency low and our server bandwidth costs near zero.
 const io = new SocketIOServer(server, {
   cors: {
     origin: '*',
@@ -114,50 +335,70 @@ const io = new SocketIOServer(server, {
 });
 
 io.on('connection', (socket) => {
+
   socket.on('join-voice-room', async ({ workspaceId, user }) => {
+    // socket.join() puts this socket into a named room.
+    // io.to(workspaceId).emit() then broadcasts to all sockets in that room.
     socket.join(workspaceId);
-    
-    // Store data on socket for disconnect handling
     socket.data.workspaceId = workspaceId;
     socket.data.user = user;
 
-    // Notify others in the room that a new user joined
+    // Notify existing users in the room that someone new joined.
+    // socket.to(room) = broadcast to all sockets in `room` EXCEPT the sender.
     socket.to(workspaceId).emit('user-joined-voice', { socketId: socket.id, user });
-    
-    // Send back the list of existing clients in the room to the new user
+
+    // Send the new user the list of already-connected peers so it can
+    // initiate WebRTC offers to each of them.
     const sockets = await io.in(workspaceId).fetchSockets();
     const existingPeers = sockets
       .filter(s => s.id !== socket.id)
       .map(s => ({ socketId: s.id, user: s.data.user }));
-      
+
     socket.emit('existing-voice-users', existingPeers);
   });
 
+  // Relay the WebRTC offer SDP from one peer to a specific target peer.
+  // `to` is the target's socket.id. We use socket.to(to) instead of
+  // io.to(to) to avoid the sender receiving its own event.
   socket.on('webrtc-offer', ({ offer, to, user }) => {
     socket.to(to).emit('webrtc-offer', { offer, from: socket.id, user });
   });
 
+  // Relay the WebRTC answer SDP back to the peer who sent the offer.
   socket.on('webrtc-answer', ({ answer, to }) => {
     socket.to(to).emit('webrtc-answer', { answer, from: socket.id });
   });
 
+  // Relay ICE candidates between peers.
+  // ICE candidates contain network address info (IP:port pairs) that WebRTC
+  // uses to try establishing a direct peer-to-peer connection (UDP preferred,
+  // TCP fallback, TURN relay as last resort).
   socket.on('webrtc-ice-candidate', ({ candidate, to }) => {
     socket.to(to).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
+  // When a user disconnects (tab closed, network lost), notify their voice room.
   socket.on('disconnect', () => {
     if (socket.data.workspaceId) {
       io.to(socket.data.workspaceId).emit('user-left-voice', socket.id);
+      // The remaining peers use socket.id to find and close the RTCPeerConnection
+      // they established with this user, removing their audio track from the UI.
     }
   });
 });
 
+// =============================================================================
+// START THE SERVER
+// =============================================================================
 const PORT = process.env.PORT || 4000;
 
-// Start HTTP (and WebSocket) server
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  // Quick sanity-check: ensure DB connection works
+
+  // Quick DB connectivity check on startup.
+  // SELECT NOW() is the lightest possible query — no table scan, just returns
+  // the current timestamp from the DB server clock.
+  // If this fails, the server is up but DB-dependent routes will all error.
   getPool().query('SELECT NOW()', (err, res) => {
     if (err) {
       console.error('❌ Failed to connect to PostgreSQL Database:', err.message);
@@ -166,31 +407,3 @@ server.listen(PORT, () => {
     }
   });
 });
-
-// if we just use plain web sockets without y-websocket, we would have to implement all the logic for syncing document state between clients, handling conflicts, and persisting changes ourselves. By using y-websocket, we can leverage its built-in CRDT-based syncing and persistence hooks, which simplifies our implementation and ensures robust real-time collaboration with minimal custom code.
-
-// if we sent indices instead of the full Yjs state, we would have to implement additional logic to track and manage those indices across clients, which can get complex and error-prone. By sending the full Yjs state as a binary update, we can rely on Yjs's efficient encoding and conflict resolution mechanisms to handle syncing between clients without worrying about index management.
-
-// so to solve this problem, we have two solutions OT and CRDT. OT (Operational Transformation) is a technique that transforms operations based on the context of other operations, while CRDT (Conflict-free Replicated Data Type) is a data structure that allows for concurrent updates without conflicts. Yjs uses CRDTs to enable real-time collaboration without the need for complex transformation logic, making it easier to implement and maintain, making these ourselves is way more complex and error-prone, especially as the number of clients and operations increases. By using Yjs and y-websocket, we can leverage their built-in CRDT-based syncing and persistence hooks, which simplifies our implementation and ensures robust real-time collaboration with minimal custom code.
-
-// OT - used by google docs, it is basically a way to transform operations based on the context of other operations. For example, if two users are editing the same document at the same time, OT would transform their operations so that they can be applied in a consistent order. However, OT can get complex and error-prone as the number of clients and operations increases, especially when dealing with network latency and conflicts. for knowledge, when two operations conflict (e.g., two users insert text at the same position), OT would transform one of the operations to ensure that both changes are preserved and the document remains consistent. This can lead to complex transformation logic, especially in scenarios with many concurrent edits. For eg if user A inserts "Hello" at position 0 and user B inserts "World" at position 0 at the same time, OT would transform one of the operations (e.g., user B's insert) to position 5, resulting in a consistent document state of "HelloWorld" regardless of the order in which the operations are received. However, as the number of clients and operations increases, managing these transformations can become increasingly complex and error-prone. Major flaw is that it relies on a central server to manage the transformations, which can become a bottleneck and single point of failure in large-scale applications.
-
-// CRDT - used by yjs, it is a data structure that allows for concurrent updates without conflicts. Each client maintains its own copy of the document and can make changes independently. When clients sync with each other, they exchange their changes and merge them using the CRDT algorithm, which ensures that all changes are preserved and the document remains consistent across all clients. This approach eliminates the need for complex transformation logic and allows for robust real-time collaboration even in scenarios with many concurrent edits and network latency. For eg if user A inserts "Hello" at position 0 and user B inserts "World" at position 0 at the same time, both changes would be preserved in the CRDT, resulting in a consistent document state of "HelloWorld" regardless of the order in which the operations are received. Additionally, since each client maintains its own copy of the document, there is no reliance on a central server to manage transformations, making CRDTs more scalable and resilient in large-scale applications.
-
-// for interview questions, just remember that CRDT is a data structure that allows for concurrent updates without conflicts, while OT is a technique that transforms operations based on the context of other operations. Yjs uses CRDTs to enable real-time collaboration without the need for complex transformation logic, making it easier to implement and maintain
-
-// when user opens a code workspace, the browser establishes a WebSocket connection to the backend's y-websocket server, specifying the document name (which is based on the file ID). The y-websocket server then uses the bindState function to load any existing Yjs state for that document from the database and initializes a Y.Doc instance with that state. As the user makes changes to the code, those changes are synced in real-time with the backend using Yjs's CRDT algorithm. Whenever there are updates to the Y.Doc (either from the user or from other connected clients), the writeState function is called to persist the current state back to the database, ensuring that all changes are saved and can be restored later when clients reconnect or new clients join.
-
-// yjs_state column in the database is used to store the full Yjs state of a document as a binary update. This allows us to efficiently save and restore the entire document state, including all concurrent changes made by different users. When a client connects to a Yjs document, we check if there is a saved yjs_state for that document in the database. If there is, we load it into the Y.Doc instance using Y.applyUpdate, which ensures that the client syncs with the most up-to-date state of the document. Whenever there are changes to the Y.Doc (either from the user or from other connected clients), we encode the full state as a binary update and save it back to the yjs_state column in the database. This way, we can restore the document state later when clients reconnect or new clients join, ensuring that all changes are preserved and consistent across all clients, so basically, yjs_state holds history of changes and allows us to restore the document to its current state whenever needed, enabling robust real-time collaboration.
-
-//if we only save content without the yjs_state, we would lose the ability to restore the document to its current state when clients reconnect or new clients join. This is because the plain text content does not capture the full history of changes and concurrent edits made by different users. Without the yjs_state, we would only have the latest content, and any changes made by other users that haven't been saved as plain text would be lost. This would lead to inconsistencies and potential data loss in a collaborative editing scenario, as clients would not be able to sync with the most up-to-date state of the document. By saving the full Yjs state as a binary update in the yjs_state column, we ensure that all changes are preserved and can be restored later, enabling robust real-time collaboration.
-
-//we can't pull content every second because it would be inefficient and could lead to performance issues, especially as the number of clients and changes increases. Instead, we rely on Yjs's CRDT algorithm to sync changes in real-time between clients and the backend. Whenever there are updates to the Y.Doc (either from the user or from other connected clients), we call the writeState function to persist the current state back to the database. This way, we only save changes when they occur, rather than continuously pulling content, which allows for efficient and scalable real-time collaboration without overwhelming the server or database with unnecessary requests.
-
-//when 2nd user updates a file content, yjs_state changes, then writeState is called, which saves the new yjs_state to the database. When the 1st user makes another change, their client syncs with the backend and receives the updated yjs_state, which includes the changes made by the 2nd user. This ensures that both users see a consistent and up-to-date view of the document, allowing for seamless real-time collaboration without conflicts or data loss.
-
-// when user-2 types x at end of line, there will be changes in two phases:
-// 1. user-2's client updates its local Y.Doc with the new change (inserting 'x' at the end of the line). This triggers an update event in the Y.Doc, which causes the writeState function to be called. The writeState function encodes the full Yjs state as a binary update and saves it to the yjs_state column in the database, along with the updated plain text content, also, raw binary byte stream is fired to the backend, which is received by the y-websocket server and applied to the Y.Doc instance on the server side. This ensures that the server has the most up-to-date state of the document, including the change made by user-2.
-// 2. user-1's client is subscribed to changes in the Y.Doc and receives the updated yjs_state from the backend. The client applies this update to its local Y.Doc instance, which incorporates the change made by user-2 (inserting 'x' at the end of the line). As a result, user-1 sees the new character 'x' appear in their editor in real-time, reflecting the change made by user-2 without any conflicts or data loss.  This seamless syncing of changes between clients is made possible by Yjs's CRDT algorithm, which ensures that all changes are preserved and merged correctly, allowing for robust real-time collaboration even in scenarios with many concurrent edits and network latency.
-
-// Y.Doc is the core data structure in Yjs that represents a shared document. It is a CRDT (Conflict-free Replicated Data Type) that allows for concurrent updates without conflicts. The Y.Doc instance maintains the state of the document and handles syncing changes between clients and the backend. When a client makes changes to the document, those changes are applied to the Y.Doc instance, which then triggers events that allow us to persist the updated state to the database and sync it with other connected clients in real-time. The Y.Doc provides an efficient way to manage collaborative editing scenarios, ensuring that all changes are preserved and merged correctly across all clients.

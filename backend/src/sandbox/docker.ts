@@ -3,26 +3,90 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import crypto from 'crypto';
 
-// ---------------------------------------------------------------------------
-// Docker sandbox execution engine
-// Executes user-submitted code inside an ephemeral, resource-limited Docker
-// container. Supports Python, JavaScript, C, C++, and Bash.
+// =============================================================================
+// DOCKER SANDBOX EXECUTION ENGINE
+// =============================================================================
 //
-// Security properties:
-//   - No network access (NetworkMode: 'none')
-//   - Read-only code mount (:ro)
-//   - Memory cap: 100 MB
-//   - CPU cap: 0.5 vCPU
-//   - PID limit: 50 (prevents fork bombs)
-//   - Hard execution timeout (default 10 s)
-//   - Output size cap: 1 MB (prevents OOM from print-loops)
-// ---------------------------------------------------------------------------
+// PURPOSE:
+//   Execute untrusted, arbitrary user code safely by isolating it inside an
+//   ephemeral Docker container. The container is torn down after every run.
+//
+// WHY DOCKER INSTEAD OF child_process.exec / VM?
+//   - child_process.exec runs code directly on the host OS. A malicious user
+//     could delete files, exfiltrate data, or fork-bomb the server.
+//   - Node's 'vm' module only sandboxes JavaScript and still shares the same
+//     process memory — a prototype-pollution attack can escape it.
+//   - Docker uses Linux kernel primitives (namespaces + cgroups) to give each
+//     container its own isolated view of the filesystem, network, PIDs, and
+//     resource limits. Even if the code inside is malicious, it cannot affect
+//     the host or other containers.
+//
+// LINUX KERNEL PRIMITIVES DOCKER USES INTERNALLY:
+//   1. Namespaces — isolate what a process can *see*:
+//        PID namespace  → container processes have their own PID tree (PID 1
+//                         inside the container is the container init, not host)
+//        NET namespace  → separate network stack; NetworkMode:'none' means no
+//                         network interfaces exist at all inside the container
+//        MNT namespace  → own filesystem mount table; only bind-mounted files
+//                         are visible (our code file at /app/code.py)
+//        IPC namespace  → isolated shared memory and semaphores
+//        UTS namespace  → own hostname and domain name
+//   2. cgroups (Control Groups) — limit what a process can *use*:
+//        memory         → hard cap on RAM; OOM killer fires if exceeded
+//        cpu            → NanoCpus limits CPU time share (CFS scheduler)
+//        pids           → max number of processes/threads; blocks fork bombs
+//
+// SECURITY PROPERTIES OF THIS ENGINE:
+//   - No network access (NetworkMode: 'none')         → can't exfiltrate data
+//   - Code file mounted read-only (:ro)               → can't self-modify
+//   - Memory cap 100 MB + swap disabled               → no OOM bomb
+//   - CPU cap 0.5 vCPU                                → can't starve host
+//   - PID limit 50                                    → fork bombs contained
+//   - Hard timeout 10 s                               → no infinite loops
+//   - Output cap 1 MB                                 → no OOM from print loops
+//   - Container removed after every run               → no state leaks between users
+//
+// =============================================================================
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+// The Docker daemon (dockerd) is a long-running background process that manages
+// containers on the host. It exposes a REST API over a Unix domain socket at
+// /var/run/docker.sock. Unix domain sockets are like TCP sockets but stay
+// entirely within the kernel — no network stack overhead, no TCP handshake.
+//
+// Dockerode communicates with dockerd by sending HTTP requests over this socket.
+// For example, creating a container sends:
+//   POST /containers/create  { Image: "python:3.10-alpine", Cmd: [...], ... }
+//
+// Why a socket instead of a TCP port?
+//   Security: the socket file is owned by root and the docker group. Access to
+//   it grants full control over Docker, equivalent to root on the host. A TCP
+//   port would need firewall rules to protect it; a socket file uses Unix
+//   permissions natively.
 
-// Max bytes we will accumulate from stdout + stderr combined.
+// Max bytes we accumulate from stdout + stderr combined before truncating.
+// Without this cap, a user's `while True: print("x" * 10000)` loop would
+// accumulate gigabytes in memory and crash the Node.js process.
 const MAX_OUTPUT_BYTES = 1 * 1024 * 1024; // 1 MB
 
+// Language → Docker image + run command + expected source filename.
+//
+// WHY ALPINE-BASED IMAGES (python:3.10-alpine, node:20-alpine)?
+//   Alpine Linux uses musl libc instead of glibc and strips most tools.
+//   python:3.10-alpine is ~50 MB vs python:3.10 at ~900 MB.
+//   Smaller image = faster container start time = faster execution response.
+//   Smaller attack surface = fewer binaries the sandboxed code could abuse.
+//
+// WHY gcc:12 FOR C/C++ INSTEAD OF gcc:12-alpine?
+//   gcc on Alpine has known linking issues with some standard library functions
+//   (musl vs glibc ABI differences). gcc:12 uses Debian slim which is more
+//   compatible with standard coursework and competitive programming code.
+//
+// HOW COMPILED LANGUAGES WORK:
+//   For C and C++, cmd is a shell one-liner: "compile && run".
+//   The '&&' means: only run /app/code.out if compilation succeeded.
+//   If compilation fails, g++ exits non-zero, '&&' short-circuits, and the
+//   compiler error message goes to stderr, which we capture and return.
 const CONFIGS: Record<string, { image: string; cmd: string[]; filename: string }> = {
   python: {
     image: 'python:3.10-alpine',
@@ -35,6 +99,7 @@ const CONFIGS: Record<string, { image: string; cmd: string[]; filename: string }
     filename: 'code.js'
   },
   cpp: {
+    // sh -c runs the argument as a shell command, enabling && chaining.
     image: 'gcc:12',
     cmd: ['sh', '-c', 'g++ /app/code.cpp -o /app/code.out && /app/code.out'],
     filename: 'code.cpp'
@@ -51,10 +116,13 @@ const CONFIGS: Record<string, { image: string; cmd: string[]; filename: string }
   }
 };
 
-// ---------------------------------------------------------------------------
-// Logging helper — appends structured execution records to a log file.
-// Errors here are non-fatal and do not affect the caller.
-// ---------------------------------------------------------------------------
+// =============================================================================
+// LOGGING HELPER
+// =============================================================================
+// Appends a structured log entry to execution_requests.log after every run.
+// Non-fatal: if the write fails (disk full, permission denied), we log to
+// console but do NOT surface the error to the caller — logging is observability
+// infrastructure, not part of the execution contract.
 async function logRequest(
   language: string,
   code: string,
@@ -73,31 +141,52 @@ async function logRequest(
     `================================================================================\n`;
   try {
     await fs.appendFile(logPath, entry, 'utf8');
+    // appendFile is O_APPEND under the hood. On Linux, O_APPEND writes are
+    // atomic for writes smaller than PIPE_BUF (~4 KB) on most filesystems.
+    // For our log entries (usually <1 KB), concurrent writes from parallel
+    // executions won't interleave mid-entry.
   } catch (err) {
     console.error('[docker] Failed to write execution log:', err);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Normalize stdin input.
+// =============================================================================
+// INPUT NORMALIZER
+// =============================================================================
+// Users provide stdin in many natural formats; we normalize them all to the
+// format every language's input() / scanf / cin expects: one token per line.
 //
-// Users supply input in many formats:
-//   "Aman\n25"  → newline-separated           → already correct
-//   "Aman 25"   → space-separated on one line → needs splitting
-//   "Aman\n\n25"→ blank lines between values  → needs collapsing
+// HOW Python's input() WORKS INTERNALLY:
+//   input() calls sys.stdin.readline() under the hood, which reads bytes from
+//   file descriptor 0 (stdin) until it encounters '\n' or EOF.
+//   So for TWO input() calls, stdin must have TWO newline-terminated lines:
+//     "Aman\n25\n"
 //
-// Strategy: tokenise on any contiguous whitespace, then join with '\n'.
-// This mirrors how competitive-programming judges feed stdin, where each
-// token (word or number) is on its own line.
-// ---------------------------------------------------------------------------
+// THE PROBLEM WITH SPACE-SEPARATED INPUT:
+//   If the user types "Aman 25" (one line), Python's first input() call reads
+//   the entire line "Aman 25" as a single string. The second input() blocks
+//   forever waiting for another line that never comes → the container hangs
+//   until the 10-second timeout fires.
+//
+// OUR STRATEGY — tokenize on ANY whitespace, rejoin with '\n':
+//   "Aman 25"    → ["Aman", "25"] → "Aman\n25\n"   ✓
+//   "Aman\n25"   → ["Aman", "25"] → "Aman\n25\n"   ✓ (same result)
+//   "Aman\n\n25" → ["Aman", "25"] → "Aman\n25\n"   ✓ (blank lines collapsed)
+//   "1 2 3 4 5"  → ["1","2","3","4","5"] → "1\n2\n3\n4\n5\n"  ✓
+//
+// This matches how competitive programming judges (Codeforces, LeetCode) feed
+// stdin — all whitespace (spaces, tabs, newlines) is treated equivalently as
+// a token separator.
 function normalizeInput(raw: string): string {
   const tokens = raw.trim().split(/\s+/).filter((t) => t.length > 0);
   return tokens.join('\n') + '\n';
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+// =============================================================================
+// PUBLIC API
+// =============================================================================
+// Entry point called by the Express route handler.
+// Orchestrates: temp file creation → container execution → cleanup → logging.
 export async function executeCode(
   code: string,
   language: string,
@@ -108,9 +197,23 @@ export async function executeCode(
     return `Error: Unsupported language "${language}". Supported: ${Object.keys(CONFIGS).join(', ')}.`;
   }
 
-  // Write code to a temp file that will be bind-mounted into the container.
+  // Write the user's code to a uniquely named temp file.
+  //
+  // WHY A TEMP FILE INSTEAD OF PASSING CODE VIA ENVIRONMENT VARIABLE OR STDIN?
+  //   - Environment variables have a size limit (~128 KB on Linux).
+  //   - Passing code via stdin conflicts with the program's own stdin (for input()).
+  //   - A file on disk is the cleanest contract: Docker bind-mounts it into the
+  //     container at a known path (/app/code.py) read-only (:ro).
+  //
+  // WHY crypto.randomUUID() IN THE FILENAME?
+  //   Concurrent requests could run at the same time. Without a unique prefix,
+  //   two Python submissions would both write to "code.py", causing a race
+  //   condition where one overwrites the other before the container reads it.
+  //   UUID4 gives 122 bits of randomness — collision probability is negligible.
   const tempSandboxDir = path.join(process.cwd(), 'temp_sandbox');
   await fs.mkdir(tempSandboxDir, { recursive: true });
+  // { recursive: true } is a no-op if the directory already exists — it does NOT
+  // throw EEXIST. Equivalent to `mkdir -p` in shell.
 
   const fileId = crypto.randomUUID();
   const filePath = path.join(tempSandboxDir, `${fileId}_${config.filename}`);
@@ -121,28 +224,43 @@ export async function executeCode(
     await logRequest(language, code, input, result);
     return result;
   } catch (error: any) {
+    // runInDocker throws a plain object (not an Error instance) so we can
+    // pass typed fields without TypeScript narrowing issues:
+    //   { killed: true,  stdout: string, stderr: string }          → timeout
+    //   { killed: false, stdout: string, stderr: string, message } → runtime error
     const errorMsg = error.killed
       ? (error.stdout || '') + '\n[Error] Execution timed out (10 000 ms).'
       : (error.stdout || '') + (error.stderr || error.message || 'Unknown execution error');
     await logRequest(language, code, input, errorMsg);
     return errorMsg;
   } finally {
-    // Always clean up the temp file, even if execution threw.
+    // The finally block runs whether the try succeeded or threw.
+    // This guarantees temp files are always cleaned up — no orphaned files
+    // accumulate in temp_sandbox/ even if the container fails to start.
     try {
       await fs.unlink(filePath);
     } catch {
-      // Ignore — file may not exist if writeFile itself failed.
+      // Ignore — file may not exist if fs.writeFile itself failed above.
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// Core Docker runner
+// =============================================================================
+// CORE DOCKER RUNNER
+// =============================================================================
 //
-// Kept as a regular async function (not new Promise(async ...)) to avoid the
-// silent-swallow anti-pattern where synchronous throws inside an async Promise
-// executor are converted to unhandled rejections.
-// ---------------------------------------------------------------------------
+// WHY A PLAIN async FUNCTION INSTEAD OF new Promise(async executor)?
+//   The "new Promise(async executor)" pattern is an anti-pattern because:
+//   If the async executor throws SYNCHRONOUSLY before the first `await`,
+//   the Promise constructor catches it internally but does nothing with it —
+//   the outer promise stays pending forever (memory leak + hang).
+//   A plain async function propagates all throws as rejected promises, which
+//   the caller can catch with try/catch or .catch().
+//
+// EXECUTION LIFECYCLE:
+//   createContainer → attach (get stream handles) → start → write stdin →
+//   wait for exit (race vs timeout) → flush event loop → return output
+//
 async function runInDocker(
   image: string,
   cmd: string[],
@@ -152,104 +270,185 @@ async function runInDocker(
   timeoutMs: number
 ): Promise<string> {
   let container: Docker.Container | null = null;
+
+  // Hoisted outside try so the catch block can include partial output
+  // captured before a timeout or runtime crash.
   let stdoutData = '';
   let stderrData = '';
 
   try {
-    // ------------------------------------------------------------------
-    // 1. Create container with security constraints.
-    // ------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // STEP 1: Create the container (does NOT start it yet).
+    // -------------------------------------------------------------------------
+    // docker.createContainer sends: POST /containers/create
+    // Docker allocates a container on disk (writable layer on top of the image's
+    // read-only layers via overlay2 filesystem) but the process hasn't started.
+    //
+    // KEY CONFIG FIELDS EXPLAINED:
+    //
+    // Binds: ["<hostPath>:/app/<file>:ro"]
+    //   Bind mount — maps a host filesystem path into the container namespace.
+    //   :ro (read-only) means the container process gets EROFS if it tries to
+    //   write to /app/code.py, even as root inside the container.
+    //   Why read-only? Prevents the code from modifying itself (self-modifying
+    //   code attacks, persistence attempts).
+    //
+    // Memory: 100 MB, MemorySwap: 100 MB
+    //   Memory sets the RAM limit. MemorySwap = Memory + swap limit.
+    //   Setting both equal → swap = 0 (MemorySwap - Memory = 0).
+    //   Without setting MemorySwap, the container could use Memory * 2 of swap,
+    //   completely defeating the RAM cap. A code that allocates 100 MB RAM
+    //   would spill to swap, surviving past the limit and slowing the host.
+    //
+    // NanoCpus: 500_000_000 (= 0.5 CPU)
+    //   The Linux CFS (Completely Fair Scheduler) allocates CPU time in
+    //   100ms periods. 0.5 CPU means the container gets at most 50ms of CPU
+    //   per 100ms period. This prevents one container from monopolizing a core.
+    //   Unit: 1 CPU = 1,000,000,000 NanoCpus.
+    //
+    // PidsLimit: 50
+    //   Limits the total number of processes + threads in the container's PID
+    //   namespace. A fork bomb (`:(){:|:&};:` in bash) works by recursively
+    //   forking until the system runs out of PIDs. With PidsLimit=50, it can
+    //   only create 50 processes before the kernel refuses fork() with EAGAIN.
+    //
+    // NetworkMode: 'none'
+    //   Creates the container with only a loopback interface (127.0.0.1).
+    //   No eth0, no internet routing. connect(), socket() to external IPs fail
+    //   with ENETUNREACH. Prevents data exfiltration, outbound HTTP, etc.
+    //
+    // Tty: false
+    //   By default (Tty:true), Docker allocates a pseudo-terminal (PTY) which
+    //   merges stdout and stderr into one stream and adds terminal control codes.
+    //   Tty:false keeps stdout and stderr separate and uses Docker's multiplexed
+    //   stream protocol (8-byte frame headers) — essential for separating
+    //   compiler errors (stderr) from program output (stdout).
+    //
+    // AttachStdin/AttachStdout/AttachStderr + OpenStdin + StdinOnce:
+    //   These flags tell Docker to keep the container's stdin pipe open so we
+    //   can write input to it after the container starts.
+    //   StdinOnce: true → stdin is closed (EOF sent) after the first client
+    //   disconnects, which is what we want: write input, call execStream.end(),
+    //   and the process receives EOF cleanly.
     container = await docker.createContainer({
       Image: image,
       Cmd: cmd,
       HostConfig: {
         Binds: [`${hostFilePath}:/app/${containerFileName}:ro`],
-        Memory: 100 * 1024 * 1024,   // 100 MB hard limit
-        MemorySwap: 100 * 1024 * 1024, // disable swap (swap = memory limit)
-        NanoCpus: 500_000_000,         // 0.5 vCPU
-        PidsLimit: 50,                 // prevent fork bombs
-        NetworkMode: 'none',           // no outbound network
-        ReadonlyRootfs: false,         // allow /tmp writes inside container
+        Memory: 100 * 1024 * 1024,     // 100 MB RAM hard limit
+        MemorySwap: 100 * 1024 * 1024, // swap = 0 (swap cap = RAM cap → no swap)
+        NanoCpus: 500_000_000,         // 0.5 vCPU via Linux CFS scheduler
+        PidsLimit: 50,                 // blocks fork bombs at kernel level
+        NetworkMode: 'none',           // no network interfaces except loopback
+        ReadonlyRootfs: false,         // allow writes to /tmp inside container
       },
       AttachStdin: true,
       AttachStdout: true,
       AttachStderr: true,
-      OpenStdin: true,
-      StdinOnce: true,
-      Tty: false   // multiplexed stream mode: Docker prepends 8-byte headers
+      OpenStdin: true,   // keep stdin pipe open so we can write to it
+      StdinOnce: true,   // send EOF to process when we call execStream.end()
+      Tty: false         // multiplexed stream mode (separate stdout and stderr)
     });
 
-    // ------------------------------------------------------------------
-    // 2. Attach to streams BEFORE starting so we don't miss early output.
-    // ------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // STEP 2: Attach to the container's I/O streams BEFORE starting.
+    // -------------------------------------------------------------------------
+    // container.attach sends: POST /containers/{id}/attach?stream=1&stdin=1&...
+    //
+    // WHY ATTACH BEFORE START?
+    //   If we started first, the container process could produce output before
+    //   our attach call completes. That output would be buffered by Docker but
+    //   we might miss it in a race condition. Attaching first guarantees we
+    //   have a listener before any data flows.
+    //
+    // hijack: true — What does it mean?
+    //   Normally, HTTP is request/response: client sends request, server replies,
+    //   connection closes. "Hijacking" upgrades the HTTP connection to a raw
+    //   persistent TCP socket (similar to the WebSocket upgrade mechanism).
+    //   After the HTTP upgrade, the socket becomes a bidirectional pipe where
+    //   we write to the container's stdin and read its stdout/stderr.
+    //
+    //   The returned `execStream` IS that raw TCP socket. It is NOT an HTTP
+    //   response body — it is a full-duplex stream that stays open until the
+    //   container process exits.
+    //
+    // IMPORTANT: The first bytes on the hijacked socket are NOT real data —
+    //   Docker sends its internal metadata JSON ({"stream":true,...}) as part
+    //   of the HTTP upgrade. Our frame parser below discards these bytes.
     const execStream = await container.attach({
       stream: true,
-      hijack: true,
+      hijack: true,   // upgrade HTTP → raw bidirectional TCP socket
       stdin: true,
       stdout: true,
       stderr: true
     });
 
-    // ------------------------------------------------------------------
-    // 3. Demultiplex the Docker stream — manual frame parser.
+    // -------------------------------------------------------------------------
+    // STEP 3: Demultiplex Docker's binary stream protocol — manual frame parser.
+    // -------------------------------------------------------------------------
     //
-    // With Tty:false, Docker multiplexes stdout and stderr into a single
-    // stream using 8-byte frame headers:
-    //   Byte 0    → stream type  (1 = stdout, 2 = stderr)
-    //   Bytes 1-3 → reserved, always 0x00
-    //   Bytes 4-7 → uint32 BE payload byte count
+    // THE DOCKER STREAM MULTIPLEXING PROTOCOL (Tty:false mode):
+    //   When Tty is false, Docker cannot send stdout and stderr as raw bytes on
+    //   the same socket (they'd be indistinguishable). Instead it wraps each
+    //   write in an 8-byte binary frame header:
     //
-    // A single TCP chunk can contain MULTIPLE frames back-to-back, so we
-    // maintain a running Buffer and parse as many complete frames as are
-    // available. Frames with an unknown stream type are discarded silently
-    // (this also safely ignores any HTTP metadata that arrives before the
-    // first real data frame).
+    //   ┌──────────┬──────────────────────┬────────────────────────────┐
+    //   │ Byte 0   │ Bytes 1-3            │ Bytes 4-7                  │
+    //   │ Stream   │ Reserved (0x00 x3)   │ Payload length (uint32 BE) │
+    //   │ 1=stdout │                      │                            │
+    //   │ 2=stderr │                      │                            │
+    //   └──────────┴──────────────────────┴────────────────────────────┘
+    //   [payload bytes follow immediately after the 8-byte header]
     //
-    // We do NOT use docker.modem.demuxStream because it incorrectly pipes
-    // the raw HTTP attach response metadata (the options JSON object) into
-    // the stdout PassThrough stream before the real data arrives.
-    // ------------------------------------------------------------------
+    //   A single TCP chunk can contain MULTIPLE frames back-to-back:
+    //   [header1][payload1][header2][payload2]...
+    //
+    // WHY NOT USE docker.modem.demuxStream?
+    //   Dockerode provides a helper, but with hijack:true it incorrectly pipes
+    //   the HTTP upgrade metadata JSON as if it were stdout data — resulting in
+    //   the string {"stream":true,...} appearing at the start of program output.
+    //
+    // OUR MANUAL PARSER STRATEGY:
+    //   1. Buffer all incoming chunks into frameBuffer.
+    //   2. Scan forward byte-by-byte to find the first valid frame header
+    //      signature: [0x01 or 0x02] [0x00] [0x00] [0x00]
+    //      → This discards the HTTP metadata bytes at the front.
+    //   3. Once aligned, extract frames: read streamType, read payloadSize,
+    //      wait for payloadSize bytes, extract payload, route to stdout/stderr.
+    //   4. Repeat from step 2 (in case a frame's payload itself starts with
+    //      bytes that look like non-frames — step 2 is safe because it only
+    //      runs when the buffer is misaligned).
     let outputBytes = 0;
     let outputCapped = false;
     let frameBuffer = Buffer.alloc(0);
 
     execStream.on('data', (chunk: Buffer) => {
-      // Accumulate incoming bytes.
+      // Accumulate — TCP is a stream protocol, a single 'data' event may
+      // contain a partial frame or multiple complete frames.
       frameBuffer = Buffer.concat([frameBuffer, chunk]);
 
-      // ----------------------------------------------------------------
-      // Skip leading non-frame garbage bytes.
-      //
-      // With hijack:true, Docker's first data chunk on the hijacked TCP
-      // socket contains the raw HTTP upgrade response metadata, e.g.
-      //   {"stream":true,"hijack":true,"stdin":true,"stdout":true,"stderr":true}
-      //
-      // This is NOT a valid Docker frame. A valid frame starts with:
-      //   Byte 0:   0x01 (stdout) or 0x02 (stderr)
-      //   Bytes 1-3: 0x00  0x00  0x00  (reserved, always zero)
-      //
-      // We scan forward one byte at a time until we find this 4-byte
-      // pattern, discarding everything before it. This is the standard
-      // approach for raw hijacked Docker stream handling.
-      // ----------------------------------------------------------------
+      // --- Phase A: Skip leading garbage (HTTP upgrade metadata) ---
+      // A valid Docker frame starts with [0x01 or 0x02, 0x00, 0x00, 0x00].
+      // The JSON metadata starts with '{' (0x7B) which is neither 0x01 nor 0x02,
+      // so we scan until we hit the first valid header pattern.
       while (frameBuffer.length >= 4) {
         const b0 = frameBuffer[0];
         if ((b0 === 1 || b0 === 2) &&
             frameBuffer[1] === 0 &&
             frameBuffer[2] === 0 &&
             frameBuffer[3] === 0) {
-          break; // Found a valid frame header start
+          break; // Aligned on a valid frame — proceed to Phase B
         }
-        // Not a valid frame start — skip this byte.
-        frameBuffer = frameBuffer.slice(1);
+        frameBuffer = frameBuffer.slice(1); // Discard one garbage byte, retry
       }
 
-      // Parse as many complete frames as we have buffered.
+      // --- Phase B: Extract complete frames ---
       while (frameBuffer.length >= 8) {
-        const streamType = frameBuffer[0];           // 1=stdout, 2=stderr
-        const payloadSize = frameBuffer.readUInt32BE(4); // bytes 4-7
+        const streamType  = frameBuffer[0];           // 1=stdout, 2=stderr
+        const payloadSize = frameBuffer.readUInt32BE(4); // big-endian uint32
 
-        // Wait for the full payload to arrive.
+        // Don't try to extract the payload if it hasn't fully arrived yet.
+        // TCP segments can be fragmented; wait for next 'data' event.
         if (frameBuffer.length < 8 + payloadSize) break;
 
         if (streamType === 1 || streamType === 2) {
@@ -262,36 +461,62 @@ async function runInDocker(
             outputCapped = true;
           }
         }
-        // Advance past this frame (header + payload).
+        // Advance past this complete frame (header=8 bytes + payload).
         frameBuffer = frameBuffer.slice(8 + payloadSize);
       }
     });
 
     execStream.on('error', (err) => {
+      // Stream-level errors (e.g. Docker daemon closed the socket unexpectedly).
+      // Append to stderr so the user sees what happened.
       stderrData += err.message;
     });
 
-    // ------------------------------------------------------------------
-    // 4. Start the container.
-    // ------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // STEP 4: Start the container (this spawns the process).
+    // -------------------------------------------------------------------------
+    // Sends: POST /containers/{id}/start
+    // Docker's containerd shim forks the container init process, which then
+    // exec()s into the language runtime (python, node, sh, etc.).
+    // At this point the process is running and may immediately produce output.
     await container.start();
 
-    // ------------------------------------------------------------------
-    // 5. Write normalised stdin, then close stdin (send EOF).
-    // ------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // STEP 5: Write stdin, then send EOF.
+    // -------------------------------------------------------------------------
+    // Write normalised input to the container's stdin via the hijacked socket.
+    // The container process reads from /dev/stdin (fd 0), which is connected
+    // to this socket by Docker.
+    //
+    // WHY execStream.end() IS CRITICAL:
+    //   Python's input() blocks on read(fd=0, ...) until it gets a '\n' OR EOF.
+    //   If we never send EOF, a program with N input() calls waits for the
+    //   (N+1)th line forever → container hangs until the 10s timeout kills it.
+    //   execStream.end() closes the write side of the socket (sends TCP FIN),
+    //   which the kernel delivers to the container process as EOF on fd 0.
     if (input) {
       execStream.write(normalizeInput(input));
     }
-    execStream.end(); // EOF → processes blocked on input() will unblock
+    execStream.end(); // Send EOF → unblocks any pending input() / scanf / cin
 
-    // ------------------------------------------------------------------
-    // 6. Race: container.wait() vs hard timeout.
+    // -------------------------------------------------------------------------
+    // STEP 6: Wait for the container to exit, race vs hard timeout.
+    // -------------------------------------------------------------------------
+    // container.wait() sends: POST /containers/{id}/wait
+    // It is a long-poll HTTP request that blocks until the container's main
+    // process exits (returns its exit code). Dockerode resolves the Promise
+    // when the HTTP response arrives (i.e., the container exited).
     //
-    // container.wait() resolves the moment the container process exits.
-    // After that, we flush two setImmediate ticks so any buffered 'data'
-    // events already enqueued in the event loop get processed before we
-    // read stdoutData / stderrData.
-    // ------------------------------------------------------------------
+    // TIMEOUT MECHANISM:
+    //   We race container.wait() against a setTimeout-backed Promise that
+    //   rejects after timeoutMs. Whichever settles first wins:
+    //     - container.wait() wins → normal execution
+    //     - setTimeout wins      → reject({ killed: true }) → catch block runs
+    //       → we throw with accumulated stdoutData (partial output preserved)
+    //
+    // WHY PRESERVE PARTIAL OUTPUT ON TIMEOUT?
+    //   If a program prints "Step 1 done\nStep 2 done\n" then enters an infinite
+    //   loop, we still want to return those two lines so the user can debug.
     await Promise.race([
       container.wait(),
       new Promise<never>((_, reject) =>
@@ -299,8 +524,21 @@ async function runInDocker(
       )
     ]);
 
-    // Two event-loop ticks → all queued 'data' callbacks have had a
-    // chance to run before we read the accumulated strings.
+    // -------------------------------------------------------------------------
+    // STEP 7: Flush the Node.js event loop before reading output.
+    // -------------------------------------------------------------------------
+    // container.wait() resolves when the container PROCESS exits, but the
+    // 'data' event callbacks we registered on execStream may still be queued
+    // in the Node.js microtask/macrotask queue — not yet executed.
+    //
+    // Node.js event loop phases (simplified):
+    //   timers → I/O callbacks → [poll: wait for I/O] → setImmediate → close
+    //
+    // setImmediate schedules work in the "check" phase, AFTER all I/O callbacks
+    // for the current iteration have run. Two setImmediate ticks ensure:
+    //   Tick 1: any pending 'data' callbacks fire (I/O callbacks phase).
+    //   Tick 2: any callbacks those triggered also fire.
+    // After this, stdoutData and stderrData are fully populated.
     await new Promise<void>((res) => setImmediate(res));
     await new Promise<void>((res) => setImmediate(res));
 
@@ -308,24 +546,43 @@ async function runInDocker(
       ? `\n[Warning] Output truncated at ${MAX_OUTPUT_BYTES / 1024} KB.`
       : '';
 
-    // Return stdout first, then any stderr (compiler errors, runtime tracebacks).
+    // Return stdout first, then stderr on a new line (compiler errors,
+    // runtime tracebacks). trimEnd() removes the trailing newline that
+    // most programs print after their last line of output.
     return (stdoutData + (stderrData ? '\n' + stderrData : '') + capNotice).trimEnd();
 
   } catch (err: any) {
-    // Re-throw in a shape the caller (executeCode) already handles.
-    // IMPORTANT: preserve any partial output captured before the error/timeout
-    // so the user sees what their code printed before it was killed.
+    // Re-throw as a plain object so executeCode's catch block can read
+    // .killed, .stdout, .stderr, .message cleanly without instanceof checks.
+    //
+    // We include stdoutData and stderrData here so partial output printed
+    // BEFORE the timeout/crash is not lost — the user sees what their code
+    // produced up to the point of failure.
     if (err && err.killed) {
       throw { killed: true, stdout: stdoutData, stderr: stderrData };
     }
     throw { killed: false, stdout: stdoutData, stderr: stderrData, message: err?.message ?? String(err) };
   } finally {
-    // Always remove the container, even if we timed out or threw.
+    // -----------------------------------------------------------------------
+    // CLEANUP: Force-remove the container regardless of outcome.
+    // -----------------------------------------------------------------------
+    // { force: true } is equivalent to `docker rm -f` — it stops a running
+    // container AND removes it. Without force:true, removing a running
+    // container would fail with "container still running" error.
+    //
+    // WHY IN finally AND NOT IN try?
+    //   try runs on success, catch runs on error — neither runs if the other
+    //   throws. Only finally is guaranteed to execute in ALL cases (success,
+    //   timeout, crash, thrown error from catch itself).
+    //   Without this, timed-out containers would accumulate on the host,
+    //   consuming disk space (overlay2 layers) and eventually exhausting
+    //   Docker's container limit.
     if (container) {
       try {
         await container.remove({ force: true });
       } catch {
-        // Ignore — container may already be gone.
+        // Ignore — container may already be gone if Docker killed it itself
+        // (e.g. OOM killer fired inside the container).
       }
     }
   }
