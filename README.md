@@ -76,12 +76,12 @@ Architected from first principles, this platform solves two critical distributed
 
 ### Milestone 3: Containerized Sandbox Isolation (In Progress)
 
-* [ ] Transition the runtime engine from local child processes to the **Docker Engine API** via the Unix Domain Socket (`/var/run/docker.sock`).
-* [ ] Limit execution resource footprints programmatically via **Linux Kernel Control Groups (cgroups)**:
+* [x] Transition the runtime engine from local child processes to the **Docker Engine API** via the Unix Domain Socket (`/var/run/docker.sock`).
+* [x] Limit execution resource footprints programmatically via **Linux Kernel Control Groups (cgroups)**:
   * Bound memory thresholds to a maximum of 100MB to stop host RAM exhaustion.
   * Throttling processing time slices using Completely Fair Scheduler (CFS) caps (Max 0.5 CPU).
   * Apply hard process limits (`--pids-limit=50`) to neutralize malicious fork bombs instantly.
-* [ ] Multiplex output streams (`stdout`/`stderr`) dynamically to push compiler updates over WebSockets in real time.
+* [x] Multiplex output streams (`stdout`/`stderr`) dynamically to push compiler updates over WebSockets in real time.
 
 ---
 
