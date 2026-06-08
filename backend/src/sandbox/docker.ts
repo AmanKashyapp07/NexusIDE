@@ -189,48 +189,59 @@ async function runInDocker(
     });
 
     // ------------------------------------------------------------------
-    // 3. Demultiplex the Docker stream.
+    // 3. Demultiplex the Docker stream — manual frame parser.
     //
-    // With Tty:false, Docker prefixes every chunk with an 8-byte header:
-    //   Byte 0    → stream type: 1 = stdout, 2 = stderr
-    //   Bytes 1-3 → reserved (zero)
-    //   Bytes 4-7 → uint32 BE payload size
+    // With Tty:false, Docker multiplexes stdout and stderr into a single
+    // stream using 8-byte frame headers:
+    //   Byte 0    → stream type  (1 = stdout, 2 = stderr)
+    //   Bytes 1-3 → reserved, always 0x00
+    //   Bytes 4-7 → uint32 BE payload byte count
     //
-    // We must parse these headers correctly; naive slice(8) is wrong when
-    // a single TCP segment carries multiple logical frames.
+    // A single TCP chunk can contain MULTIPLE frames back-to-back, so we
+    // maintain a running Buffer and parse as many complete frames as are
+    // available. Frames with an unknown stream type are discarded silently
+    // (this also safely ignores any HTTP metadata that arrives before the
+    // first real data frame).
     //
-    // docker.modem.demuxStream is the official Dockerode helper for this.
+    // We do NOT use docker.modem.demuxStream because it incorrectly pipes
+    // the raw HTTP attach response metadata (the options JSON object) into
+    // the stdout PassThrough stream before the real data arrives.
     // ------------------------------------------------------------------
     let stdoutData = '';
     let stderrData = '';
     let outputBytes = 0;
     let outputCapped = false;
+    let frameBuffer = Buffer.alloc(0);
 
-    const { PassThrough } = await import('stream');
-    const stdoutStream = new PassThrough();
-    const stderrStream = new PassThrough();
+    execStream.on('data', (chunk: Buffer) => {
+      // Accumulate incoming bytes.
+      frameBuffer = Buffer.concat([frameBuffer, chunk]);
 
-    // Properly demux the multiplexed Docker stream into separate stdout/stderr.
-    docker.modem.demuxStream(execStream, stdoutStream, stderrStream);
+      // Parse as many complete frames as we have buffered.
+      while (frameBuffer.length >= 8) {
+        const streamType = frameBuffer[0];           // 1=stdout, 2=stderr
+        const payloadSize = frameBuffer.readUInt32BE(4); // bytes 4-7
 
-    stdoutStream.on('data', (chunk: Buffer) => {
-      if (outputBytes >= MAX_OUTPUT_BYTES) {
-        outputCapped = true;
-        return;
+        // Wait for the full payload to arrive.
+        if (frameBuffer.length < 8 + payloadSize) break;
+
+        if (streamType === 1 || streamType === 2) {
+          const payload = frameBuffer.slice(8, 8 + payloadSize).toString('utf8');
+          if (outputBytes < MAX_OUTPUT_BYTES) {
+            outputBytes += Buffer.byteLength(payload, 'utf8');
+            if (streamType === 1) stdoutData += payload;
+            else                  stderrData += payload;
+          } else {
+            outputCapped = true;
+          }
+        }
+        // Advance past this frame (header + payload).
+        frameBuffer = frameBuffer.slice(8 + payloadSize);
       }
-      const text = chunk.toString('utf8');
-      outputBytes += Buffer.byteLength(text, 'utf8');
-      stdoutData += text;
     });
 
-    stderrStream.on('data', (chunk: Buffer) => {
-      if (outputBytes >= MAX_OUTPUT_BYTES) {
-        outputCapped = true;
-        return;
-      }
-      const text = chunk.toString('utf8');
-      outputBytes += Buffer.byteLength(text, 'utf8');
-      stderrData += text;
+    execStream.on('error', (err) => {
+      stderrData += err.message;
     });
 
     // ------------------------------------------------------------------
@@ -249,10 +260,14 @@ async function runInDocker(
     // ------------------------------------------------------------------
     // 6. Race: container.wait() vs hard timeout.
     //
-    // container.wait() resolves when the container process exits.
-    // We then wait for the PassThrough streams to drain (end event) so we
-    // capture all buffered output before resolving — fixing the stream
-    // drain race condition that existed in the previous implementation.
+    // container.wait() resolves the moment the container process exits.
+    // After that, we flush two setImmediate ticks so any buffered 'data'
+    // events already enqueued in the event loop get processed before we
+    // read stdoutData / stderrData.
+    //
+    // NOTE: We do NOT wait on PassThrough 'end' events here because
+    // docker.modem.demuxStream does not end() the PassThrough streams
+    // when the source execStream closes — waiting on 'end' would hang forever.
     // ------------------------------------------------------------------
     await Promise.race([
       container.wait(),
@@ -261,11 +276,10 @@ async function runInDocker(
       )
     ]);
 
-    // Wait for both demuxed streams to finish draining.
-    await Promise.all([
-      new Promise<void>((res) => (stdoutStream.readable ? stdoutStream.once('end', res) : res())),
-      new Promise<void>((res) => (stderrStream.readable ? stderrStream.once('end', res) : res()))
-    ]);
+    // Two event-loop ticks → all queued 'data' callbacks on stdoutStream /
+    // stderrStream have had a chance to run before we read the accumulated strings.
+    await new Promise<void>((res) => setImmediate(res));
+    await new Promise<void>((res) => setImmediate(res));
 
     const capNotice = outputCapped
       ? `\n[Warning] Output truncated at ${MAX_OUTPUT_BYTES / 1024} KB.`
