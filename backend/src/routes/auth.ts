@@ -98,3 +98,5 @@ router.get('/me', async (req, res) => {
 export default router;
 
 // this files handles user authentication routes for registration, login, and fetching the current user's information. It uses bcrypt for password hashing and JWT for token-based authentication. The routes interact with the PostgreSQL database to store and retrieve user data securely.
+
+// all about JWT token - When a user registers or logs in successfully, a JWT token is generated using the `jsonwebtoken` library. The token contains the user's ID and username as payload and is signed with a secret key (defined in `JWT_SECRET`). The token is set to expire in 7 days. This token is returned to the client, which can then use it for authenticated requests by including it in the Authorization header as a Bearer token. The `/me` route verifies the token to authenticate the user and retrieves their information from the database. 
