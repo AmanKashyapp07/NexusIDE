@@ -82,7 +82,7 @@ if __name__ == '__main__':
     const netTest = `
 import urllib.request
 try:
-    urllib.request.urlopen("https://www.google.com", timeout=2)
+    urllib.request.urlopen("http://8.8.8.8", timeout=2)
     print("Network connected")
 except Exception as e:
     print(f"Blocked: {e}")

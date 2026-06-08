@@ -108,15 +108,11 @@ function runInDocker(
 
       const execStream = await container.attach({
         stream: true,
+        hijack: true,
         stdin: true,
         stdout: true,
         stderr: true
       }); // This line attaches to the container's input and output streams, allowing the code to send input to the container's stdin and capture output from stdout and stderr. By setting stream: true, it enables real-time streaming of data between the host and the container. This is essential for passing input to the code running inside the container and for capturing the output as it is produced, which is important for providing feedback to the user or caller about the execution results. The attached streams will be used later in the function to write input to the container and to listen for output data as it is generated during execution. we are attaching to the container's streams so that we can interact with the code running inside the container. This allows us to send input to the code and capture its output, which is crucial for executing user-submitted code and providing feedback on its execution. By attaching to these streams, we can effectively manage the execution process and handle any input or output that occurs during the execution of the code in the Docker container. In short, exec streams allow us to communicate with the code running inside the container, enabling us to pass input and capture output in real-time, which is essential for the functionality of this code execution system.
-
-      // Pass input
-      if (input) {
-        execStream.write(input); // This line writes the provided input to the container's stdin stream. If the input is defined (not undefined or empty), it will be sent to the code running inside the Docker container as if it were user input. This allows the executed code to read from stdin and process the input accordingly, enabling more interactive or dynamic code execution based on user-provided data. By writing to the execStream, we can effectively pass input to the code running in the container, which is essential for executing code that requires user input or data from an external source.
-      }
 
       // Capture stdout and stderr
       execStream.on('data', (chunk: Buffer) => {
@@ -132,6 +128,11 @@ function runInDocker(
       });
 
       await container.start(); // This line starts the Docker container, which begins the execution of the code that has been set up in the container. Once the container is started, the code will run according to the specified command and configuration. This is a crucial step in the process, as it triggers the actual execution of the user-submitted code within the sandboxed environment of the Docker container. After starting the container, we can then wait for it to finish executing and capture the output or any errors that occur during execution.
+
+      // Pass input
+      if (input) {
+        execStream.write(input); // This line writes the provided input to the container's stdin stream. If the input is defined (not undefined or empty), it will be sent to the code running inside the Docker container as if it were user input. This allows the executed code to read from stdin and process the input accordingly, enabling more interactive or dynamic code execution based on user-provided data. By writing to the execStream, we can effectively pass input to the code running in the container, which is essential for executing code that requires user input or data from an external source.
+      }
 
       let timeoutHandle: NodeJS.Timeout; // This variable will hold the reference to the timeout that is set to enforce the execution time limit for the code running inside the Docker container. By using a timeout, we can ensure that if the code takes too long to execute (exceeding the specified timeoutMs), we can kill the container to prevent it from running indefinitely. This is an important security measure to protect against infinite loops or long-running processes that could consume resources and affect the stability of the system. The timeout will be cleared if the container finishes executing before the timeout is reached, ensuring that we only kill the container if it truly exceeds the allowed execution time.
 
