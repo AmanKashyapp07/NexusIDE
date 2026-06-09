@@ -1,7 +1,16 @@
 import Docker from 'dockerode';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import crypto from 'crypto';
+
+export interface ExecutionResult {
+  output: string;
+  durationMs: number;
+  exitCode: number;
+  oomKilled: boolean;
+}
+
 
 // =============================================================================
 // DOCKER SANDBOX EXECUTION ENGINE
@@ -48,7 +57,13 @@ import crypto from 'crypto';
 //
 // =============================================================================
 
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+const homeDir = process.env.HOME || '';
+const defaultMacSocket = path.join(homeDir, '.docker/run/docker.sock');
+const finalSocketPath = process.platform === 'darwin' && existsSync(defaultMacSocket)
+  ? defaultMacSocket
+  : '/var/run/docker.sock';
+
+const docker = new Docker({ socketPath: finalSocketPath });
 // The Docker daemon (dockerd) is a long-running background process that manages
 // containers on the host. It exposes a REST API over a Unix domain socket at
 // /var/run/docker.sock. Unix domain sockets are like TCP sockets but stay
@@ -191,10 +206,15 @@ export async function executeCode(
   code: string,
   language: string,
   input?: string
-): Promise<string> {
+): Promise<ExecutionResult> {
   const config = CONFIGS[language];
   if (!config) {
-    return `Error: Unsupported language "${language}". Supported: ${Object.keys(CONFIGS).join(', ')}.`;
+    return {
+      output: `Error: Unsupported language "${language}". Supported: ${Object.keys(CONFIGS).join(', ')}.`,
+      durationMs: 0,
+      exitCode: -1,
+      oomKilled: false
+    };
   }
 
   // Write the user's code to a uniquely named temp file.
@@ -221,7 +241,7 @@ export async function executeCode(
   try {
     await fs.writeFile(filePath, code, 'utf8');
     const result = await runInDocker(config.image, config.cmd, filePath, config.filename, input, 10_000);
-    await logRequest(language, code, input, result);
+    await logRequest(language, code, input, result.output);
     return result;
   } catch (error: any) {
     // runInDocker throws a plain object (not an Error instance) so we can
@@ -232,7 +252,12 @@ export async function executeCode(
       ? (error.stdout || '') + '\n[Error] Execution timed out (10 000 ms).'
       : (error.stdout || '') + (error.stderr || error.message || 'Unknown execution error');
     await logRequest(language, code, input, errorMsg);
-    return errorMsg;
+    return {
+      output: errorMsg.trimEnd(),
+      durationMs: error.durationMs ?? 0,
+      exitCode: error.exitCode ?? -1,
+      oomKilled: error.oomKilled ?? false
+    };
   } finally {
     // The finally block runs whether the try succeeded or threw.
     // This guarantees temp files are always cleaned up — no orphaned files
@@ -268,8 +293,9 @@ async function runInDocker(
   containerFileName: string,
   input: string | undefined,
   timeoutMs: number
-): Promise<string> {
+): Promise<ExecutionResult> {
   let container: Docker.Container | null = null;
+  const startTime = performance.now();
 
   // Hoisted outside try so the catch block can include partial output
   // captured before a timeout or runtime crash.
@@ -524,6 +550,11 @@ async function runInDocker(
       )
     ]);
 
+    // Inspect container to check exit status code and whether it was OOM killed
+    const inspectData = await container.inspect();
+    const exitCode = inspectData.State.ExitCode;
+    const oomKilled = inspectData.State.OOMKilled;
+
     // -------------------------------------------------------------------------
     // STEP 7: Flush the Node.js event loop before reading output.
     // -------------------------------------------------------------------------
@@ -546,22 +577,39 @@ async function runInDocker(
       ? `\n[Warning] Output truncated at ${MAX_OUTPUT_BYTES / 1024} KB.`
       : '';
 
-    // Return stdout first, then stderr on a new line (compiler errors,
-    // runtime tracebacks). trimEnd() removes the trailing newline that
-    // most programs print after their last line of output.
-    return (stdoutData + (stderrData ? '\n' + stderrData : '') + capNotice).trimEnd();
+    const durationMs = performance.now() - startTime;
+    return {
+      output: (stdoutData + (stderrData ? '\n' + stderrData : '') + capNotice).trimEnd(),
+      durationMs,
+      exitCode,
+      oomKilled
+    };
 
   } catch (err: any) {
-    // Re-throw as a plain object so executeCode's catch block can read
-    // .killed, .stdout, .stderr, .message cleanly without instanceof checks.
-    //
-    // We include stdoutData and stderrData here so partial output printed
-    // BEFORE the timeout/crash is not lost — the user sees what their code
-    // produced up to the point of failure.
+    const durationMs = performance.now() - startTime;
     if (err && err.killed) {
-      throw { killed: true, stdout: stdoutData, stderr: stderrData };
+      throw { killed: true, stdout: stdoutData, stderr: stderrData, durationMs, exitCode: 137, oomKilled: false };
     }
-    throw { killed: false, stdout: stdoutData, stderr: stderrData, message: err?.message ?? String(err) };
+    let containerExitCode = -1;
+    let containerOomKilled = false;
+    if (container) {
+      try {
+        const inspectData = await container.inspect();
+        containerExitCode = inspectData.State.ExitCode;
+        containerOomKilled = inspectData.State.OOMKilled;
+      } catch {
+        // Container might not be inspectable
+      }
+    }
+    throw {
+      killed: false,
+      stdout: stdoutData,
+      stderr: stderrData,
+      message: err?.message ?? String(err),
+      durationMs,
+      exitCode: containerExitCode !== -1 ? containerExitCode : (err?.exitCode ?? -1),
+      oomKilled: containerOomKilled || (err?.oomKilled ?? false)
+    };
   } finally {
     // -----------------------------------------------------------------------
     // CLEANUP: Force-remove the container regardless of outcome.

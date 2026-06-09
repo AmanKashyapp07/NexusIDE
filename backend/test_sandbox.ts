@@ -8,18 +8,20 @@ async function runTests() {
 
   // Test Case 1: Simple Python execution
   try {
-    const py = await executeCode('print("Hello from Python Runtime")', 'python');
     console.log("Testing Case 1: Standard Python execution...");
-    console.log(`Output: ${py.trim()}\n`);
+    const py = await executeCode('print("Hello from Python Runtime")', 'python');
+    console.log(`Output: ${py.output.trim()}`);
+    console.log(`Metrics: Duration=${py.durationMs.toFixed(2)}ms, exitCode=${py.exitCode}, oomKilled=${py.oomKilled}\n`);
   } catch (err) {
     console.error("Test Case 1 failed:", err);
   }
 
   // Test Case 2: Interactive stdin reading
   try {
-    const stdin = await executeCode('val = input()\nprint(f"Read: {val}")', 'python', 'SecretValue\n');
     console.log("Testing Case 2: Interactive standard input reading...");
-    console.log(`Output: ${stdin.trim()}\n`);
+    const stdin = await executeCode('val = input()\nprint(f"Read: {val}")', 'python', 'SecretValue\n');
+    console.log(`Output: ${stdin.output.trim()}`);
+    console.log(`Metrics: Duration=${stdin.durationMs.toFixed(2)}ms, exitCode=${stdin.exitCode}, oomKilled=${stdin.oomKilled}\n`);
   } catch (err) {
     console.error("Test Case 2 failed:", err);
   }
@@ -28,7 +30,8 @@ async function runTests() {
   try {
     console.log("Testing Case 3: Infinite loop timeout limit (2000ms)...");
     const timeoutRes = await executeCode('while True: pass', 'python');
-    console.log(`Output: ${timeoutRes.trim()}\n`);
+    console.log(`Output: ${timeoutRes.output.trim()}`);
+    console.log(`Metrics: Duration=${timeoutRes.durationMs.toFixed(2)}ms, exitCode=${timeoutRes.exitCode}, oomKilled=${timeoutRes.oomKilled}\n`);
   } catch (err: any) {
     console.log(`Output: ${err.stdout || ''} ${err.message || '[PASS] Execution Timed Out'}\n`);
   }
@@ -46,7 +49,13 @@ except Exception as e:
     print(f"Caught inside: {e}")
 `;
     const oomRes = await executeCode(oomCode, 'python');
-    console.log(`Output: ${oomRes.trim() || '[PASS] Process terminated (OOM-killed)'}\n`);
+    console.log(`Output: ${oomRes.output.trim()}`);
+    console.log(`Metrics: Duration=${oomRes.durationMs.toFixed(2)}ms, exitCode=${oomRes.exitCode}, oomKilled=${oomRes.oomKilled}`);
+    if (oomRes.oomKilled) {
+      console.log(`[PASS] Process terminated (OOM-killed) verified via metrics!\n`);
+    } else {
+      console.log(`[FAIL] Process not marked as OOM-killed.\n`);
+    }
   } catch (err) {
     console.log(`[PASS] Container crashed/terminated.\n`);
   }
@@ -71,7 +80,8 @@ if __name__ == '__main__':
         print(f"Process spawn blocked: {e}")
 `;
     const forkRes = await executeCode(forkBomb, 'python');
-    console.log(`Output: ${forkRes.trim()}\n`);
+    console.log(`Output: ${forkRes.output.trim()}`);
+    console.log(`Metrics: Duration=${forkRes.durationMs.toFixed(2)}ms, exitCode=${forkRes.exitCode}, oomKilled=${forkRes.oomKilled}\n`);
   } catch (err) {
     console.log("Error running fork bomb test:", err);
   }
@@ -88,7 +98,8 @@ except Exception as e:
     print(f"Blocked: {e}")
 `;
     const netRes = await executeCode(netTest, 'python');
-    console.log(`Output: ${netRes.trim()}\n`);
+    console.log(`Output: ${netRes.output.trim()}`);
+    console.log(`Metrics: Duration=${netRes.durationMs.toFixed(2)}ms, exitCode=${netRes.exitCode}, oomKilled=${netRes.oomKilled}\n`);
   } catch (err) {
     console.log("Error running network isolation test:", err);
   }
@@ -104,7 +115,8 @@ except Exception as e:
     print(f"Write blocked: {e}")
 `;
     const mutateRes = await executeCode(mutateCode, 'python');
-    console.log(`Output: ${mutateRes.trim()}\n`);
+    console.log(`Output: ${mutateRes.output.trim()}`);
+    console.log(`Metrics: Duration=${mutateRes.durationMs.toFixed(2)}ms, exitCode=${mutateRes.exitCode}, oomKilled=${mutateRes.oomKilled}\n`);
   } catch (err) {
     console.log("Error running write protection test:", err);
   }

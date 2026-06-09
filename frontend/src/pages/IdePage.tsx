@@ -12,6 +12,7 @@ import { WebsocketProvider } from 'y-websocket';
 function IdePage() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [fileOutputs, setFileOutputs] = useState<Record<string, string>>({});
+  const [fileMetrics, setFileMetrics] = useState<Record<string, { durationMs: number; exitCode: number; oomKilled: boolean } | null>>({});
   const [stdinInputs, setStdinInputs] = useState<Record<string, string>>({});
   const [user, setUser] = useState<{ username: string; id: string } | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -216,10 +217,16 @@ function IdePage() {
       });
 
       const data = await response.json();
-      const result = data.error ? `Error: ${data.error}` : data.output;
-      setFileOutputs((prev) => ({ ...prev, [activeFile.id]: result }));
+      if (data.error) {
+        setFileOutputs((prev) => ({ ...prev, [activeFile.id]: `Error: ${data.error}` }));
+        setFileMetrics((prev) => ({ ...prev, [activeFile.id]: null }));
+      } else {
+        setFileOutputs((prev) => ({ ...prev, [activeFile.id]: data.output }));
+        setFileMetrics((prev) => ({ ...prev, [activeFile.id]: data.metrics || null }));
+      }
     } catch (error: any) {
       setFileOutputs((prev) => ({ ...prev, [activeFile.id]: `Failed to execute: ${error.message}` }));
+      setFileMetrics((prev) => ({ ...prev, [activeFile.id]: null }));
     } finally {
       setIsExecuting(false);
     }
@@ -499,7 +506,11 @@ function IdePage() {
                     Terminal
                   </div>
                   <div className="min-h-0 flex-1">
-                    <OutputPanel output={fileOutputs[activeFile?.id || ''] || ''} isExecuting={isExecuting} />
+                    <OutputPanel
+                      output={fileOutputs[activeFile?.id || ''] || ''}
+                      isExecuting={isExecuting}
+                      metrics={fileMetrics[activeFile?.id || '']}
+                    />
                   </div>
                 </section>
               </main>

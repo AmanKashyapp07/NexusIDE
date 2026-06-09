@@ -204,8 +204,15 @@ router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> =
       return;
     }
 
-    const output = await executeCode(code, language, input || undefined);
-    res.json({ output });
+    const result = await executeCode(code, language, input || undefined);
+    res.json({
+      output: result.output,
+      metrics: {
+        durationMs: result.durationMs,
+        exitCode: result.exitCode,
+        oomKilled: result.oomKilled
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Execution failed' });
   }
