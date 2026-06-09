@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Zap, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X } from 'lucide-react';
+import { Zap, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X, Github } from 'lucide-react';
 
 interface Workspace {
   id: string;
@@ -16,6 +16,9 @@ export default function DashboardPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [joinId, setJoinId] = useState('');
+  const [githubUrl, setGithubUrl] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const navigate = useNavigate();
@@ -91,6 +94,38 @@ export default function DashboardPage() {
     if (!joinId.trim()) return;
     // Just navigate to the IDE with that UUID. If it doesn't exist, IDE will handle 404.
     navigate(`/ide/${joinId.trim()}`);
+  };
+
+  const handleGithubImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!githubUrl.trim()) return;
+
+    setIsImporting(true);
+    setImportError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:4000/api/workspace/import-github', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ githubUrl: githubUrl.trim() })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.workspaceId) {
+        navigate(`/ide/${data.workspaceId}`);
+      } else {
+        setImportError(data.error || 'Failed to import repository.');
+      }
+    } catch (err) {
+      console.error(err);
+      setImportError('A network error occurred. Please try again.');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
@@ -313,6 +348,44 @@ export default function DashboardPage() {
                 >
                   Join Workspace
                   <ArrowRight size={16} />
+                </button>
+              </form>
+            </div>
+
+            <div className="rounded-[1.5rem] nx-glass-strong p-6 shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
+              <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400 mb-4 flex items-center gap-2">
+                <Github size={16} className="text-violet-400" />
+                Import Repository
+              </h3>
+              <form onSubmit={handleGithubImport} className="space-y-4">
+                <input
+                  type="text"
+                  required
+                  disabled={isImporting}
+                  value={githubUrl}
+                  onChange={(e) => setGithubUrl(e.target.value)}
+                  placeholder="https://github.com/owner/repo"
+                  className="nx-input-glow block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-zinc-600 shadow-inner outline-none transition duration-200 hover:border-white/20 disabled:opacity-50"
+                />
+                {importError && (
+                  <p className="text-xs text-red-400 font-medium px-1">{importError}</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={isImporting}
+                  className="nx-btn-shimmer nx-btn-gradient flex w-full items-center justify-center gap-2 rounded-xl border border-violet-300/20 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(139,92,246,0.2)] transition duration-200 hover:shadow-[0_12px_25px_rgba(99,102,241,0.3)] disabled:opacity-50"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <FolderCode size={16} />
+                      Import from GitHub
+                    </>
+                  )}
                 </button>
               </form>
             </div>

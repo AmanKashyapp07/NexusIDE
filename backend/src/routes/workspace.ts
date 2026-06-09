@@ -2,6 +2,13 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { executeCode } from '../sandbox/docker';
 import { getPool } from '../db';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as crypto from 'crypto';
+
+const execFilePromise = promisify(execFile);
 
 const router = Router();
 
@@ -215,6 +222,273 @@ router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> =
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Execution failed' });
+  }
+});
+
+interface WalkItem {
+  path: string;
+  type: 'file' | 'directory';
+  sizeBytes: number;
+}
+
+const IGNORED_DIRS = new Set([
+  '.git',
+  'node_modules',
+  '.npm',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  'target',
+  'bin',
+  'obj'
+]);
+
+const IGNORED_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.pdf',
+  '.zip', '.tar', '.gz', '.rar', '.7z',
+  '.exe', '.dll', '.so', '.dylib',
+  '.mp3', '.mp4', '.wav', '.mov', '.avi', '.flac',
+  '.woff', '.woff2', '.ttf', '.eot',
+  '.db', '.sqlite', '.sqlite3',
+  '.class', '.pyc', '.o', '.obj',
+  '.lock', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'
+]);
+
+function detectLanguage(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  switch (ext) {
+    case '.js':
+    case '.jsx':
+      return 'javascript';
+    case '.ts':
+    case '.tsx':
+      return 'typescript';
+    case '.py':
+      return 'python';
+    case '.java':
+      return 'java';
+    case '.cpp':
+    case '.cc':
+    case '.cxx':
+    case '.h':
+    case '.hpp':
+      return 'cpp';
+    case '.c':
+      return 'c';
+    case '.go':
+      return 'go';
+    case '.rs':
+      return 'rust';
+    case '.html':
+      return 'html';
+    case '.css':
+      return 'css';
+    case '.json':
+      return 'json';
+    case '.md':
+      return 'markdown';
+    case '.sh':
+      return 'shell';
+    case '.yaml':
+    case '.yml':
+      return 'yaml';
+    default:
+      return 'plaintext';
+  }
+}
+
+async function walkDir(
+  dirPath: string,
+  basePath: string,
+  items: WalkItem[] = [],
+  state = { totalSize: 0, fileCount: 0 }
+): Promise<WalkItem[]> {
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    const relPath = path.relative(basePath, fullPath);
+
+    if (entry.isDirectory()) {
+      if (IGNORED_DIRS.has(entry.name)) {
+        continue;
+      }
+      items.push({
+        path: relPath,
+        type: 'directory',
+        sizeBytes: 0
+      });
+      await walkDir(fullPath, basePath, items, state);
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (IGNORED_EXTENSIONS.has(ext) || IGNORED_EXTENSIONS.has(entry.name)) {
+        continue;
+      }
+
+      state.fileCount++;
+      if (state.fileCount > 500) {
+        throw new Error('Limit exceeded: Repository contains more than 500 files.');
+      }
+
+      const stat = await fs.stat(fullPath);
+      if (stat.size > 1024 * 1024) {
+        // Skip individual files > 1MB
+        continue;
+      }
+
+      state.totalSize += stat.size;
+      if (state.totalSize > 10 * 1024 * 1024) {
+        throw new Error('Limit exceeded: Repository total file size exceeds 10MB.');
+      }
+
+      items.push({
+        path: relPath,
+        type: 'file',
+        sizeBytes: stat.size
+      });
+    }
+  }
+
+  return items;
+}
+
+// POST /import-github - Import a public GitHub repository
+router.post('/import-github', async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const { githubUrl } = req.body;
+  if (!githubUrl) {
+    res.status(400).json({ error: 'GitHub URL is required' });
+    return;
+  }
+
+  // Regex to match github urls and optional branch:
+  // Examples:
+  // https://github.com/owner/repo
+  // https://github.com/owner/repo/tree/branch-name
+  // https://github.com/owner/repo.git
+  const gitRegex = /^https:\/\/github\.com\/([a-zA-Z0-9-._]+)\/([a-zA-Z0-9-._]+)(?:\/tree\/([a-zA-Z0-9-._/]+))?\/?$/;
+  const match = githubUrl.trim().match(gitRegex);
+  if (!match) {
+    res.status(400).json({ error: 'Invalid GitHub URL. Must be a public https://github.com/owner/repo URL.' });
+    return;
+  }
+
+  const owner = match[1];
+  let repo = match[2];
+  if (repo.endsWith('.git')) {
+    repo = repo.slice(0, -4);
+  }
+  const branch = match[3] || null;
+
+  // Generate a clean target URL (force HTTPS)
+  const repoUrl = `https://github.com/${owner}/${repo}.git`;
+  const workspaceTitle = `${owner}/${repo}${branch ? ` (${branch})` : ''}`;
+
+  const tempId = crypto.randomUUID();
+  const clonesDir = path.join(process.cwd(), 'temp_git_clones');
+  const tempPath = path.join(clonesDir, tempId);
+
+  let client: any;
+  try {
+    // 1. Ensure temp parent directory exists
+    await fs.mkdir(clonesDir, { recursive: true });
+
+    // 2. Setup clone arguments
+    const cloneArgs = ['clone', '--depth', '1'];
+    if (branch) {
+      cloneArgs.push('-b', branch);
+    }
+    cloneArgs.push(repoUrl, tempPath);
+
+    try {
+      await execFilePromise('git', cloneArgs);
+    } catch (cloneErr: any) {
+      console.error('Git clone failed:', cloneErr.message || cloneErr);
+      res.status(400).json({ error: 'Failed to clone repository. Ensure the repository is public, the URL is correct, and if a branch was specified, that the branch exists.' });
+      return;
+    }
+
+    // 3. Scan the cloned repository
+    const walkState = { totalSize: 0, fileCount: 0 };
+    const items = await walkDir(tempPath, tempPath, [], walkState);
+
+    // 4. Connect to database & start transaction
+    client = await getPool().connect();
+    await client.query('BEGIN');
+
+    // Create the workspace
+    const wsResult = await client.query(
+      'INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING id',
+      [userId, workspaceTitle]
+    );
+    const workspaceId = wsResult.rows[0].id;
+
+    // Separate folders and files
+    const directories = items.filter(item => item.type === 'directory');
+    const files = items.filter(item => item.type === 'file');
+
+    // Sort directories by depth so parents are inserted before children
+    directories.sort((a, b) => a.path.split(path.sep).length - b.path.split(path.sep).length);
+
+    // Map to keep track of inserted directory relative path -> generated UUID
+    const pathToId = new Map<string, string>();
+
+    // Insert directories sequentially
+    for (const dir of directories) {
+      const parentPath = path.dirname(dir.path);
+      const parentId = parentPath === '.' ? null : pathToId.get(parentPath) || null;
+      const dirName = path.basename(dir.path);
+
+      const dirResult = await client.query(
+        'INSERT INTO files (workspace_id, parent_id, name, type) VALUES ($1, $2, $3, $4) RETURNING id',
+        [workspaceId, parentId, dirName, 'directory']
+      );
+      pathToId.set(dir.path, dirResult.rows[0].id);
+    }
+
+    // Insert files
+    const filePromises = files.map(async (file) => {
+      const parentPath = path.dirname(file.path);
+      const parentId = parentPath === '.' ? null : pathToId.get(parentPath) || null;
+      const fileName = path.basename(file.path);
+      const filePath = path.join(tempPath, file.path);
+      
+      const fileContent = await fs.readFile(filePath, 'utf8');
+      const language = detectLanguage(fileName);
+
+      await client.query(
+        `INSERT INTO files (workspace_id, parent_id, name, type, content, language, size_bytes) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [workspaceId, parentId, fileName, 'file', fileContent, language, file.sizeBytes]
+      );
+    });
+
+    await Promise.all(filePromises);
+
+    await client.query('COMMIT');
+    res.json({ success: true, workspaceId });
+  } catch (err: any) {
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    console.error('Import GitHub repo error:', err);
+    res.status(500).json({ error: err.message || 'Failed to import repository.' });
+  } finally {
+    if (client) {
+      client.release();
+    }
+    // Cleanup temporary files
+    try {
+      await fs.rm(tempPath, { recursive: true, force: true });
+    } catch (cleanupErr) {
+      console.error(`Failed to clean up temp dir ${tempPath}:`, cleanupErr);
+    }
   }
 });
 
