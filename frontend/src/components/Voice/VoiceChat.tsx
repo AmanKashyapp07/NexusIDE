@@ -52,7 +52,10 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
       setIsConnected(true);
       setIsMuted(false);
 
-      socketRef.current = io('http://localhost:4000');
+      const token = localStorage.getItem('token') || '';
+      socketRef.current = io('http://localhost:4000', {
+        auth: { token }
+      });
       socketRef.current.emit('join-voice-room', { workspaceId, user });
 
       socketRef.current.on('existing-voice-users', (existingPeers: {socketId: string, user: any}[]) => {

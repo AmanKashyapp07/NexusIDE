@@ -4,6 +4,7 @@ import CodeEditor from '../components/Editor/CodeEditor';
 import OutputPanel from '../components/Terminal/OutputPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import VoiceChat from '../components/Voice/VoiceChat';
+import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import { Play, Zap, Users, Book, LogOut, Loader2, Keyboard } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-ignore
@@ -19,7 +20,9 @@ function IdePage() {
   const [workspaceTitle, setWorkspaceTitle] = useState<string>('Loading...');
   const [files, setFiles] = useState<AppFile[]>([]);
   const [activeFile, setActiveFile] = useState<AppFile | null>(null);
+  const [userRole, setUserRole] = useState<'admin' | 'editor' | 'viewer' | null>(null);
   const [activeCollaborators, setActiveCollaborators] = useState<any[]>([]);
+  const [isCollabModalOpen, setIsCollabModalOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
 
   const editorRef = useRef<any>(null);
@@ -76,6 +79,7 @@ function IdePage() {
         const wsData = await wsRes.json();
         setWorkspaceId(wsData.id);
         setWorkspaceTitle(wsData.title);
+        setUserRole(wsData.userRole || 'viewer');
 
         await fetchFiles(wsData.id);
       } catch (err) {
@@ -96,8 +100,9 @@ function IdePage() {
     if (!urlWorkspaceId) return;
 
     const ydoc = new Y.Doc();
+    const token = localStorage.getItem('token') || '';
     const wsProvider = new WebsocketProvider(
-      'ws://localhost:4000',
+      `ws://localhost:4000?token=${token}`,
       `workspace-${urlWorkspaceId}`,
       ydoc
     );
@@ -207,7 +212,7 @@ function IdePage() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:4000/api/workspace/execute', {
+      const response = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/execute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -289,9 +294,15 @@ function IdePage() {
               <span className="cursor-pointer text-zinc-400 transition-colors hover:text-zinc-200">{user.username}</span>
               <span className="mx-2 text-zinc-700">/</span>
               <span className="cursor-pointer font-semibold text-white transition-colors hover:text-violet-200">{workspaceTitle}</span>
-              <span className="ml-3 rounded-full border border-violet-400/15 bg-violet-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em] text-violet-200">
-                Public
-              </span>
+              {userRole && (
+                <span className={`ml-3 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em] ${
+                  userRole === 'admin' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' :
+                  userRole === 'editor' ? 'border-blue-400/20 bg-blue-400/10 text-blue-300' :
+                  'border-orange-400/20 bg-orange-400/10 text-orange-300'
+                }`}>
+                  {userRole}
+                </span>
+              )}
             </div>
           </div>
 
@@ -355,6 +366,14 @@ function IdePage() {
             )}
 
             <button
+              onClick={() => setIsCollabModalOpen(true)}
+              className="flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/20"
+            >
+              <Users size={14} />
+              Share
+            </button>
+
+            <button
               onClick={() => navigate('/dashboard')}
               className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
             >
@@ -377,6 +396,7 @@ function IdePage() {
             <Sidebar
               files={files}
               activeFileId={activeFile?.id || null}
+              readOnly={userRole === 'viewer'}
               onFileSelect={(file) => {
                 navigate(`/ide/${urlWorkspaceId}/${file.id}`);
               }}
@@ -424,7 +444,8 @@ function IdePage() {
 
                     <button
                       onClick={handleExecute}
-                      disabled={isExecuting}
+                      disabled={isExecuting || userRole === 'viewer'}
+                      title={userRole === 'viewer' ? 'Viewers cannot run code' : ''}
                       className="
                         nx-btn-shimmer nx-btn-gradient
                         flex items-center gap-2
@@ -465,6 +486,7 @@ function IdePage() {
                         fileId={activeFile.id}
                         language={activeFile.language || 'javascript'}
                         currentUser={user}
+                        readOnly={userRole === 'viewer'}
                         onAwarenessChange={setActiveCollaborators}
                         onConnectionStatusChange={setConnectionStatus}
                         onEditorReady={(editor) => {
@@ -493,8 +515,9 @@ function IdePage() {
                         const fileId = activeFile?.id || '';
                         setStdinInputs((prev) => ({ ...prev, [fileId]: e.target.value }));
                       }}
-                      placeholder="Enter input here (e.g. for scanf, input(), cin)..."
-                      className="w-full resize-none border-0 bg-[rgba(7,6,11,0.95)] px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-300 placeholder:text-zinc-600 outline-none focus:bg-[rgba(13,12,20,0.95)]"
+                      disabled={userRole === 'viewer'}
+                      placeholder={userRole === 'viewer' ? "Viewers cannot enter input..." : "Enter input here (e.g. for scanf, input(), cin)..."}
+                      className="w-full resize-none border-0 bg-[rgba(7,6,11,0.95)] px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-300 placeholder:text-zinc-600 outline-none focus:bg-[rgba(13,12,20,0.95)] disabled:opacity-50"
                       rows={3}
                     />
                     <div className="border-t border-white/[0.04] bg-white/[0.02] px-4 py-1.5 text-[10px] text-zinc-500">
@@ -518,6 +541,15 @@ function IdePage() {
           </div>
         </div>
       </div>
+      
+      {workspaceId && userRole && (
+        <CollaboratorsModal
+          workspaceId={workspaceId}
+          userRole={userRole}
+          isOpen={isCollabModalOpen}
+          onClose={() => setIsCollabModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

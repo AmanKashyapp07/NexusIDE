@@ -16,6 +16,7 @@ interface CodeEditorProps {
   onEditorReady?: (editor: any) => void;
   onAwarenessChange?: (users: any[]) => void;
   onConnectionStatusChange?: (status: 'connected' | 'disconnected' | 'connecting') => void;
+  readOnly?: boolean;
 }
 
 const COLORS = [
@@ -37,7 +38,7 @@ const getUserColor = (username: string) => {
   return COLORS[Math.abs(hash) % COLORS.length];
 };
 
-export default function CodeEditor({ workspaceId, fileId, language, currentUser, onCodeChange, onEditorReady, onAwarenessChange, onConnectionStatusChange }: CodeEditorProps) {
+export default function CodeEditor({ workspaceId, fileId, language, currentUser, onCodeChange, onEditorReady, onAwarenessChange, onConnectionStatusChange, readOnly = false }: CodeEditorProps) {
   const [editor, setEditor] = useState<any>(null);
   const [awarenessStates, setAwarenessStates] = useState<any[]>([]);
 
@@ -50,8 +51,9 @@ export default function CodeEditor({ workspaceId, fileId, language, currentUser,
     // Setup offline persistence
     const indexeddbProvider = new IndexeddbPersistence(roomName, ydoc);
 
+    const token = localStorage.getItem('token') || '';
     const wsProvider = new WebsocketProvider(
-      'ws://localhost:4000',
+      `ws://localhost:4000?token=${token}`,
       roomName,
       ydoc
     );
@@ -180,6 +182,7 @@ export default function CodeEditor({ workspaceId, fileId, language, currentUser,
           lineNumbersMinChars: 3,
           scrollBeyondLastLine: false,
           renderLineHighlight: 'none',
+          readOnly: readOnly,
         }}
         onMount={handleEditorDidMount}
         onChange={(value) => onCodeChange && onCodeChange(value || '')}

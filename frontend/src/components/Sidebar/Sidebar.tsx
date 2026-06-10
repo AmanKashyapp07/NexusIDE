@@ -15,9 +15,10 @@ interface SidebarProps {
   onFileSelect: (file: AppFile) => void;
   onFileCreate: (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => void;
   onFileDelete: (id: string) => void;
+  readOnly?: boolean;
 }
 
-export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreate, onFileDelete }: SidebarProps) {
+export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreate, onFileDelete, readOnly = false }: SidebarProps) {
   // Consolidated creation state for better control over inline inputs
   const [createState, setCreateState] = useState<{
     isCreating: boolean;
@@ -189,46 +190,48 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
             </div>
 
             {/* Hover Actions */}
-            <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-              {isFolder && (
-                <>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openCreateForm('file', file.id);
-                    }}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                    title="New File"
-                  >
-                    <FilePlus size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openCreateForm('directory', file.id);
-                    }}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                    title="New Folder"
-                  >
-                    <FolderPlus size={13} />
-                  </button>
-                </>
-              )}
+            {!readOnly && (
+              <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                {isFolder && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openCreateForm('file', file.id);
+                      }}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                      title="New File"
+                    >
+                      <FilePlus size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openCreateForm('directory', file.id);
+                      }}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                      title="New Folder"
+                    >
+                      <FolderPlus size={13} />
+                    </button>
+                  </>
+                )}
 
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onFileDelete(file.id);
-                }}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-red-500/20 hover:text-red-400"
-                title={isFolder ? 'Delete Folder' : 'Delete File'}
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onFileDelete(file.id);
+                  }}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-red-500/20 hover:text-red-400"
+                  title={isFolder ? 'Delete Folder' : 'Delete File'}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Render nested children OR the inline creation input if targeted */}
@@ -258,22 +261,24 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
       {/* Sidebar Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Explorer</span>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => openCreateForm('file')}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
-            title="New File at Root"
-          >
-            <FilePlus size={14} />
-          </button>
-          <button
-            onClick={() => openCreateForm('directory')}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
-            title="New Folder at Root"
-          >
-            <FolderPlus size={14} />
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => openCreateForm('file')}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
+              title="New File at Root"
+            >
+              <FilePlus size={14} />
+            </button>
+            <button
+              onClick={() => openCreateForm('directory')}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
+              title="New Folder at Root"
+            >
+              <FolderPlus size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* File Tree Container */}

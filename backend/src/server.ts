@@ -17,6 +17,7 @@ import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 import workspaceRoutes from './routes/workspace';
 import authRoutes from './routes/auth';
 import { requireAuth } from './middleware/auth';
+import jwt from 'jsonwebtoken';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { warmPoolManager } from './sandbox/pool';
@@ -281,17 +282,93 @@ const wss = new WebSocketServer({ server });
 //   Upgrade: websocket → handled by wss
 //   (no Upgrade header) → handled by Express
 
-wss.on('connection', (ws, req) => {
-  // Extract the Yjs document name from the URL path.
-  // Client connects to ws://localhost:4000/<workspaceId>-<fileId>
-  // req.url = "/<workspaceId>-<fileId>" (may include ?<querystring>)
-  const docName = req.url?.slice(1).split('?')[0] || 'default';
+wss.on('connection', async (ws, req) => {
+  try {
+    const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+    const token = parsedUrl.searchParams.get('token');
+    
+    if (!token) {
+      ws.close(4401, 'Unauthorized: Token required');
+      return;
+    }
 
-  // setupWSConnection handles the entire Yjs sync protocol over this socket:
-  //   - Sync step 1 & 2 (state vector exchange + missing update transmission)
-  //   - Awareness updates (cursor positions, user info)
-  //   - Persistence hooks (calls our bindState/writeState at appropriate times)
-  setupWSConnection(ws, req, { docName });
+    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+    let decodedUser: any;
+    try {
+      decodedUser = jwt.verify(token, JWT_SECRET);
+    } catch (e) {
+      ws.close(4401, 'Unauthorized: Invalid token');
+      return;
+    }
+
+    const docName = parsedUrl.pathname.slice(1);
+    if (!docName || docName === 'default') {
+      setupWSConnection(ws, req, { docName });
+      return;
+    }
+
+    // docName is <workspaceId>-<fileId> or workspace-<workspaceId>
+    const match = docName.match(/^([0-9a-fA-F-]{36})(-.*)?$/) || docName.match(/^workspace-([0-9a-fA-F-]{36})$/);
+    if (!match) {
+      ws.close(4000, 'Bad Request: Invalid room name format');
+      return;
+    }
+    const workspaceId = match[1];
+
+    const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
+    if (wsResult.rows.length === 0) {
+      ws.close(4044, 'Workspace not found');
+      return;
+    }
+    const workspace = wsResult.rows[0];
+
+    let role = null;
+    if (workspace.owner_id === decodedUser.id) {
+      role = 'admin';
+    } else {
+      const collabResult = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, decodedUser.id]);
+      if (collabResult.rows.length > 0) {
+        role = collabResult.rows[0].role;
+      } else if (workspace.is_public) {
+        role = 'viewer';
+      }
+    }
+
+    if (!role) {
+      ws.close(4403, 'Forbidden: You do not have access to this workspace');
+      return;
+    }
+
+    // Enforce read-only for viewers
+    if (role === 'viewer') {
+      const originalOn = ws.on.bind(ws);
+      ws.on = function(event: string, listener: any) {
+        if (event === 'message') {
+          const interceptedListener = (message: any, isBinary: boolean) => {
+            if (isBinary && message.length > 0) {
+              const messageType = message[0];
+              if (messageType === 0) {
+                // messageType = 0 is a Sync message
+                // We only allow SyncStep1 (requesting state vector) from read-only.
+                // SyncStep1 has format: [0, 0, ...stateVector]
+                if (message.length > 1 && message[1] !== 0) {
+                   return; // discard update
+                }
+              }
+            }
+            listener(message, isBinary);
+          };
+          return originalOn(event, interceptedListener);
+        }
+        return originalOn(event, listener);
+      };
+    }
+
+    setupWSConnection(ws, req, { docName });
+  } catch (error) {
+    console.error('WebSocket connection error:', error);
+    ws.close(4500, 'Internal Server Error');
+  }
 });
 
 // =============================================================================
@@ -337,21 +414,45 @@ const io = new SocketIOServer(server, {
   }
 });
 
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) return next(new Error('Authentication error'));
+    
+    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+    const decodedUser = jwt.verify(token, JWT_SECRET) as any;
+    socket.data.user = decodedUser;
+    next();
+  } catch(err) {
+    next(new Error('Authentication error'));
+  }
+});
+
 io.on('connection', (socket) => {
 
-  socket.on('join-voice-room', async ({ workspaceId, user }) => {
-    // socket.join() puts this socket into a named room.
-    // io.to(workspaceId).emit() then broadcasts to all sockets in that room.
+  socket.on('join-voice-room', async ({ workspaceId }) => {
+    const user = socket.data.user;
+    
+    const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
+    if (wsResult.rows.length === 0) return;
+    
+    const workspace = wsResult.rows[0];
+    let hasAccess = false;
+    
+    if (workspace.owner_id === user.id || workspace.is_public) {
+      hasAccess = true;
+    } else {
+      const collabRes = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, user.id]);
+      if (collabRes.rows.length > 0) hasAccess = true;
+    }
+    
+    if (!hasAccess) return;
+
     socket.join(workspaceId);
     socket.data.workspaceId = workspaceId;
-    socket.data.user = user;
 
-    // Notify existing users in the room that someone new joined.
-    // socket.to(room) = broadcast to all sockets in `room` EXCEPT the sender.
     socket.to(workspaceId).emit('user-joined-voice', { socketId: socket.id, user });
 
-    // Send the new user the list of already-connected peers so it can
-    // initiate WebRTC offers to each of them.
     const sockets = await io.in(workspaceId).fetchSockets();
     const existingPeers = sockets
       .filter(s => s.id !== socket.id)
