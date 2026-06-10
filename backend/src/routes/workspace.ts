@@ -469,13 +469,30 @@ router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: 
 // SANDBOX EXECUTION GATEWAY
 // =============================================================================
 
-// POST /:id/execute - Trigger secure code execution (Requires Editor role)
+// =============================================================================
+// SECURE CODE EXECUTION ENDPOINT (POST /:id/execute)
+// =============================================================================
 //
-// SYSTEM GATEWAY:
-//   Guarded strictly. A 'viewer' can read code, but cannot trigger executions.
-//   This prevents unauthorized resource exhaustion of our Docker host.
-//   Proxies execution payloads to the helper in `docker.ts`, capturing runtime
-//   metrics (OOM, duration, exit code, CPU, RAM) for tracking sandbox performance.
+// INTERVIEW PREP & DESIGN CONCEPTS:
+//
+// 1. AUTHORIZATION GATING & MULTI-TENANCY GATEKEEPING:
+//    - Guarded strictly by `requireWorkspaceRole('editor')`. In multi-tenant systems,
+//      compiling/running untrusted code is a resource-intensive operation (high CPU/RAM).
+//      Restricting execution to "editors" prevents "viewers" from launching DDOS/exhaustion
+//      attacks against our Docker host server.
+//
+// 2. SYSTEM BOUNDS & LIFECYCLE MONITORING:
+//    - We capture metrics (execution duration, peak memory, CPU percentage, OOM flag, exit codes)
+//      and save them to the `execution_history` table.
+//    - Historical audit logging is crucial in serverless environments for resource usage billing,
+//      identifying malicious/runaway loops, and helping users debug memory leaks.
+//
+// 3. METRIC DEVIATION & OUTLIER NORMALIZATION:
+//    - Exit Code 137: Represents SIGKILL (128 + Signal 9). The process was forced to stop.
+//      We check if the container's OOM state is true (oomKilled), or if it timed out (duration reached cap).
+//    - File-specific isolation: The `file_name` parameter isolates logs. Users can filter metrics
+//      to trace the behavior of a single script (e.g., memory growth across runs of `script.js`).
+//
 router.post('/:id/execute', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
   const { id } = req.params;
   const userId = req.user?.id;
