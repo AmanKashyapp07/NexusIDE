@@ -297,7 +297,7 @@ wss.on('connection', async (ws, req) => {
     let decodedUser: any;
     try {
       decodedUser = jwt.verify(token, JWT_SECRET);
-    } catch (e) {
+    } catch (e: any) {
       console.log('[WS] Connection closed: Invalid token', e.message);
       ws.close(4401, 'Unauthorized: Invalid token');
       return;

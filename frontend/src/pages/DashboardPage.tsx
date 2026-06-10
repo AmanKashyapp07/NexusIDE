@@ -7,6 +7,8 @@ interface Workspace {
   title: string;
   created_at: string;
   updated_at: string;
+  owner_id: string;
+  user_role?: string;
 }
 
 export default function DashboardPage() {
@@ -93,28 +95,39 @@ export default function DashboardPage() {
     navigate(`/ide/${joinId.trim()}`);
   };
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
+  const handleDelete = async (e: React.MouseEvent, ws: Workspace) => {
     e.stopPropagation();
+    const isOwner = user?.id === ws.owner_id;
+    if (!isOwner) {
+      alert('you are not admin');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this workspace?')) return;
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${id}`, {
+      const res = await fetch(`http://localhost:4000/api/workspace/${ws.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        setWorkspaces(prev => prev.filter(ws => ws.id !== id));
+        setWorkspaces(prev => prev.filter(item => item.id !== ws.id));
       }
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleEditStart = (e: React.MouseEvent, id: string, currentTitle: string) => {
+  const handleEditStart = (e: React.MouseEvent, ws: Workspace) => {
     e.stopPropagation();
-    setEditingWorkspaceId(id);
-    setEditingTitle(currentTitle);
+    const isOwner = user?.id === ws.owner_id;
+    const isAdmin = isOwner || ws.user_role === 'admin';
+    if (!isAdmin) {
+      alert('you are not admin');
+      return;
+    }
+    setEditingWorkspaceId(ws.id);
+    setEditingTitle(ws.title);
   };
 
   const handleEditSave = async (e: React.MouseEvent | React.FormEvent, id: string) => {
@@ -241,14 +254,14 @@ export default function DashboardPage() {
 
                           <div className="absolute right-4 top-4 flex opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                             <button
-                              onClick={(e) => handleEditStart(e, ws.id, ws.title)}
+                              onClick={(e) => handleEditStart(e, ws)}
                               className="cursor-pointer rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-violet-300"
                               title="Edit Title"
                             >
                               <Edit2 size={16} />
                             </button>
                             <button
-                              onClick={(e) => handleDelete(e, ws.id)}
+                              onClick={(e) => handleDelete(e, ws)}
                               className="cursor-pointer rounded-lg p-1.5 text-zinc-400 hover:bg-red-500/20 hover:text-red-400"
                               title="Delete Workspace"
                             >

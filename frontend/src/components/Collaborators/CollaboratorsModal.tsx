@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, UserPlus, Shield, User, Loader2, Trash2 } from 'lucide-react';
+import { X, Users, UserPlus, Loader2, Trash2 } from 'lucide-react';
 
 interface Collaborator {
   id: string;

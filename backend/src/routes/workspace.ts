@@ -89,11 +89,11 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     }
     
     const workspaces = await getPool().query(
-      `SELECT w.id, w.title, w.created_at, w.updated_at 
+      `SELECT w.id, w.title, w.created_at, w.updated_at, w.owner_id, 'owner' AS user_role
        FROM workspaces w 
        WHERE w.owner_id = $1 
        UNION 
-       SELECT w.id, w.title, w.created_at, w.updated_at 
+       SELECT w.id, w.title, w.created_at, w.updated_at, w.owner_id, wc.role::text AS user_role
        FROM workspaces w 
        INNER JOIN workspace_collaborators wc ON w.id = wc.workspace_id 
        WHERE wc.user_id = $1
@@ -102,6 +102,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     );
     res.json(workspaces.rows);
   } catch (err: any) {
+    console.error('Error fetching workspaces:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
