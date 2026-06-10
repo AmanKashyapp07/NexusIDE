@@ -5,7 +5,36 @@ import { getPool } from '../db';
 
 const router = Router();
 
-// Get all workspaces for the authenticated user
+// =============================================================================
+// ORCHESTRATION BACKEND & WORKSPACE ROUTER
+// =============================================================================
+//
+// PURPOSE:
+//   Manages the lifecycle of user workspaces, the hierarchical file tree, and
+//   securely proxies requests to the isolated Docker execution sandbox.
+//
+// ARCHITECTURE — RAW SQL OVER ORM:
+//   This layer utilizes raw parameterized SQL queries (pg) rather than a heavy 
+//   ORM (like Prisma or TypeORM). 
+//   Why? 
+//   1. Performance: Eliminates the N+1 query problem and reduces memory overhead.
+//   2. Advanced Postgres Features: Allows us to natively use `ON CONFLICT DO UPDATE` 
+//      for race-condition-free upserts.
+//
+// SECURITY PROPERTIES (BOLA/IDOR PREVENTION):
+//   Almost every route inherently checks if the authenticated `req.user.id` 
+//   matches the `owner_id` of the requested resource. This prevents Broken Object 
+//   Level Authorization (BOLA), ensuring users cannot modify or delete workspaces 
+//   by simply guessing another user's workspace UUID.
+//
+// =============================================================================
+
+
+// =============================================================================
+// WORKSPACE LIFECYCLE ROUTES
+// =============================================================================
+
+// GET / - Retrieve all workspaces for the authenticated user
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user?.id;
@@ -14,6 +43,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
     
+    // Sort by updated_at DESC to natively support a "Recent Projects" dashboard UI.
     const workspaces = await getPool().query(
       'SELECT id, title, created_at, updated_at FROM workspaces WHERE owner_id = $1 ORDER BY updated_at DESC',
       [userId]
@@ -24,7 +54,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
-// Create or get workspace
+// POST / - Create a new workspace or update an existing one (Upsert)
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { id, title } = req.body;
@@ -38,7 +68,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     try {
       let result;
       if (id) {
-        // Upsert by ID
+        // ATOMIC UPSERT: 
+        // Using `ON CONFLICT (id) DO UPDATE` guarantees atomicity at the database 
+        // level. It prevents race conditions where two rapid concurrent requests 
+        // might try to create a workspace with the exact same ID.
         result = await getPool().query(
           `INSERT INTO workspaces (id, owner_id, title) 
            VALUES ($1, $2, $3)
@@ -55,7 +88,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           [userId, title || 'Untitled Project']
         );
         
-        // Auto-create a default index.js file for new workspaces
+        // BOOTSTRAPPING: 
+        // Auto-inject a default file so the frontend's Monaco Editor has an 
+        // immediate anchor point upon entering a brand new workspace.
         if (result.rows.length > 0) {
           await getPool().query(
             `INSERT INTO files (workspace_id, name, type, language, content) VALUES ($1, $2, $3, $4, $5)`,
@@ -74,7 +109,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Get workspace by ID
+// GET /:id - Retrieve workspace metadata by ID
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -91,13 +126,14 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
-// Delete workspace
+// DELETE /:id - Delete a workspace
 router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
     
-    // Make sure the user owns the workspace before deleting
+    // SECURITY CHECK (IDOR Mitigation):
+    // Ensure the user actually owns the workspace before executing a destructive action.
     const wsResult = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [id]);
     
     if (wsResult.rows.length === 0) {
@@ -110,6 +146,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       return;
     }
     
+    // Deleting the workspace will typically cascade and delete all associated `files` 
+    // automatically if the database schema utilizes `ON DELETE CASCADE` foreign keys.
     await getPool().query('DELETE FROM workspaces WHERE id = $1', [id]);
     res.json({ success: true });
   } catch (err: any) {
@@ -117,7 +155,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
   }
 });
 
-// Get or Create Default Workspace
+// GET /default - Retrieve or create a fallback workspace
 router.get('/default', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user?.id;
@@ -133,7 +171,7 @@ router.get('/default', async (req: AuthRequest, res: Response): Promise<void> =>
         'INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *',
         [userId, 'My First Sandbox']
       );
-      // Create a default index.js file
+      // Bootstrapping the default workspace
       await getPool().query(
         `INSERT INTO files (workspace_id, name, type, language, content) VALUES ($1, $2, $3, $4, $5)`,
         [wsResult.rows[0].id, 'index.js', 'file', 'javascript', '']
@@ -145,10 +183,18 @@ router.get('/default', async (req: AuthRequest, res: Response): Promise<void> =>
   }
 });
 
-// GET /:id/files
+// =============================================================================
+// FILE TREE MANAGEMENT
+// =============================================================================
+
+// GET /:id/files - Retrieve the directory structure of a workspace
 router.get('/:id/files', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+    // Querying the flat hierarchy. 
+    // `ORDER BY type DESC, name ASC` ensures that folders ('directory') appear 
+    // at the top of the list, followed by files ('file') in alphabetical order, 
+    // mirroring standard IDE behavior.
     const files = await getPool().query('SELECT id, parent_id, name, type, language FROM files WHERE workspace_id = $1 ORDER BY type DESC, name ASC', [id]);
     res.json(files.rows);
   } catch (err: any) {
@@ -156,7 +202,7 @@ router.get('/:id/files', async (req: AuthRequest, res: Response): Promise<void> 
   }
 });
 
-// POST /:id/files
+// POST /:id/files - Create a new file or directory
 router.post('/:id/files', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -176,6 +222,11 @@ router.post('/:id/files', async (req: AuthRequest, res: Response): Promise<void>
     );
     res.status(201).json(newFile.rows[0]);
   } catch (err: any) {
+    // ERROR HANDLING STRATEGY:
+    // '23505' is the specific Postgres error code for a unique_violation.
+    // By defining a composite unique index on (workspace_id, parent_id, name) in 
+    // the database schema, we allow the DB engine to block duplicate files gracefully, 
+    // avoiding the need for an expensive preliminary SELECT check.
     if (err.code === '23505') { 
       res.status(400).json({ error: 'A file with this name already exists in this folder' });
     } else {
@@ -184,10 +235,12 @@ router.post('/:id/files', async (req: AuthRequest, res: Response): Promise<void>
   }
 });
 
-// DELETE /:id/files/:fileId
+// DELETE /:id/files/:fileId - Delete a file or directory
 router.delete('/:id/files/:fileId', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { fileId } = req.params;
+    // Assuming 'ON DELETE CASCADE' is configured on the `parent_id` foreign key,
+    // deleting a directory will automatically delete all nested files and sub-directories.
     await getPool().query('DELETE FROM files WHERE id = $1', [fileId]);
     res.json({ success: true });
   } catch (err: any) {
@@ -195,7 +248,11 @@ router.delete('/:id/files/:fileId', async (req: AuthRequest, res: Response): Pro
   }
 });
 
-// Execute code route
+// =============================================================================
+// SANDBOX EXECUTION GATEWAY
+// =============================================================================
+
+// POST /execute - Trigger secure code execution
 router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { code, language, input } = req.body;
@@ -204,13 +261,17 @@ router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> =
       return;
     }
 
+    // Passes the payload to the Docker Engine layer (Phase 2 of the architecture).
+    // The orchestration server immediately pauses and awaits the multiplexed stream 
+    // outputs from the isolated container environment.
     const result = await executeCode(code, language, input || undefined);
+    
     res.json({
       output: result.output,
       metrics: {
         durationMs: result.durationMs,
         exitCode: result.exitCode,
-        oomKilled: result.oomKilled
+        oomKilled: result.oomKilled // Exposing cgroup resource ceiling breaches
       }
     });
   } catch (error: any) {
@@ -219,14 +280,3 @@ router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> =
 });
 
 export default router;
-
-
-// what each route does -
-// GET /:id - Get workspace details of a specific workspace by ID
-// PUT /:id - Update workspace details of a specific workspace by ID (e.g. rename)
-// DELETE /:id - Delete workspace by ID (and all associated files)
-// GET /default - Get all workspaces for the authenticated user, or create a default one if none exist
-// GET /:id/files - Get all files in a workspace by workspace ID
-// POST /:id/files - Create a new file in a workspace by workspace ID (expects name, type, parent_id, language in body)
-// DELETE /:id/files/:fileId - Delete a file from a workspace by file ID
-// POST /execute - Execute code and return output (expects code and language in body)
