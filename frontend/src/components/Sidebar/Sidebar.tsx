@@ -257,7 +257,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
     });
 
   return (
-    <div className="flex h-full w-64 flex-col border-r border-white/5 bg-transparent">
+    <div className="flex h-full w-full flex-col border-r border-white/5 bg-transparent">
       {/* Sidebar Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Explorer</span>
