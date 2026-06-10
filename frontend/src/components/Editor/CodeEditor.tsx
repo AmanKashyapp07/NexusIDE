@@ -59,11 +59,15 @@ export default function CodeEditor({ workspaceId, fileId, language, currentUser,
       { params: { token } }
     );
 
-    wsProvider.on('status', (event: { status: 'connected' | 'disconnected' | 'connecting' }) => {
-      if (onConnectionStatusChange) {
+    let isActive = true;
+
+    const handleStatusChange = (event: { status: 'connected' | 'disconnected' | 'connecting' }) => {
+      if (isActive && onConnectionStatusChange) {
         onConnectionStatusChange(event.status);
       }
-    });
+    };
+
+    wsProvider.on('status', handleStatusChange);
 
     wsProvider.awareness.setLocalStateField('user', {
       name: currentUser.username,
@@ -71,6 +75,7 @@ export default function CodeEditor({ workspaceId, fileId, language, currentUser,
     });
 
     const handleAwarenessChange = () => {
+      if (!isActive) return;
       const states = Array.from(wsProvider.awareness.getStates().entries());
       setAwarenessStates(states);
       
@@ -94,6 +99,9 @@ export default function CodeEditor({ workspaceId, fileId, language, currentUser,
     );
 
     return () => {
+      isActive = false;
+      wsProvider.off('status', handleStatusChange);
+      wsProvider.awareness.off('change', handleAwarenessChange);
       binding.destroy();
       wsProvider.destroy();
       indexeddbProvider.destroy();

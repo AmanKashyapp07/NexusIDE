@@ -97,7 +97,7 @@ function IdePage() {
 
   // Workspace-level Yjs Sync for File Tree Updates
   useEffect(() => {
-    if (!urlWorkspaceId) return;
+    if (!urlWorkspaceId || !user) return;
 
     const ydoc = new Y.Doc();
     const token = localStorage.getItem('token') || '';
@@ -115,12 +115,44 @@ function IdePage() {
       fetchFiles(urlWorkspaceId);
     });
 
+    wsProvider.on('status', (event: { status: 'connected' | 'disconnected' | 'connecting' }) => {
+      setConnectionStatus(event.status);
+    });
+
+    const COLORS = [
+      '#ef4444', '#f97316', '#eab308', '#22c55e',
+      '#06b6d4', '#3b82f6', '#a855f7', '#ec4899',
+    ];
+    const getUserColor = (username: string) => {
+      let hash = 0;
+      for (let i = 0; i < username.length; i++) {
+        hash = username.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      return COLORS[Math.abs(hash) % COLORS.length];
+    };
+
+    wsProvider.awareness.setLocalStateField('user', {
+      name: user.username,
+      color: getUserColor(user.username)
+    });
+
+    const handleAwarenessChange = () => {
+      const states = Array.from(wsProvider.awareness.getStates().entries());
+      const users = states.map(([, state]: any) => state.user).filter(Boolean);
+      const uniqueUsers = Array.from(new Map(users.map(u => [u.name, u])).values());
+      setActiveCollaborators(uniqueUsers);
+    };
+
+    wsProvider.awareness.on('change', handleAwarenessChange);
+    handleAwarenessChange();
+
     return () => {
+      wsProvider.awareness.off('change', handleAwarenessChange);
       wsProvider.destroy();
       ydoc.destroy();
       workspaceWsProviderRef.current = null;
     };
-  }, [urlWorkspaceId]);
+  }, [urlWorkspaceId, user]);
 
   useEffect(() => {
     if (files.length === 0) return;
@@ -488,8 +520,6 @@ function IdePage() {
                         language={activeFile.language || 'javascript'}
                         currentUser={user}
                         readOnly={userRole === 'viewer'}
-                        onAwarenessChange={setActiveCollaborators}
-                        onConnectionStatusChange={setConnectionStatus}
                         onEditorReady={(editor) => {
                           editorRef.current = editor;
                         }}
