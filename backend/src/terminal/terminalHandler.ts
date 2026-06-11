@@ -597,8 +597,7 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     });
 
     const writeStream = await exec.start({ hijack: true, stdin: true });
-    writeStream.write(content);
-    writeStream.end();
+    writeStream.end(content);
 
     console.log(`[TerminalSync] Automatically synchronized ${filePath} to active container`);
   } catch (err: any) {

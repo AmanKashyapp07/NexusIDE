@@ -219,7 +219,7 @@ setPersistence({
             
             // Sync to active terminal container
             const workspaceId = match[1];
-            syncFileToTerminal(workspaceId, fileId, contentText).catch((err) => {
+            syncFileToTerminal(workspaceId as string, fileId as string, contentText).catch((err) => {
               console.error('Failed to sync updated file to terminal:', err);
             });
             // We store BOTH:
@@ -230,7 +230,7 @@ setPersistence({
           } catch (err) {
             console.error('Error auto-saving state to DB:', err);
           }
-        }, 2000);
+        }, 400);
       });
     }
   },
@@ -249,7 +249,7 @@ setPersistence({
           'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
           [Buffer.from(state), content, fileId]
         );
-        syncFileToTerminal(workspaceId, fileId, content).catch((err) => {
+        syncFileToTerminal(workspaceId as string, fileId as string, content).catch((err) => {
           console.error('Failed to sync updated file to terminal on writeState:', err);
         });
       } catch (err) {
@@ -287,11 +287,23 @@ setPersistence({
 //   maintains a persistent connection with no per-message overhead after the
 //   initial handshake, enabling true real-time sync (<10ms propagation in
 //   ideal conditions).
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ noServer: true });
 // Attaching to `server` means the WebSocket server shares port 4000 with
 // Express. Incoming connections are differentiated by the Upgrade header:
 //   Upgrade: websocket → handled by wss
 //   (no Upgrade header) → handled by Express
+//
+// We handle upgrades manually and filter out Socket.IO upgrade requests.
+// This prevents y-websocket from intercepting and breaking Socket.IO's WebRTC signaling connections.
+server.on('upgrade', (request, socket, head) => {
+  const parsedUrl = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
+  if (parsedUrl.pathname.startsWith('/socket.io/')) {
+    return;
+  }
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
 
 wss.on('connection', async (ws, req) => {
   try {

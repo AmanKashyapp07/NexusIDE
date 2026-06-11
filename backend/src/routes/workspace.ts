@@ -3,7 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole, WorkspaceAuthRequest, CollaboratorRole } from '../middleware/workspaceAuth';
 import { executeCode } from '../sandbox/docker';
 import { getPool } from '../db';
-import { syncDeleteToTerminal, syncFolderToTerminal } from '../terminal/terminalHandler';
+import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
 
 const router = Router();
 
@@ -464,7 +464,7 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
         [id, createdFile.id]
       ).then(pathRes => {
         if (pathRes.rows.length > 0) {
-          syncFolderToTerminal(id, pathRes.rows[0].path).catch(syncErr => {
+          syncFolderToTerminal(id as string, pathRes.rows[0].path).catch(syncErr => {
             console.error('Failed to sync directory creation to terminal:', syncErr);
           });
         }
@@ -487,7 +487,7 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
         [id, createdFile.id]
       ).then(pathRes => {
         if (pathRes.rows.length > 0) {
-          syncFileToTerminal(id, createdFile.id, '').catch(syncErr => {
+          syncFileToTerminal(id as string, createdFile.id, '').catch(syncErr => {
             console.error('Failed to sync empty file creation to terminal:', syncErr);
           });
         }
@@ -532,7 +532,7 @@ router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: 
     // Sync deletion to terminal in the background if path was found
     if (pathResult.rows.length > 0) {
       const filePath = pathResult.rows[0].path;
-      syncDeleteToTerminal(id, filePath).catch((err) => {
+      syncDeleteToTerminal(id as string, filePath).catch((err) => {
         console.error('Failed to sync delete to terminal:', err);
       });
     }
