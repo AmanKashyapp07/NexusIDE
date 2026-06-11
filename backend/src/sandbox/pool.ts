@@ -1,6 +1,7 @@
 import Docker from 'dockerode';
 import { existsSync } from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
 // =============================================================================
 // WARM CONTAINER POOL — Pre-warmed Docker Container Manager
@@ -153,10 +154,8 @@ const IMAGE_CONFIGS: Record<string, string> = {
   bash: 'alpine:3.18'
 };
 
-// Terminal terminals only need a shell and core utilities, so Alpine is enough.
-// No compiler toolchains are required because the terminal handler executes
-// whatever is already present inside the user's hydrated workspace.
-const TERMINAL_IMAGE = 'alpine:3.18';
+// Terminal sandbox dev environment image pre-installed with Node, NPM, Python, GCC, Git, Curl, Bash
+const TERMINAL_IMAGE = 'sandbox-dev-env:latest';
 
 // =============================================================================
 // WARM POOL MANAGER
@@ -223,8 +222,44 @@ class WarmPoolManager {
   //   Promise.all rejects and the error propagates to server.ts which logs it.
   //   The server still starts — failed languages will fall back to on-demand
   //   container creation (slower but functional).
+  private async ensureTerminalImageExists(): Promise<void> {
+    const imageName = 'sandbox-dev-env:latest';
+    try {
+      await docker.getImage(imageName).inspect();
+      console.log('[WarmPool] Terminal developer sandbox image is already built and ready.');
+    } catch (err) {
+      console.log('[WarmPool] sandbox-dev-env:latest does not exist, building image now...');
+      const dockerfileContent = `FROM alpine:3.18
+RUN apk add --no-cache \
+    nodejs \
+    npm \
+    python3 \
+    py3-pip \
+    g++ \
+    gcc \
+    make \
+    libc-dev \
+    git \
+    curl \
+    bash
+WORKDIR /app
+`;
+      try {
+        execSync('docker build -t sandbox-dev-env:latest -', { input: dockerfileContent, stdio: 'pipe' });
+        console.log('[WarmPool] Terminal developer sandbox image built successfully.');
+      } catch (buildErr: any) {
+        console.error('[WarmPool] Failed to build custom terminal developer sandbox image:', buildErr.message);
+        throw buildErr;
+      }
+    }
+  }
+
   public async initializePools(): Promise<void> {
     console.log('[WarmPool] Initializing warm container pools...');
+    
+    // Ensure the terminal sandbox developer environment image exists
+    await this.ensureTerminalImageExists();
+
     const promises = [
       ...WARM_LANGUAGES.map((lang) => this.fillPool(lang)),
       this.fillTerminalPool()
@@ -533,6 +568,10 @@ class WarmPoolManager {
       AttachStderr: true,
       OpenStdin: true,
       StdinOnce: true,
+      // Tty: true is critical here. It forces Docker to allocate a Pseudo-Terminal (PTY).
+      // Without this, Docker multiplexes stdout and stderr into an 8-byte frame header
+      // [TYPE, 0, 0, 0, LEN1, LEN2, LEN3, LEN4], where the length byte (e.g., 40) is
+      // parsed as an ASCII character (e.g., '('), causing terminal output corruption.
       Tty: true
     });
 

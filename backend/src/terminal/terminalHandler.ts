@@ -424,14 +424,19 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     // -------------------------------------------------------------------------
     console.log('[Terminal] Spawning interactive shell');
     const exec = await container.exec({
-      Cmd: ['/bin/sh'],
-      Tty: true,           // Allocate a pseudo-terminal (PTY)
+      Cmd: ['/bin/bash'],
+      Tty: true,           // Allocate a pseudo-terminal (PTY) inside the container
       AttachStdin: true,
       AttachStdout: true,
       AttachStderr: true,
-      WorkingDir: '/app'   // Start shell in workspace directory
+      WorkingDir: '/app',  // Start shell in workspace directory
+      Env: [
+        'PS1=\\[\\033[1;35m\\]\\u@sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[1;32m\\]\\$\\[\\033[0m\\] '
+      ]
     });
 
+    // We must pass Tty: true to exec.start as well to match the base TTY configuration.
+    // This prevents Docker's multiplexed stream headers from corrupting raw character data sent to xterm.js.
     const stream = await exec.start({ hijack: true, stdin: true, Tty: true }) as TerminalSession['stream'];
 
     // -------------------------------------------------------------------------
@@ -805,6 +810,17 @@ interface ContainerFileState {
   isDir: boolean;
 }
 
+// startTerminalWatcher:
+//   A background file synchronization watcher that monitors the container's
+//   ephemeral filesystem (/app) and synchronizes any changes (creations, edits,
+//   deletions) back to the PostgreSQL database and Monaco editor collaborative state (Yjs).
+//
+//   Strategy:
+//     - Periodically polls the container every 1.5 seconds.
+//     - Runs `find /app -exec stat ...` to fetch modification times (mtime), sizes, and types.
+//     - Compares the output against the last known state to identify additions, modifications, or deletions.
+//     - For edits/creations, reads file contents via `cat` and updates the DB and the shared Yjs document.
+//     - Emits a Socket.IO `file-tree-update` event to tell the frontend workspace file-tree to refresh.
 export function startTerminalWatcher(session: TerminalSession) {
   const { container, workspaceId } = session;
   let lastState = new Map<string, ContainerFileState>();
