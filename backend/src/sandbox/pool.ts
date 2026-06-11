@@ -108,6 +108,13 @@ export interface WarmContainer {
 //   request rate per language (e.g., POOL_SIZE = ceil(RPS * avg_create_time)).
 const POOL_SIZE = 2;
 
+// Terminal sessions use a smaller dedicated pool since they hold containers
+// for the entire session duration (minutes) vs code execution (seconds).
+// The pool dynamically adjusts based on active sessions.
+const TERMINAL_POOL_MIN = 1;  // Minimum containers to keep warm
+const TERMINAL_POOL_MAX = 5;  // Maximum containers to pre-warm
+let TERMINAL_POOL_SIZE = 2;   // Current target size (dynamic)
+
 // Languages for which we pre-warm containers.
 // This must be kept in sync with CONFIGS in docker.ts.
 const WARM_LANGUAGES = ['python', 'javascript', 'cpp', 'c', 'bash'];
@@ -124,6 +131,9 @@ const IMAGE_CONFIGS: Record<string, string> = {
   c: 'gcc:12',
   bash: 'alpine:3.18'
 };
+
+// Terminal pool uses a generic Alpine image - no language-specific tooling needed
+const TERMINAL_IMAGE = 'alpine:3.18';
 
 // =============================================================================
 // WARM POOL MANAGER
@@ -145,6 +155,12 @@ class WarmPoolManager {
   // container age distribution and keeps idle resource usage predictable.
   private pools: Record<string, WarmContainer[]> = {};
 
+  // Separate dedicated pool for terminal sessions
+  private terminalPool: WarmContainer[] = [];
+  
+  // Track active terminal sessions to optimize pool size
+  private activeTerminalSessions = 0;
+
   // Concurrency guard: prevents parallel fillPool() calls for the same
   // language from creating more containers than POOL_SIZE.
   //
@@ -159,6 +175,7 @@ class WarmPoolManager {
   //   With the guard, step 4's fillPool() sees replenishing=true and returns
   //   immediately, preventing over-allocation.
   private replenishing: Record<string, boolean> = {};
+  private replenishingTerminal: boolean = false;
 
   constructor() {
     for (const lang of WARM_LANGUAGES) {
@@ -185,7 +202,10 @@ class WarmPoolManager {
   //   container creation (slower but functional).
   public async initializePools(): Promise<void> {
     console.log('[WarmPool] Initializing warm container pools...');
-    const promises = WARM_LANGUAGES.map((lang) => this.fillPool(lang));
+    const promises = [
+      ...WARM_LANGUAGES.map((lang) => this.fillPool(lang)),
+      this.fillTerminalPool()
+    ];
     await Promise.all(promises);
     console.log('[WarmPool] All pools initialized successfully.');
   }
@@ -367,6 +387,132 @@ class WarmPoolManager {
   }
 
   // ---------------------------------------------------------------------------
+  // PUBLIC: Pop a terminal container for interactive shell sessions
+  // ---------------------------------------------------------------------------
+  // Called by terminal handler when a user opens a terminal.
+  // Terminal containers are held for the duration of the session (minutes),
+  // unlike code execution containers which are single-use (seconds).
+  public async popTerminalContainer(): Promise<WarmContainer> {
+    // Increment active session counter for dynamic pool sizing
+    this.activeTerminalSessions++;
+    this.adjustTerminalPoolSize();
+
+    if (this.terminalPool.length === 0) {
+      console.warn('[WarmPool] Terminal pool is empty! Falling back to on-demand container creation.');
+      const container = await this.createTerminalContainer();
+      
+      // Trigger aggressive replenishment when pool is exhausted
+      this.fillTerminalPool().catch((err) => {
+        console.error('[WarmPool] Failed to replenish terminal pool:', err.message);
+      });
+      
+      return container;
+    }
+
+    const warmContainer = this.terminalPool.shift()!;
+
+    // Trigger background replenishment
+    this.fillTerminalPool().catch((err) => {
+      console.error('[WarmPool] Failed to replenish terminal pool:', err.message);
+    });
+
+    return warmContainer;
+  }
+
+  // ---------------------------------------------------------------------------
+  // PUBLIC: Mark a terminal session as closed for pool optimization
+  // ---------------------------------------------------------------------------
+  public releaseTerminalContainer(): void {
+    if (this.activeTerminalSessions > 0) {
+      this.activeTerminalSessions--;
+      this.adjustTerminalPoolSize();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PRIVATE: Dynamically adjust terminal pool target size
+  // ---------------------------------------------------------------------------
+  // Adjusts pool size based on active sessions to balance responsiveness
+  // with resource usage. Formula: target = active + 2 (clamped to min/max)
+  private adjustTerminalPoolSize(): void {
+    const previousSize = TERMINAL_POOL_SIZE;
+    
+    // Keep 2 spare containers beyond active sessions
+    const targetSize = Math.max(
+      TERMINAL_POOL_MIN,
+      Math.min(TERMINAL_POOL_MAX, this.activeTerminalSessions + 2)
+    );
+    
+    if (targetSize !== previousSize) {
+      console.log(
+        `[WarmPool] Adjusting terminal pool size: ${previousSize} → ${targetSize} ` +
+        `(${this.activeTerminalSessions} active sessions)`
+      );
+      TERMINAL_POOL_SIZE = targetSize;
+      
+      // Trigger replenishment if we need more containers
+      if (targetSize > previousSize) {
+        this.fillTerminalPool().catch((err) => {
+          console.error('[WarmPool] Failed to expand terminal pool:', err.message);
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PRIVATE: Replenish the terminal pool
+  // ---------------------------------------------------------------------------
+  private async fillTerminalPool(): Promise<void> {
+    if (this.replenishingTerminal) return;
+    this.replenishingTerminal = true;
+
+    try {
+      while (this.terminalPool.length < TERMINAL_POOL_SIZE) {
+        console.log(`[WarmPool] Creating warm terminal container (${this.terminalPool.length + 1}/${TERMINAL_POOL_SIZE})...`);
+        const warm = await this.createTerminalContainer();
+        this.terminalPool.push(warm);
+      }
+    } finally {
+      this.replenishingTerminal = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PRIVATE: Create a single terminal container
+  // ---------------------------------------------------------------------------
+  // Terminal containers use Alpine with a shell - no language-specific tools needed.
+  private async createTerminalContainer(): Promise<WarmContainer> {
+    const container = await docker.createContainer({
+      Image: TERMINAL_IMAGE,
+      Cmd: ['sh', '-c', 'sleep infinity'],
+      HostConfig: {
+        Memory: 100 * 1024 * 1024,
+        MemorySwap: 100 * 1024 * 1024,
+        NanoCpus: 500_000_000,
+        PidsLimit: 50,
+        NetworkMode: 'none',
+        ReadonlyRootfs: true,
+        Tmpfs: {
+          '/app': 'rw,exec,size=10m',
+          '/tmp': 'rw,exec,size=10m'
+        }
+      },
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      OpenStdin: true,
+      StdinOnce: true,
+      Tty: false
+    });
+
+    await container.start();
+    return {
+      container,
+      id: container.id
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // PUBLIC: Graceful shutdown cleanup
   // ---------------------------------------------------------------------------
   // Called from server.ts on SIGINT/SIGTERM.
@@ -386,6 +532,8 @@ class WarmPoolManager {
   //   immediately executing a command that would trigger auto-removal).
   public async cleanup(): Promise<void> {
     console.log('[WarmPool] Cleaning up all warm containers...');
+    
+    // Clean up language-specific pools
     for (const lang of WARM_LANGUAGES) {
       const pool = this.pools[lang];
       if (pool) {
@@ -399,6 +547,17 @@ class WarmPoolManager {
         }
       }
     }
+
+    // Clean up terminal pool
+    while (this.terminalPool.length > 0) {
+      const warm = this.terminalPool.shift()!;
+      try {
+        await warm.container.remove({ force: true });
+      } catch (err: any) {
+        console.error(`[WarmPool] Failed to remove terminal container ${warm.id}:`, err.message);
+      }
+    }
+
     console.log('[WarmPool] Warm pool cleanup completed.');
   }
 }

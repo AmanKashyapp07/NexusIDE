@@ -2,11 +2,12 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
 import OutputPanel from '../components/Terminal/OutputPanel';
+import TerminalPanel from '../components/Terminal/TerminalPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import PerformanceModal from '../components/Terminal/PerformanceModal';
-import { Play, Zap, Users, Book, LogOut, Loader2, Keyboard, Activity } from 'lucide-react';
+import { Play, Zap, Users, Book, LogOut, Loader2, Keyboard, Activity, TerminalSquare, RotateCcw } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-ignore
 import { WebsocketProvider } from 'y-websocket';
@@ -52,6 +53,10 @@ function IdePage() {
   const [isActiveMembersOpen, setIsActiveMembersOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
   const [isPerformanceModalOpen, setIsPerformanceModalOpen] = useState(false);
+  
+  // Terminal state
+  const [activeTab, setActiveTab] = useState<'output' | 'terminal'>('output');
+  const [terminalKey, setTerminalKey] = useState(0); // Used to remount terminal
 
   // States and refs for resizing UI panels (VS Code style)
   const [sidebarWidth, setSidebarWidth] = useState(256);
@@ -675,38 +680,87 @@ function IdePage() {
                   style={{ width: `calc(${100 - editorWidth}% - 12px)` }}
                   className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/[0.08] bg-[rgba(7,6,11,0.9)] shadow-[0_16px_50px_rgba(0,0,0,0.3)] flex-shrink-0"
                 >
-                  {/* Stdin Input Section */}
-                  <div className="border-b border-white/[0.06]">
-                    <div className="flex items-center gap-1.5 bg-white/[0.03] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
-                      <Keyboard size={12} className="text-violet-400/70" />
-                      Input (stdin)
+                  {/* Tab Switcher */}
+                  <div className="flex items-center justify-between border-b border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setActiveTab('output')}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all ${
+                          activeTab === 'output'
+                            ? 'bg-violet-500/20 text-violet-300 shadow-[inset_0_0_8px_rgba(139,92,246,0.15)]'
+                            : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
+                        }`}
+                      >
+                        <Play size={11} fill={activeTab === 'output' ? 'currentColor' : 'none'} />
+                        Run Output
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('terminal')}
+                        disabled={userRole === 'viewer'}
+                        title={userRole === 'viewer' ? 'Viewers cannot access terminal' : ''}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+                          activeTab === 'terminal'
+                            ? 'bg-violet-500/20 text-violet-300 shadow-[inset_0_0_8px_rgba(139,92,246,0.15)]'
+                            : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
+                        }`}
+                      >
+                        <TerminalSquare size={11} />
+                        Terminal
+                      </button>
                     </div>
-                    <textarea
-                      value={stdinInputs[activeFile?.id || ''] || ''}
-                      onChange={(e) => {
-                        const fileId = activeFile?.id || '';
-                        setStdinInputs((prev) => ({ ...prev, [fileId]: e.target.value }));
-                      }}
-                      disabled={userRole === 'viewer'}
-                      placeholder={userRole === 'viewer' ? "Viewers cannot enter input..." : "Enter input here (e.g. for scanf, input(), cin)..."}
-                      className="w-full resize-none border-0 bg-[rgba(7,6,11,0.95)] px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-300 placeholder:text-zinc-600 outline-none focus:bg-[rgba(13,12,20,0.95)] disabled:opacity-50"
-                      rows={3}
-                    />
-                    <div className="border-t border-white/[0.04] bg-white/[0.02] px-4 py-1.5 text-[10px] text-zinc-500">
-                      If your code reads input, add it above before running.
+                    {activeTab === 'terminal' && userRole !== 'viewer' && (
+                      <button
+                        onClick={() => setTerminalKey(prev => prev + 1)}
+                        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
+                        title="Restart terminal with latest workspace files"
+                      >
+                        <RotateCcw size={10} />
+                        New Terminal
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Tab Content */}
+                  {activeTab === 'output' ? (
+                    <>
+                      {/* Stdin Input Section */}
+                      <div className="border-b border-white/[0.06]">
+                        <div className="flex items-center gap-1.5 bg-white/[0.03] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
+                          <Keyboard size={12} className="text-violet-400/70" />
+                          Input (stdin)
+                        </div>
+                        <textarea
+                          value={stdinInputs[activeFile?.id || ''] || ''}
+                          onChange={(e) => {
+                            const fileId = activeFile?.id || '';
+                            setStdinInputs((prev) => ({ ...prev, [fileId]: e.target.value }));
+                          }}
+                          disabled={userRole === 'viewer'}
+                          placeholder={userRole === 'viewer' ? "Viewers cannot enter input..." : "Enter input here (e.g. for scanf, input(), cin)..."}
+                          className="w-full resize-none border-0 bg-[rgba(7,6,11,0.95)] px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-300 placeholder:text-zinc-600 outline-none focus:bg-[rgba(13,12,20,0.95)] disabled:opacity-50"
+                          rows={3}
+                        />
+                        <div className="border-t border-white/[0.04] bg-white/[0.02] px-4 py-1.5 text-[10px] text-zinc-500">
+                          If your code reads input, add it above before running.
+                        </div>
+                      </div>
+                      {/* Output Display */}
+                      <div className="min-h-0 flex-1">
+                        <OutputPanel
+                          output={fileOutputs[activeFile?.id || ''] || ''}
+                          isExecuting={isExecuting}
+                          metrics={fileMetrics[activeFile?.id || '']}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    /* Terminal View */
+                    <div className="min-h-0 flex-1">
+                      {workspaceId && (
+                        <TerminalPanel key={terminalKey} workspaceId={workspaceId} />
+                      )}
                     </div>
-                  </div>
-                  {/* Terminal Output Section */}
-                  <div className="border-b border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
-                    Terminal
-                  </div>
-                  <div className="min-h-0 flex-1">
-                    <OutputPanel
-                      output={fileOutputs[activeFile?.id || ''] || ''}
-                      isExecuting={isExecuting}
-                      metrics={fileMetrics[activeFile?.id || '']}
-                    />
-                  </div>
+                  )}
                 </section>
               </main>
             </div>

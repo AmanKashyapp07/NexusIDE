@@ -21,6 +21,7 @@ import jwt from 'jsonwebtoken';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { warmPoolManager } from './sandbox/pool';
+import { handleTerminalConnection } from './terminal/terminalHandler';
 
 // =============================================================================
 // EXPRESS APPLICATION SETUP
@@ -285,6 +286,18 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', async (ws, req) => {
   try {
     const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+    
+    // -------------------------------------------------------------------------
+    // ROUTE: Terminal sessions (/terminal/<workspaceId>)
+    // -------------------------------------------------------------------------
+    if (parsedUrl.pathname.startsWith('/terminal/')) {
+      await handleTerminalConnection(ws, req);
+      return;
+    }
+
+    // -------------------------------------------------------------------------
+    // ROUTE: Yjs collaborative editing (existing paths)
+    // -------------------------------------------------------------------------
     const token = parsedUrl.searchParams.get('token');
     
     if (!token) {
