@@ -533,7 +533,7 @@ class WarmPoolManager {
       AttachStderr: true,
       OpenStdin: true,
       StdinOnce: true,
-      Tty: false
+      Tty: true
     });
 
     await container.start();

@@ -5,6 +5,11 @@ import jwt from 'jsonwebtoken';
 import { warmPoolManager } from '../sandbox/pool';
 import Docker from 'dockerode';
 import tar from 'tar-stream';
+import { Writable } from 'stream';
+import * as Y from 'yjs';
+import { getIO } from '../server';
+// @ts-ignore
+import { docs } from 'y-websocket/bin/utils';
 
 // =============================================================================
 // INTERACTIVE TERMINAL WEBSOCKET HANDLER
@@ -51,13 +56,6 @@ import tar from 'tar-stream';
 //     - Screen-based applications (vim, nano, htop)
 //   Output stream merges stdout/stderr into one — no frame demuxing needed.
 //
-// RESIZE HANDLING:
-//   xterm.js sends a special JSON message when the terminal panel is resized:
-//     { "type": "resize", "rows": 30, "cols": 120 }
-//   The handler detects this (first byte is '{'), parses it, and calls
-//   exec.resize() to inform the PTY of the new dimensions. All other messages
-//   are raw bytes forwarded directly to stdin.
-//
 // SECURITY:
 //   - JWT required (same as Yjs WebSocket)
 //   - Editor role or above required (same as code execution)
@@ -101,6 +99,7 @@ interface TerminalSession {
   historyBuffer: TerminalHistoryBuffer; // Standard output cache
   isReconnecting?: boolean;
   teardownTimeout?: NodeJS.Timeout;
+  watcherTimeout?: NodeJS.Timeout;
 }
 
 // =============================================================================
@@ -192,8 +191,10 @@ function bindWebSocketEvents(
     }, IDLE_TIMEOUT_MS);
   };
 
-  ws.on('message', (data: Buffer) => {
+  ws.on('message', (messageData: any) => {
     resetIdleTimeout();
+
+    const data = Buffer.isBuffer(messageData) ? messageData : Buffer.from(messageData);
 
     // Forward raw bytes directly to stdin
     if (session.stream && !session.stream.destroyed && session.stream.writable) {
@@ -431,7 +432,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
       WorkingDir: '/app'   // Start shell in workspace directory
     });
 
-    const stream = await exec.start({ hijack: true, stdin: true }) as TerminalSession['stream'];
+    const stream = await exec.start({ hijack: true, stdin: true, Tty: true }) as TerminalSession['stream'];
 
     // -------------------------------------------------------------------------
     // STEP 9: Set up idle timeout
@@ -510,6 +511,9 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     session = currentSession;
     activeSessions.set(sessionKey, currentSession);
 
+    // Start background file synchronization watcher (container -> DB & Yjs)
+    startTerminalWatcher(currentSession);
+
     // Log successful connection for audit visibility.
     logAuditEvent(userId, workspaceId, 'connect', `Role: ${userRole}`);
 
@@ -564,6 +568,9 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 async function cleanupSession(session: TerminalSession): Promise<void> {
   try {
     clearTimeout(session.idleTimeout);
+    if (session.watcherTimeout) {
+      clearTimeout(session.watcherTimeout);
+    }
 
     if (session.stream && !session.stream.destroyed) {
       session.stream.end();
@@ -667,4 +674,270 @@ export async function syncFolderToTerminal(workspaceId: string, folderPath: stri
   } catch (err: any) {
     console.error('[TerminalSync] Failed to sync folder creation:', err.message);
   }
+}
+
+// =============================================================================
+// REVERSE SYNC: DOCKER CONTAINER -> DATABASE & COLLABORATIVE EDITOR
+// =============================================================================
+
+async function getWorkspaceFilesMap(workspaceId: string) {
+  const res = await getPool().query(
+    `WITH RECURSIVE file_path_cte AS (
+      SELECT id, parent_id, name, type, content, name::text as path
+      FROM files 
+      WHERE workspace_id = $1 AND parent_id IS NULL
+      UNION ALL
+      SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text as path
+      FROM files f
+      INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+      WHERE f.workspace_id = $1
+    )
+    SELECT id, parent_id, name, type, content, path FROM file_path_cte;`,
+    [workspaceId]
+  );
+  
+  const pathToId = new Map<string, string>();
+  const idToPath = new Map<string, string>();
+  const fileDetails = new Map<string, { id: string; type: 'file' | 'directory'; content: string | null }>();
+  
+  for (const row of res.rows) {
+    pathToId.set(row.path, row.id);
+    idToPath.set(row.id, row.path);
+    fileDetails.set(row.path, { id: row.id, type: row.type, content: row.content });
+  }
+  
+  return { pathToId, idToPath, fileDetails };
+}
+
+async function dbCreateFile(workspaceId: string, relativePath: string, type: 'file' | 'directory', content: string = '') {
+  const parts = relativePath.split('/');
+  const name = parts[parts.length - 1];
+  const parentPath = parts.slice(0, -1).join('/');
+  
+  let parentId: string | null = null;
+  if (parentPath) {
+    const { pathToId } = await getWorkspaceFilesMap(workspaceId);
+    parentId = pathToId.get(parentPath) || null;
+  }
+  
+  const language = type === 'file' ? 'javascript' : null;
+  
+  const res = await getPool().query(
+    `INSERT INTO files (workspace_id, name, type, parent_id, language, content) 
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [workspaceId, name, type, parentId, language, content]
+  );
+  const fileId = res.rows[0]?.id;
+  
+  if (fileId && type === 'file') {
+    const ydoc = new Y.Doc();
+    ydoc.getText('monaco').insert(0, content);
+    const state = Y.encodeStateAsUpdate(ydoc);
+    await getPool().query(
+      'UPDATE files SET yjs_state = $1 WHERE id = $2',
+      [Buffer.from(state), fileId]
+    );
+  }
+  
+  return fileId;
+}
+
+async function dbUpdateFile(workspaceId: string, fileId: string, content: string) {
+  const ydoc = new Y.Doc();
+  ydoc.getText('monaco').insert(0, content);
+  const state = Y.encodeStateAsUpdate(ydoc);
+  
+  await getPool().query(
+    'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
+    [Buffer.from(state), content, fileId]
+  );
+  
+  const docName = `${workspaceId}-${fileId}`;
+  const sharedDoc = docs.get(docName);
+  if (sharedDoc) {
+    const text = sharedDoc.getText('monaco');
+    if (text.toString() !== content) {
+      sharedDoc.transact(() => {
+        text.delete(0, text.length);
+        text.insert(0, content);
+      });
+    }
+  }
+}
+
+async function dbDeleteFile(fileId: string) {
+  await getPool().query('DELETE FROM files WHERE id = $1', [fileId]);
+}
+
+async function readContainerFileContent(container: Docker.Container, relativePath: string): Promise<string> {
+  try {
+    const exec = await container.exec({
+      Cmd: ['cat', `/app/${relativePath}`],
+      AttachStdout: true,
+      AttachStderr: false
+    });
+    const stream = await exec.start({ hijack: true });
+    
+    return new Promise<string>((resolve, reject) => {
+      let output = '';
+      const writable = new Writable({
+        write(chunk, encoding, callback) {
+          output += chunk.toString('utf8');
+          callback();
+        }
+      });
+      
+      container.modem.demuxStream(stream, writable, writable);
+      
+      stream.on('end', () => resolve(output));
+      stream.on('error', (err) => reject(err));
+    });
+  } catch (err) {
+    console.error(`Failed to read content for /app/${relativePath}:`, err);
+    return '';
+  }
+}
+
+interface ContainerFileState {
+  path: string;
+  mtime: number;
+  size: number;
+  isDir: boolean;
+}
+
+export function startTerminalWatcher(session: TerminalSession) {
+  const { container, workspaceId } = session;
+  let lastState = new Map<string, ContainerFileState>();
+  let isFirstScan = true;
+
+  const scanInterval = 1500; // Scan every 1.5 seconds
+
+  const runScan = async () => {
+    const active = activeSessions.get(`${session.userId}-${workspaceId}`);
+    if (!active || active.ws !== session.ws || active.ws.readyState !== 1 /* OPEN */) {
+      return;
+    }
+
+    try {
+      const exec = await container.exec({
+        Cmd: ['find', '/app', '-mindepth', '1', '-maxdepth', '5', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', '+'],
+        AttachStdout: true,
+        AttachStderr: false
+      });
+      const stream = await exec.start({ hijack: true });
+
+      const rawOutput = await new Promise<string>((resolve) => {
+        let output = '';
+        const writable = new Writable({
+          write(chunk, encoding, callback) {
+            output += chunk.toString('utf8');
+            callback();
+          }
+        });
+        container.modem.demuxStream(stream, writable, writable);
+        stream.on('end', () => resolve(output));
+        stream.on('error', () => resolve(''));
+      });
+
+      // Strip carriage returns to prevent terminal carriage return issues (\r\n handling)
+      const rawOutputClean = rawOutput.replace(/\r/g, '');
+      const currentFiles = new Map<string, ContainerFileState>();
+      const lines = rawOutputClean.split('\n');
+      for (const line of lines) {
+        const match = line.match(/^(\d+)\s+(\d+)\s+(.*?)\s+\/app\/(.*)$/);
+        if (!match) continue;
+        const mtime = parseInt(match[1] as string, 10);
+        const size = parseInt(match[2] as string, 10);
+        const typeStr = match[3] as string;
+        const relPath = (match[4] as string).trim();
+        if (!relPath) continue;
+        const isDir = typeStr.includes('directory');
+        
+        currentFiles.set(relPath, { path: relPath, mtime, size, isDir });
+      }
+
+      if (isFirstScan) {
+        const { fileDetails } = await getWorkspaceFilesMap(workspaceId);
+        for (const [path, detail] of fileDetails.entries()) {
+          const current = currentFiles.get(path);
+          lastState.set(path, {
+            path,
+            mtime: current ? current.mtime : 0,
+            size: current ? current.size : 0,
+            isDir: detail.type === 'directory'
+          });
+        }
+        isFirstScan = false;
+      }
+
+      let changed = false;
+      const { pathToId, fileDetails } = await getWorkspaceFilesMap(workspaceId);
+
+      // Deletions
+      for (const [path, last] of lastState.entries()) {
+        if (!currentFiles.has(path)) {
+          const fileId = pathToId.get(path);
+          if (fileId) {
+            console.log(`[TerminalSync] Detected delete inside container: /app/${path}`);
+            await dbDeleteFile(fileId);
+            changed = true;
+          }
+          lastState.delete(path);
+        }
+      }
+
+      // Additions/Modifications
+      for (const [path, current] of currentFiles.entries()) {
+        const last = lastState.get(path);
+        
+        if (!last) {
+          // Check if this file already exists in the database (created in editor UI)
+          const dbDetail = fileDetails.get(path);
+          if (dbDetail) {
+            // Already tracked in DB, just add it to local watcher state
+            lastState.set(path, current);
+            continue;
+          }
+
+          console.log(`[TerminalSync] Detected creation inside container: /app/${path}`);
+          let content = '';
+          if (!current.isDir) {
+            content = await readContainerFileContent(container, path);
+          }
+          const newId = await dbCreateFile(workspaceId, path, current.isDir ? 'directory' : 'file', content);
+          if (newId) {
+            lastState.set(path, current);
+            changed = true;
+          }
+        } else {
+          if (!current.isDir) {
+            if (current.mtime !== last.mtime || current.size !== last.size) {
+              const content = await readContainerFileContent(container, path);
+              const dbDetail = fileDetails.get(path);
+              if (dbDetail && dbDetail.content !== content) {
+                console.log(`[TerminalSync] Detected modification inside container: /app/${path}`);
+                await dbUpdateFile(workspaceId, dbDetail.id, content);
+                changed = true;
+              }
+              lastState.set(path, current);
+            }
+          }
+        }
+      }
+
+      if (changed) {
+        const io = getIO();
+        if (io) {
+          io.to(`presence-${workspaceId}`).emit('file-tree-update');
+        }
+      }
+
+    } catch (err) {
+      console.error('[TerminalSync] Watcher scan error:', err);
+    }
+
+    session.watcherTimeout = setTimeout(runScan, scanInterval);
+  };
+
+  session.watcherTimeout = setTimeout(runScan, scanInterval);
 }

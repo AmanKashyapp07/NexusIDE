@@ -473,12 +473,16 @@ wss.on('connection', async (ws, req) => {
 //   Audio data flows DIRECTLY between browsers (P2P) without touching our
 //   server. Our server is only involved during the 3-way handshake above.
 //   This keeps voice latency low and our server bandwidth costs near zero.
+let ioInstance: SocketIOServer | null = null;
+export const getIO = () => ioInstance;
+
 const io = new SocketIOServer(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
   }
 });
+ioInstance = io;
 
 io.use(async (socket, next) => {
   try {

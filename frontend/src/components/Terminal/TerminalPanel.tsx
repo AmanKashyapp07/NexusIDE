@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalSquare, WifiOff, Loader2 } from 'lucide-react';
 
@@ -10,12 +11,16 @@ interface TerminalPanelProps {
 export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!terminalRef.current) return;
+
+    const fitAddon = new FitAddon();
+    fitAddonRef.current = fitAddon;
 
     // -------------------------------------------------------------------------
     // Initialize xterm.js terminal instance with static dimensions
@@ -24,8 +29,8 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
-      rows: 30, // Static rows
-      cols: 80, // Static columns
+      rows: 30,
+      cols: 80,
       theme: {
         background: '#08070d',      // Match IDE dark background
         foreground: '#d4d4d8',      // zinc-300
@@ -53,7 +58,9 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
       convertEol: true
     });
 
+    terminal.loadAddon(fitAddon);
     terminal.open(terminalRef.current);
+    fitAddon.fit();
 
     xtermRef.current = terminal;
 
@@ -130,6 +137,7 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
       
       terminal.dispose();
       xtermRef.current = null;
+      fitAddonRef.current = null;
       wsRef.current = null;
     };
   }, [workspaceId]);
