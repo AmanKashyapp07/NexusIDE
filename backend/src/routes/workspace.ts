@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole, WorkspaceAuthRequest, CollaboratorRole } from '../middleware/workspaceAuth';
 import { executeCode } from '../sandbox/docker';
 import { getPool } from '../db';
+import { syncDeleteToTerminal, syncFolderToTerminal } from '../terminal/terminalHandler';
 
 const router = Router();
 
@@ -444,7 +445,58 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
        VALUES ($1, $2, $3, $4, $5) RETURNING id, parent_id, name, type, language`,
       [id, name, type, parent_id || null, resolvedLanguage]
     );
-    res.status(201).json(newFile.rows[0]);
+    const createdFile = newFile.rows[0];
+
+    // Background sync to terminal
+    if (type === 'directory') {
+      getPool().query(
+        `WITH RECURSIVE file_path_cte AS (
+          SELECT id, parent_id, name, name::text as path
+          FROM files 
+          WHERE workspace_id = $1 AND parent_id IS NULL
+          UNION ALL
+          SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
+          FROM files f
+          INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+          WHERE f.workspace_id = $1
+        )
+        SELECT path FROM file_path_cte WHERE id = $2;`,
+        [id, createdFile.id]
+      ).then(pathRes => {
+        if (pathRes.rows.length > 0) {
+          syncFolderToTerminal(id, pathRes.rows[0].path).catch(syncErr => {
+            console.error('Failed to sync directory creation to terminal:', syncErr);
+          });
+        }
+      }).catch(err => {
+        console.error('Failed to get path for directory creation sync:', err);
+      });
+    } else {
+      getPool().query(
+        `WITH RECURSIVE file_path_cte AS (
+          SELECT id, parent_id, name, name::text as path
+          FROM files 
+          WHERE workspace_id = $1 AND parent_id IS NULL
+          UNION ALL
+          SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
+          FROM files f
+          INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+          WHERE f.workspace_id = $1
+        )
+        SELECT path FROM file_path_cte WHERE id = $2;`,
+        [id, createdFile.id]
+      ).then(pathRes => {
+        if (pathRes.rows.length > 0) {
+          syncFileToTerminal(id, createdFile.id, '').catch(syncErr => {
+            console.error('Failed to sync empty file creation to terminal:', syncErr);
+          });
+        }
+      }).catch(err => {
+        console.error('Failed to get path for file creation sync:', err);
+      });
+    }
+
+    res.status(201).json(createdFile);
   } catch (err: any) {
     if (err.code === '23505') { 
       res.status(400).json({ error: 'A file with this name already exists in this folder' });
@@ -458,7 +510,33 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
 router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
   try {
     const { id, fileId } = req.params;
+
+    // Fetch path before delete
+    const pathResult = await getPool().query(
+      `WITH RECURSIVE file_path_cte AS (
+        SELECT id, parent_id, name, name::text as path
+        FROM files 
+        WHERE workspace_id = $1 AND parent_id IS NULL
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
+        FROM files f
+        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+        WHERE f.workspace_id = $1
+      )
+      SELECT path FROM file_path_cte WHERE id = $2;`,
+      [id, fileId]
+    );
+
     await getPool().query('DELETE FROM files WHERE id = $1 AND workspace_id = $2', [fileId, id]);
+
+    // Sync deletion to terminal in the background if path was found
+    if (pathResult.rows.length > 0) {
+      const filePath = pathResult.rows[0].path;
+      syncDeleteToTerminal(id, filePath).catch((err) => {
+        console.error('Failed to sync delete to terminal:', err);
+      });
+    }
+
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

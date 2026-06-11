@@ -209,6 +209,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 
     const workspaceId = pathParts[1];
     const token = parsedUrl.searchParams.get('token');
+    const forceNew = parsedUrl.searchParams.get('forceNew') === 'true';
 
     if (!token) {
       console.log('[Terminal] Connection closed: Missing token');
@@ -289,7 +290,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     const sessionKey = `${userId}-${workspaceId}`;
     const existingSession = activeSessions.get(sessionKey);
     if (existingSession) {
-      if (existingSession.isReconnecting) {
+      if (existingSession.isReconnecting && !forceNew) {
         console.log('[Terminal] Reconnecting to existing active session for', sessionKey);
         if (existingSession.teardownTimeout) {
           clearTimeout(existingSession.teardownTimeout);
@@ -553,5 +554,88 @@ async function cleanupSession(session: TerminalSession): Promise<void> {
     }
   } catch (err) {
     console.error('[Terminal] Cleanup error:', err);
+  }
+}
+
+// =============================================================================
+// REAL-TIME FILESYSTEM SYNCHRONIZATION HELPERS
+// =============================================================================
+
+export async function syncFileToTerminal(workspaceId: string, fileId: string, content: string): Promise<void> {
+  try {
+    const session = Array.from(activeSessions.values()).find(s => s.workspaceId === workspaceId);
+    if (!session || !session.container) {
+      return;
+    }
+
+    const pathResult = await getPool().query(
+      `WITH RECURSIVE file_path_cte AS (
+        SELECT id, parent_id, name, name::text as path
+        FROM files 
+        WHERE workspace_id = $1 AND parent_id IS NULL
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
+        FROM files f
+        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+        WHERE f.workspace_id = $1
+      )
+      SELECT path FROM file_path_cte WHERE id = $2;`,
+      [workspaceId, fileId]
+    );
+
+    if (pathResult.rows.length === 0) {
+      return;
+    }
+
+    const filePath = pathResult.rows[0].path;
+
+    const exec = await session.container.exec({
+      Cmd: ['sh', '-c', `mkdir -p "$(dirname "/app/${filePath}")" && cat > "/app/${filePath}"`],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true
+    });
+
+    const writeStream = await exec.start({ hijack: true, stdin: true });
+    writeStream.write(content);
+    writeStream.end();
+
+    console.log(`[TerminalSync] Automatically synchronized ${filePath} to active container`);
+  } catch (err: any) {
+    console.error('[TerminalSync] Failed to sync file update:', err.message);
+  }
+}
+
+export async function syncDeleteToTerminal(workspaceId: string, filePath: string): Promise<void> {
+  try {
+    const session = Array.from(activeSessions.values()).find(s => s.workspaceId === workspaceId);
+    if (!session || !session.container) {
+      return;
+    }
+
+    const exec = await session.container.exec({
+      Cmd: ['rm', '-rf', `/app/${filePath}`]
+    });
+    await exec.start();
+    console.log(`[TerminalSync] Automatically deleted /app/${filePath} inside active container`);
+  } catch (err: any) {
+    console.error('[TerminalSync] Failed to sync file deletion:', err.message);
+  }
+}
+
+export async function syncFolderToTerminal(workspaceId: string, folderPath: string): Promise<void> {
+  try {
+    const session = Array.from(activeSessions.values()).find(s => s.workspaceId === workspaceId);
+    if (!session || !session.container) {
+      return;
+    }
+
+    const exec = await session.container.exec({
+      Cmd: ['mkdir', '-p', `/app/${folderPath}`]
+    });
+    await exec.start();
+    console.log(`[TerminalSync] Automatically created folder /app/${folderPath} inside active container`);
+  } catch (err: any) {
+    console.error('[TerminalSync] Failed to sync folder creation:', err.message);
   }
 }

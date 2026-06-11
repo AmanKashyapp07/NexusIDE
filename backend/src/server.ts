@@ -21,7 +21,7 @@ import jwt from 'jsonwebtoken';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { warmPoolManager } from './sandbox/pool';
-import { handleTerminalConnection } from './terminal/terminalHandler';
+import { handleTerminalConnection, syncFileToTerminal } from './terminal/terminalHandler';
 
 // =============================================================================
 // EXPRESS APPLICATION SETUP
@@ -216,6 +216,12 @@ setPersistence({
               'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
               [Buffer.from(state), contentText, fileId]
             );
+            
+            // Sync to active terminal container
+            const workspaceId = match[1];
+            syncFileToTerminal(workspaceId, fileId, contentText).catch((err) => {
+              console.error('Failed to sync updated file to terminal:', err);
+            });
             // We store BOTH:
             //   yjs_state (BYTEA): full CRDT state for collaborative sync
             //   content (TEXT): human-readable plain text for non-Yjs consumers
@@ -234,6 +240,7 @@ setPersistence({
     // Performs a final authoritative save of the complete Yjs state.
     const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
     if (match) {
+      const workspaceId = match[1];
       const fileId = match[2];
       try {
         const state = Y.encodeStateAsUpdate(ydoc);
@@ -242,6 +249,9 @@ setPersistence({
           'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
           [Buffer.from(state), content, fileId]
         );
+        syncFileToTerminal(workspaceId, fileId, content).catch((err) => {
+          console.error('Failed to sync updated file to terminal on writeState:', err);
+        });
       } catch (err) {
         console.error('Error writing state to DB:', err);
       }

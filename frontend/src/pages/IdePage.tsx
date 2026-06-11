@@ -710,7 +710,10 @@ function IdePage() {
                     </div>
                     {activeTab === 'terminal' && userRole !== 'viewer' && (
                       <button
-                        onClick={() => setTerminalKey(prev => prev + 1)}
+                        onClick={() => {
+                          sessionStorage.setItem('resetTerminal', 'true');
+                          setTerminalKey(prev => prev + 1);
+                        }}
                         className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
                         title="Restart terminal with latest workspace files"
                       >

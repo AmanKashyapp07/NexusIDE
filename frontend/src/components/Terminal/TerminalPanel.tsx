@@ -63,7 +63,11 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
     // Open WebSocket connection to backend terminal handler
     // -------------------------------------------------------------------------
     const token = localStorage.getItem('token') || '';
-    const wsUrl = `ws://localhost:4000/terminal/${workspaceId}?token=${token}`;
+    const forceNew = sessionStorage.getItem('resetTerminal') === 'true';
+    if (forceNew) {
+      sessionStorage.removeItem('resetTerminal');
+    }
+    const wsUrl = `ws://localhost:4000/terminal/${workspaceId}?token=${token}${forceNew ? '&forceNew=true' : ''}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
