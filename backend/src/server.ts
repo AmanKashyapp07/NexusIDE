@@ -298,6 +298,16 @@ const wss = new WebSocketServer({ noServer: true });
 //   ourselves so one server can multiplex REST, Yjs sync, terminal shells,
 //   and Socket.IO signaling on the same port.
 //
+// DIFFERENCE TABLE — REQUEST ROUTING BY PROTOCOL:
+//   ┌──────────────────────┬──────────────────────────────┬──────────────────────────────┐
+//   │ Path / Protocol      │ Handler                      │ Why                           │
+//   ├──────────────────────┼──────────────────────────────┼──────────────────────────────┤
+//   │ /terminal/*          │ terminalHandler.ts           │ Stateful interactive shell    │
+//   │ /socket.io/*         │ Socket.IO server             │ Voice/WebRTC signaling        │
+//   │ other Upgrade reqs   │ WebSocket / Yjs pipeline     │ Collaborative editing         │
+//   │ normal HTTP requests │ Express routes               │ REST workspace/auth APIs      │
+//   └──────────────────────┴──────────────────────────────┴──────────────────────────────┘
+//
 // ROUTING RULES:
 //   - /terminal/<workspaceId> → interactive terminal handler
 //   - /socket.io/*            → Socket.IO signaling path

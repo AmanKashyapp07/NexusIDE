@@ -20,6 +20,22 @@ import tar from 'tar-stream';
 // ARCHITECTURE:
 //   WebSocket (browser xterm.js) ←→ This handler ←→ Docker exec (PTY shell)
 //
+// DIFFERENCE TABLE — TERMINAL SESSION VS CODE EXECUTION:
+//   ┌──────────────────────┬──────────────────────────────┬──────────────────────────────┐
+//   │ Aspect               │ Terminal Session             │ Code Execution               │
+//   ├──────────────────────┼──────────────────────────────┼──────────────────────────────┤
+//   │ Lifetime             │ Minutes, interactive         │ Seconds, single-shot         │
+//   │ Input                │ Keystrokes + stdin           │ stdin only                   │
+//   │ Output buffering     │ Rate-limited, replayable     │ Direct response payload      │
+//   │ Session state        │ Preserved while connected    │ Discarded after each run     │
+//   │ Container ownership  │ Bound to one WebSocket       │ Released after one execution  │
+//   └──────────────────────┴──────────────────────────────┴──────────────────────────────┘
+//
+// WHY THIS MATTERS:
+//   The terminal path must preserve state, tolerate reconnects, and avoid
+//   flooding the browser, whereas the execution path can stay stateless and
+//   return one result object per run.
+//
 // LIFECYCLE:
 //   1. Client connects to ws://localhost:4000/terminal/<workspaceId>?token=...
 //   2. Handler validates JWT and checks user has editor role

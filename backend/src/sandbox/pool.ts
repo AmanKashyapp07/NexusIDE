@@ -121,6 +121,17 @@ const POOL_SIZE = 2;
 //   - MIN: keeps at least one container warm so the first shell is instant
 //   - MAX: caps idle memory usage when many terminals are open
 //   - TARGET: grows/shrinks with the number of active sessions
+//
+// DIFFERENCE TABLE — EXECUTION POOL VS TERMINAL POOL:
+//   ┌──────────────────────┬──────────────────────────────┬──────────────────────────────┐
+//   │ Aspect               │ Code Execution Pool          │ Terminal Pool                │
+//   ├──────────────────────┼──────────────────────────────┼──────────────────────────────┤
+//   │ Container lifetime   │ Single run, then discard     │ Session-bound, minutes long  │
+//   │ Target image         │ Language-specific images     │ Generic Alpine shell image   │
+//   │ Pool sizing          │ Fixed per language           │ Dynamic based on active users │
+//   │ Reuse policy         │ Never reused after run       │ Reused only while idle        │
+//   │ Performance goal     │ Fast code start-up           │ Fast interactive reconnect    │
+//   └──────────────────────┴──────────────────────────────┴──────────────────────────────┘
 const TERMINAL_POOL_MIN = 1;
 const TERMINAL_POOL_MAX = 5;
 let TERMINAL_POOL_SIZE = 2;
