@@ -13,9 +13,10 @@ import {
 
 interface TerminalPanelProps {
   workspaceId: string;
+  userRole?: 'admin' | 'editor' | 'viewer' | null;
 }
 
-export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
+export default function TerminalPanel({ workspaceId, userRole }: TerminalPanelProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -46,7 +47,8 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
     fitAddonRef.current = fitAddon;
 
     const terminal = new XTerm({
-      cursorBlink: true,
+      cursorBlink: userRole !== 'viewer',
+      disableStdin: userRole === 'viewer',
       fontSize: 13,
       fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
       rows: 30,
@@ -121,7 +123,7 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
     ws.onclose = (event) => {
       setConnectionStatus('disconnected');
       if (event.code === 4403) {
-        setError('Access denied: Editor role required');
+        setError('Access denied: Insufficient permission');
       } else if (event.code === 4404) {
         setError('Workspace not found');
       } else if (event.code === 1000) {
@@ -161,7 +163,7 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
         <div className="flex items-center gap-3">
           <TerminalIcon size={16} className="text-violet-400" />
           <span className="font-mono text-xs font-semibold tracking-wider text-zinc-300">
-            BASH
+            BASH {userRole === 'viewer' && <span className="text-violet-400/80 font-sans text-[10px] tracking-normal font-medium ml-1.5 uppercase">(Read-Only)</span>}
           </span>
           
           {/* Status Dot */}

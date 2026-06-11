@@ -632,11 +632,10 @@ function IdePage() {
                         <Play size={11} fill={activeTab === 'output' ? 'currentColor' : 'none'} />
                         Run Output
                       </button>
-                      <button
+                       <button
                         onClick={() => setActiveTab('terminal')}
-                        disabled={userRole === 'viewer'}
-                        title={userRole === 'viewer' ? 'Viewers cannot access terminal' : ''}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+                        title={userRole === 'viewer' ? 'Read-only Terminal' : ''}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all ${
                           activeTab === 'terminal'
                             ? 'bg-violet-500/20 text-violet-300 shadow-[inset_0_0_8px_rgba(139,92,246,0.15)]'
                             : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
@@ -696,7 +695,7 @@ function IdePage() {
 
                   <div className={`min-h-0 flex-1 flex flex-col ${activeTab === 'terminal' ? '' : 'hidden'}`}>
                     {workspaceId && (
-                      <TerminalPanel key={terminalKey} workspaceId={workspaceId} />
+                      <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} />
                     )}
                   </div>
                 </section>

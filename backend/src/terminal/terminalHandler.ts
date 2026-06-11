@@ -95,6 +95,7 @@ interface TerminalSession {
   idleTimeout: NodeJS.Timeout;
   workspaceId: string;
   userId: string;
+  role: TerminalRole; // Role of the connected user
   outputBuffer: OutputBuffer; // Rate limiting buffer
   historyBuffer: TerminalHistoryBuffer; // Standard output cache
   isReconnecting?: boolean;
@@ -193,6 +194,11 @@ function bindWebSocketEvents(
 
   ws.on('message', (messageData: any) => {
     resetIdleTimeout();
+
+    // Drop all input data if the session is read-only (viewer role)
+    if (session.role === 'viewer') {
+      return;
+    }
 
     const data = Buffer.isBuffer(messageData) ? messageData : Buffer.from(messageData);
 
@@ -306,11 +312,11 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
       return;
     }
 
-    // Viewers cannot open terminals (same policy as code execution)
+    // Viewers are allowed to open terminal connections in read-only mode (inputs dropped).
     const roleHierarchy: Record<TerminalRole, number> = { viewer: 1, editor: 2, admin: 3 };
-    if (roleHierarchy[userRole] < roleHierarchy.editor) {
+    if (roleHierarchy[userRole] < roleHierarchy.viewer) {
       console.log('[Terminal] Connection closed: Insufficient role');
-      ws.close(4403, 'Forbidden: Editor role required for terminal access');
+      ws.close(4403, 'Forbidden: Insufficient role for terminal access');
       return;
     }
 
@@ -329,6 +335,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
         }
         existingSession.isReconnecting = false;
         existingSession.ws = ws;
+        existingSession.role = userRole;
 
         // Replay cached output so a reconnecting client sees the recent shell state.
         const history = existingSession.historyBuffer.getCombined();
@@ -514,6 +521,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
       idleTimeout,
       workspaceId,
       userId,
+      role: userRole,
       outputBuffer,
       historyBuffer
     };
