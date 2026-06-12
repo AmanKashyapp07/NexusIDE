@@ -598,6 +598,7 @@ function IdePage() {
                         language={activeFile.language || 'javascript'}
                         currentUser={user}
                         readOnly={userRole === 'viewer'}
+                        files={files}
                         onEditorReady={(editor) => {
                           editorRef.current = editor;
                         }}

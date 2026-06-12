@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import { getIO } from '../server';
 // @ts-ignore
 import { docs } from 'y-websocket/bin/utils';
+import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer } from '../sandbox/workspaceContainer';
 
 // =============================================================================
 // INTERACTIVE TERMINAL WEBSOCKET HANDLER
@@ -364,62 +365,10 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     }
 
     // -------------------------------------------------------------------------
-    // STEP 5: Load workspace files for container hydration
+    // STEP 5: Get or create the unified workspace container
     // -------------------------------------------------------------------------
-    const filesRes = await getPool().query(
-      `WITH RECURSIVE file_path_cte AS (
-        SELECT id, parent_id, name, type, content, name::text as path
-        FROM files 
-        WHERE workspace_id = $1 AND parent_id IS NULL
-        UNION ALL
-        SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text as path
-        FROM files f
-        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-        WHERE f.workspace_id = $1
-      )
-      SELECT id, parent_id, name, type, content, path FROM file_path_cte;`,
-      [workspaceId]
-    );
-
-    const workspaceFiles = filesRes.rows;
-
-    // -------------------------------------------------------------------------
-    // STEP 6: Pop a warm terminal container from the pool
-    // -------------------------------------------------------------------------
-    console.log('[Terminal] Popping warm container for workspace:', workspaceId);
-    const warm = await warmPoolManager.popTerminalContainer();
-    const container = warm.container;
-
-    // -------------------------------------------------------------------------
-    // STEP 7: Hydrate container with workspace files (tar stream)
-    // -------------------------------------------------------------------------
-    if (workspaceFiles.length > 0) {
-      console.log('[Terminal] Hydrating container with', workspaceFiles.length, 'files');
-      const execWrite = await container.exec({
-        Cmd: ['tar', '-xf', '-', '-C', '/app'],
-        AttachStdin: true,
-        AttachStdout: true,
-        AttachStderr: true
-      });
-      const writeStream = await execWrite.start({ hijack: true, stdin: true });
-
-      const pack = tar.pack();
-      pack.pipe(writeStream);
-
-      for (const file of workspaceFiles) {
-        if (file.type === 'directory') {
-          pack.entry({ name: file.path, type: 'directory' });
-        } else {
-          pack.entry({ name: file.path }, file.content || '');
-        }
-      }
-      pack.finalize();
-
-      await new Promise<void>((resolve, reject) => {
-        writeStream.on('end', () => resolve());
-        writeStream.on('error', (err) => reject(err));
-      });
-    }
+    console.log('[Terminal] Popping or retrieving unified container for workspace:', workspaceId);
+    const container = await getOrCreateWorkspaceContainer(userId, workspaceId);
 
     // -------------------------------------------------------------------------
     // STEP 8: Spawn an interactive shell with PTY
@@ -596,12 +545,7 @@ async function cleanupSession(session: TerminalSession): Promise<void> {
     }
 
     if (session.container) {
-      await session.container.remove({ force: true }).catch((err) => {
-        console.error('[Terminal] Failed to remove container:', err.message);
-      });
-      
-      // Notify the pool manager so it can shrink or refill the terminal pool.
-      warmPoolManager.releaseTerminalContainer();
+      await releaseWorkspaceContainer(session.userId, session.workspaceId);
     }
 
     if (session.ws.readyState === WebSocket.OPEN || session.ws.readyState === WebSocket.CONNECTING) {

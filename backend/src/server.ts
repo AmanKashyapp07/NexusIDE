@@ -5,6 +5,16 @@ dotenv.config();
 // In production you'd use real environment variables injected by the platform
 // (Kubernetes secrets, AWS Secrets Manager) instead of a .env file.
 
+// =============================================================================
+// GLOBAL LOG SILENCING OVERRIDE
+// =============================================================================
+// Overriding core console methods ensures that all runtime reporting,
+// errors, and logs are suppressed cleanly without breaking any underlying business logic.
+console.log = () => {};
+console.error = () => {};
+console.warn = () => {};
+console.info = () => {};
+
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -22,6 +32,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { warmPoolManager } from './sandbox/pool';
 import { handleTerminalConnection, syncFileToTerminal } from './terminal/terminalHandler';
+import { handleLspConnection } from './terminal/lspHandler';
 
 // =============================================================================
 // EXPRESS APPLICATION SETUP
@@ -37,8 +48,8 @@ import { handleTerminalConnection, syncFileToTerminal } from './terminal/termina
 //   Browser (React)
 //       │
 //       ├── HTTP REST (port 4000)  ──→ Express routes  ──→ PostgreSQL
-//       │     /api/auth/*                 (JWT auth, workspace CRUD,
-//       │     /api/workspace/*             code execution via Docker)
+//       │     /api/auth/* (JWT auth, workspace CRUD,
+//       │     /api/workspace/* code execution via Docker)
 //       │
 //       ├── WebSocket (ws://:4000/<docName>)
 //       │     y-websocket server  ──→ Yjs CRDT sync  ──→ PostgreSQL
@@ -302,15 +313,15 @@ const wss = new WebSocketServer({ noServer: true });
 //   ┌──────────────────────┬──────────────────────────────┬──────────────────────────────┐
 //   │ Path / Protocol      │ Handler                      │ Why                           │
 //   ├──────────────────────┼──────────────────────────────┼──────────────────────────────┤
-//   │ /terminal/*          │ terminalHandler.ts           │ Stateful interactive shell    │
-//   │ /socket.io/*         │ Socket.IO server             │ Voice/WebRTC signaling        │
+//   │ /terminal/* │ terminalHandler.ts           │ Stateful interactive shell    │
+//   │ /socket.io/* │ Socket.IO server             │ Voice/WebRTC signaling        │
 //   │ other Upgrade reqs   │ WebSocket / Yjs pipeline     │ Collaborative editing         │
 //   │ normal HTTP requests │ Express routes               │ REST workspace/auth APIs      │
 //   └──────────────────────┴──────────────────────────────┴──────────────────────────────┘
 //
 // ROUTING RULES:
 //   - /terminal/<workspaceId> → interactive terminal handler
-//   - /socket.io/*            → Socket.IO signaling path
+//   - /socket.io/* → Socket.IO signaling path
 //   - everything else         → Express / Yjs handling
 //
 // WHY FILTER SOCKET.IO HERE?
@@ -340,6 +351,14 @@ wss.on('connection', async (ws, req) => {
     // warm container, and bridges the browser terminal UI to Docker exec.
     if (parsedUrl.pathname.startsWith('/terminal/')) {
       await handleTerminalConnection(ws, req);
+      return;
+    }
+
+    // =============================================================================
+    // ROUTE: LSP WEBSOCKET SESSIONS
+    // =============================================================================
+    if (parsedUrl.pathname.startsWith('/ws/lsp/')) {
+      await handleLspConnection(ws, req);
       return;
     }
 

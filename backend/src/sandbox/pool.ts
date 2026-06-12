@@ -155,7 +155,7 @@ const IMAGE_CONFIGS: Record<string, string> = {
 };
 
 // Terminal sandbox dev environment image pre-installed with Node, NPM, Python, GCC, Git, Curl, Bash
-const TERMINAL_IMAGE = 'sandbox-dev-env:v2';
+const TERMINAL_IMAGE = 'sandbox-dev-env:v3';
 
 // =============================================================================
 // WARM POOL MANAGER
@@ -223,12 +223,12 @@ class WarmPoolManager {
   //   The server still starts — failed languages will fall back to on-demand
   //   container creation (slower but functional).
   private async ensureTerminalImageExists(): Promise<void> {
-    const imageName = 'sandbox-dev-env:v2';
+    const imageName = 'sandbox-dev-env:v3';
     try {
       await docker.getImage(imageName).inspect();
       console.log('[WarmPool] Terminal developer sandbox image is already built and ready.');
     } catch (err) {
-      console.log('[WarmPool] sandbox-dev-env:v2 does not exist, building image now...');
+      console.log('[WarmPool] sandbox-dev-env:v3 does not exist, building image now...');
       const dockerfileContent = `FROM alpine:3.18
 RUN apk add --no-cache \
     nodejs \
@@ -242,6 +242,7 @@ RUN apk add --no-cache \
     git \
     curl \
     bash
+RUN npm install -g typescript typescript-language-server pyright
 RUN mkdir -p /viewer_bin && \
     ln -s /bin/busybox /viewer_bin/ls && \
     ln -s /bin/busybox /viewer_bin/cat && \
@@ -252,7 +253,7 @@ RUN mkdir -p /viewer_bin && \
 WORKDIR /app
 `;
       try {
-        execSync('docker build -t sandbox-dev-env:v2 -', { input: dockerfileContent, stdio: 'pipe' });
+        execSync('docker build -t sandbox-dev-env:v3 -', { input: dockerfileContent, stdio: 'pipe' });
         console.log('[WarmPool] Terminal developer sandbox image built successfully.');
       } catch (buildErr: any) {
         console.error('[WarmPool] Failed to build custom terminal developer sandbox image:', buildErr.message);
@@ -568,10 +569,10 @@ WORKDIR /app
       Image: TERMINAL_IMAGE,
       Cmd: ['sh', '-c', 'sleep infinity'],
       HostConfig: {
-        Memory: 100 * 1024 * 1024,
-        MemorySwap: 100 * 1024 * 1024,
-        NanoCpus: 500_000_000,
-        PidsLimit: 50,
+        Memory: 300 * 1024 * 1024,      // 300 MB RAM for LSP servers
+        MemorySwap: 300 * 1024 * 1024,  // Disabled swap
+        NanoCpus: 1_000_000_000,        // 1.0 CPU Core
+        PidsLimit: 100,                 // Up PidsLimit for multi-threaded LSP servers
         NetworkMode: 'none',
         ReadonlyRootfs: true,
         Tmpfs: {
