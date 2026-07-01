@@ -945,4 +945,56 @@ router.post('/import-github', async (req: AuthRequest, res: Response): Promise<v
   }
 });
 
+import { GoogleGenAI } from '@google/genai';
+
+// POST /api/workspace/:id/autocomplete - Generate code completion using Gemini
+router.post('/:id/autocomplete', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+  try {
+    const { prefix, suffix, language } = req.body;
+    if (typeof prefix !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid prefix' });
+      return;
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      res.status(503).json({ error: 'Gemini API Key is not configured' });
+      return;
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
+    // The FIM prompt structure
+    const prompt = `<PREFIX>${prefix}<CURSOR><SUFFIX>${suffix || ''}</SUFFIX>`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        // Move strict rules to system instructions
+        systemInstruction: `You are a strict code autocomplete engine. Your task is to seamlessly complete the ${language || 'code'} at the <CURSOR> position based on the <PREFIX> and <SUFFIX>.
+CRITICAL RULES:
+1. Return ONLY the raw code that should be inserted exactly at the <CURSOR>.
+2. Do NOT wrap your response in markdown blocks (e.g., \`\`\`).
+3. Do NOT include any explanations, greetings, or conversational text.
+4. Ensure the indentation matches the surrounding code.`,
+        temperature: 0.1, // Highly deterministic
+        maxOutputTokens: 256,
+        // Stop generating if the model attempts to start a completely new, disconnected block
+        stopSequences: ['\n\n\n', '<PREFIX>', '<SUFFIX>', '<CURSOR>'], 
+      }
+    });
+
+    let completion = response.text || '';
+    
+    // Regex to safely strip markdown formatting if the model disobeys
+    completion = completion.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trimEnd();
+
+    res.json({ completion });
+  } catch (err: any) {
+    console.error('Autocomplete error:', err.message || err);
+    res.status(500).json({ error: 'Failed to generate completion' });
+  }
+});
+
 export default router;

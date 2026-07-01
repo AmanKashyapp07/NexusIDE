@@ -40,6 +40,39 @@ const getUserColor = (username: string) => {
 };
 
 
+// ── Lightweight LRU Cache ─────────────────────────────────────────────────
+class AutocompleteCache {
+  private capacity: number;
+  private cache: Map<string, string>;
+
+  constructor(capacity = 50) {
+    this.capacity = capacity;
+    this.cache = new Map();
+  }
+
+  get(key: string): string | undefined {
+    if (!this.cache.has(key)) return undefined;
+    // Move to the end to mark as recently used
+    const val = this.cache.get(key)!;
+    this.cache.delete(key);
+    this.cache.set(key, val);
+    return val;
+  }
+
+  set(key: string, value: string): void {
+    if (this.cache.has(key)) this.cache.delete(key);
+    else if (this.cache.size >= this.capacity) {
+      // Evict the oldest item
+      this.cache.delete(this.cache.keys().next().value!); 
+    }
+    this.cache.set(key, value);
+  }
+}
+
+// Initialize once so it persists across component re-renders
+const ghostTextCache = new AutocompleteCache(50);
+
+
 export default function CodeEditor({
   workspaceId,
   fileId,
@@ -125,8 +158,118 @@ export default function CodeEditor({
 
 
 
+  const [monacoInstance, setMonacoInstance] = useState<any>(null);
+
+  // ── Gemini Autocomplete ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!editor || !monacoInstance || readOnly) return;
+
+    let debounceTimer: any = null;
+    let activeAbortController: AbortController | null = null;
+
+    const provider = monacoInstance.languages.registerInlineCompletionsProvider('*', {
+      provideInlineCompletions: async (model: any, position: any, _context: any, token: any) => {
+        
+        // 1. Get Truncated Context (saves bandwidth and speeds up TTFB)
+        const startLine = Math.max(1, position.lineNumber - 500);
+        const endLine = Math.min(model.getLineCount(), position.lineNumber + 500);
+
+        const textUntilPosition = model.getValueInRange({
+          startLineNumber: startLine, startColumn: 1,
+          endLineNumber: position.lineNumber, endColumn: position.column,
+        });
+
+        const textAfterPosition = model.getValueInRange({
+          startLineNumber: position.lineNumber, startColumn: position.column,
+          endLineNumber: endLine, endColumn: model.getLineMaxColumn(endLine),
+        });
+
+        // 2. Check Cache First
+        const cacheKey = `${language}:${textUntilPosition}|${textAfterPosition}`;
+        const cachedCompletion = ghostTextCache.get(cacheKey);
+        
+        if (cachedCompletion) {
+          return {
+            items: [{
+              insertText: cachedCompletion,
+              range: new monacoInstance.Range(
+                position.lineNumber, position.column,
+                position.lineNumber, position.column
+              )
+            }]
+          };
+        }
+
+        // 3. Fallback to API if not cached
+        return new Promise((resolve) => {
+          if (debounceTimer) clearTimeout(debounceTimer);
+
+          debounceTimer = setTimeout(async () => {
+            if (token.isCancellationRequested) return resolve({ items: [] });
+
+            // Cancel stale requests
+            if (activeAbortController) activeAbortController.abort();
+            activeAbortController = new AbortController();
+
+            // Link Monaco's cancellation token to our AbortController
+            token.onCancellationRequested(() => activeAbortController?.abort());
+
+            try {
+              const reqToken = localStorage.getItem('token');
+              const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/autocomplete`, {
+                method: 'POST',
+                signal: activeAbortController.signal,
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(reqToken ? { Authorization: `Bearer ${reqToken}` } : {})
+                },
+                body: JSON.stringify({ prefix: textUntilPosition, suffix: textAfterPosition, language })
+              });
+
+              if (!res.ok) return resolve({ items: [] });
+              
+              const data = await res.json();
+              
+              if (token.isCancellationRequested || !data.completion) {
+                return resolve({ items: [] });
+              }
+
+              // 4. Save to Cache
+              ghostTextCache.set(cacheKey, data.completion);
+
+              resolve({
+                items: [{
+                  insertText: data.completion,
+                  range: new monacoInstance.Range(
+                    position.lineNumber, position.column,
+                    position.lineNumber, position.column
+                  )
+                }]
+              });
+            } catch (err: any) {
+              if (err.name === 'AbortError') {
+                resolve({ items: [] });
+              } else {
+                console.error('Autocomplete error:', err);
+                resolve({ items: [] });
+              }
+            }
+          }, 350); // 350ms debounce
+        });
+      },
+      freeInlineCompletions: () => {}
+    });
+
+    return () => {
+      provider.dispose();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (activeAbortController) activeAbortController.abort();
+    };
+  }, [editor, monacoInstance, readOnly, workspaceId, language]);
+
   const handleEditorDidMount = (editorInstance: any, monaco: any) => {
     setEditor(editorInstance);
+    setMonacoInstance(monaco);
     // Explicitly configure Monaco for maximum built-in intelligence
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
       target: monaco.languages.typescript.ScriptTarget.ES2020,
@@ -141,7 +284,10 @@ export default function CodeEditor({
       allowNonTsExtensions: true,
     });
     // Enable built-in word completions for other languages
-    editorInstance.updateOptions({ wordBasedSuggestions: 'currentDocument' });
+    editorInstance.updateOptions({ 
+      wordBasedSuggestions: 'currentDocument',
+      inlineSuggest: { enabled: true }
+    });
     if (onEditorReady) {
       onEditorReady(editorInstance);
     }
