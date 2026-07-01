@@ -446,6 +446,8 @@ function startTerminalWatcher(
         const typeStr = match[3] as string;
         const relPath = (match[4] as string).trim();
         if (!relPath) continue;
+        // Ignore hidden files and directories (dotfiles) from syncing to the database
+        if (relPath.startsWith('.') || relPath.includes('/.')) continue;
         const isDir = typeStr.includes('directory');
         currentFiles.set(relPath, { path: relPath, mtime, size, isDir });
       }

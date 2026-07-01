@@ -37,6 +37,8 @@
         <li><a href="#3-interactive-web-pty-terminals-xtermjs--stream-piping">3. Interactive Web PTY Terminals</a></li>
         <li><a href="#4-hierarchical-file-explorer-postgresql-recursive-ctes">4. Hierarchical File Explorer</a></li>
         <li><a href="#5-github-oauth--automated-workspace-sync">5. GitHub OAuth & Automated Workspace Sync</a></li>
+        <li><a href="#6-gemini-powered-ai-inline-code-completions">6. Gemini-Powered AI Inline Code Completions</a></li>
+        <li><a href="#7-reactive-file-explorer-sync--command-execution">7. Reactive File Explorer Sync & Command Execution</a></li>
       </ul>
     </li>
     <li><a href="#security-design--mitigations">Security Design & Mitigations</a></li>
@@ -136,6 +138,21 @@ To remove the friction of manually creating file trees, NexusIDE provides direct
   3. The engine parses the flat ZIP paths, strips the root archive folder, and imports files into the PostgreSQL relational hierarchy level-by-level.
   4. The import applies a strict limit of **500 files** to protect the database transaction pool.
 
+### 6. Gemini-Powered AI Inline Code Completions (FIM Prompts & Client Caching)
+
+To increase coding velocity, NexusIDE integrates a real-time, context-aware code autocomplete provider.
+
+* **Fill-in-the-Middle (FIM) Prompts**: The backend constructs an explicit prefix-suffix completion prompt (`<PREFIX>...<CURSOR>...<SUFFIX>`) and sends it to the Gemini 2.5 Flash model via the official Google GenAI SDK.
+* **Deterministic Configuration**: Employs `temperature: 0.1` and customized `stopSequences` to prevent generation overflow or the injection of boilerplate formatting.
+* **Client-Side Caching**: A module-level Least Recently Used (LRU) cache (`ghostTextCache`) holds up to 50 prefix/suffix context variations to avoid duplicate API calls for identical states.
+* **Typing Debounce & Abort Controllers**: The Monaco provider features a 350ms debounce and links inline suggest signals directly to an `AbortController`. Mid-flight requests are immediately aborted if typing resumes.
+
+### 7. Reactive File Explorer Sync & Command Execution
+
+* **Terminal filesystem changes**: Rather than forcing a static file structure, the container filesystem is writable. A file watcher scans the terminal's workspace directories and automatically propagates changes (touch, mkdir, rm) back to the PostgreSQL database.
+* **Manual Refresh Override**: A dedicated refresh UI button in the sidebar explorer allows manual workspace synchronization to ensure the interface is always aligned with the container.
+* **Language Run CLI**: A global `run <file>` utility is injected into `/usr/local/bin/run` on container hydration. It automatically detects the file's programming language (Python, Node.js, or C++) and compiles/executes it using the appropriate environment configuration.
+
 ---
 
 <!-- SECURITY DESIGN & MITIGATIONS -->
@@ -219,8 +236,8 @@ Follow these steps to set up your local development environment.
 1. **Secure Login:** Click the "Continue with GitHub" button to authenticate.
 2. **Dashboard Management:** Click "New Workspace" to create a fresh coding workspace, or use the "Import GitHub" widget. Select one of your repositories from the dropdown list (or paste any public GitHub repository URL) to pull the files and build the workspace.
 3. **Write & Edit Code:** Open the workspace, select files in the tree view, and edit them. Open the same URL in a separate window to watch real-time synchronizations.
-4. **Isolated Code Run:** Click the "Run" button in the editor. The code is executed in an isolated runner container and metrics (Execution Time, CPU, and RAM peak) are returned to the output logger console.
-5. **Interactive Bash Shell:** Open the console terminal tab to interface directly with your sandbox environment via terminal commands.
+4. **Command-Line Code Execution:** Run Python, Node.js, and C++ scripts directly inside the terminal panel using the global `run <file_name>` tool which automatically compiles and executes the file.
+5. **Interactive Bash Shell:** Interface directly with your sandbox environment via terminal commands, edit/create files, and watch changes instantly reflect in the Explorer tree (or use the Refresh icon to force sync).
 
 ---
 
@@ -232,6 +249,9 @@ Follow these steps to set up your local development environment.
   - [x] Fetch zipball via API
   - [x] Memory unpacking & Adjacency lists insertion (500 file cap)
   - [x] Live dropdown listing of user repositories
+- [x] Gemini-powered AI inline code completions with client-side caching & FIM prompts
+- [x] Terminal file structure reactive syncing with manual refresh UI override
+- [x] Global terminal run utility with multi-language detection
 - [ ] Terminal-based Git integration (Plan B)
 - [ ] Workspace collaborator invite UI
 - [ ] Sandbox pre-warm pool expansion
