@@ -1,13 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
-import OutputPanel from '../components/Terminal/OutputPanel';
 import TerminalPanel from '../components/Terminal/TerminalPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
-import PerformanceModal from '../components/Terminal/PerformanceModal';
-import { Play, Zap, Users, Book, LogOut, Loader2, Keyboard, Activity, TerminalSquare, RotateCcw, Download } from 'lucide-react';
+import { Zap, Users, Book, LogOut, Loader2, TerminalSquare, RotateCcw, Download } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-ignore
 import { WebsocketProvider } from 'y-websocket';
@@ -38,10 +36,6 @@ import { io, Socket } from 'socket.io-client';
 //
 
 function IdePage() {
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [fileOutputs, setFileOutputs] = useState<Record<string, string>>({});
-  const [fileMetrics, setFileMetrics] = useState<Record<string, { durationMs: number; exitCode: number; oomKilled: boolean; cpuUsagePercent?: number; memoryUsageBytes?: number } | null>>({});
-  const [stdinInputs, setStdinInputs] = useState<Record<string, string>>({});
   const [user, setUser] = useState<{ username: string; id: string } | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [workspaceTitle, setWorkspaceTitle] = useState<string>('Loading...');
@@ -52,10 +46,8 @@ function IdePage() {
   const [isCollabModalOpen, setIsCollabModalOpen] = useState(false);
   const [isActiveMembersOpen, setIsActiveMembersOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
-  const [isPerformanceModalOpen, setIsPerformanceModalOpen] = useState(false);
   
   // Terminal state
-  const [activeTab, setActiveTab] = useState<'output' | 'terminal'>('output');
   const [terminalKey, setTerminalKey] = useState(0); // Used to remount terminal
 
   // Fixed widths for UI panels (KISS principle)
@@ -184,6 +176,10 @@ function IdePage() {
       setActiveCollaborators(users);
     });
 
+    socket.on('file-tree-update', () => {
+      fetchFiles(urlWorkspaceId);
+    });
+
     return () => {
       socket.emit('leave-workspace');
       socket.disconnect();
@@ -279,45 +275,6 @@ function IdePage() {
     }
   };
 
-  const handleExecute = async () => {
-    if (!editorRef.current || !activeFile) return;
-
-    const code = editorRef.current.getValue();
-
-    setIsExecuting(true);
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          code,
-          language: activeFile.language,
-          input: stdinInputs[activeFile.id] || '',
-          fileName: activeFile.name,
-          fileId: activeFile.id
-        }),
-      });
-
-      const data = await response.json();
-      if (data.error) {
-        setFileOutputs((prev) => ({ ...prev, [activeFile.id]: `Error: ${data.error}` }));
-        setFileMetrics((prev) => ({ ...prev, [activeFile.id]: null }));
-      } else {
-        setFileOutputs((prev) => ({ ...prev, [activeFile.id]: data.output }));
-        setFileMetrics((prev) => ({ ...prev, [activeFile.id]: data.metrics || null }));
-      }
-    } catch (error: any) {
-      setFileOutputs((prev) => ({ ...prev, [activeFile.id]: `Failed to execute: ${error.message}` }));
-      setFileMetrics((prev) => ({ ...prev, [activeFile.id]: null }));
-    } finally {
-      setIsExecuting(false);
-    }
-  };
 
   const handleExportWorkspace = async () => {
     try {
@@ -540,6 +497,9 @@ function IdePage() {
                 files={files}
                 activeFileId={activeFile?.id || null}
                 readOnly={userRole === 'viewer'}
+                onRefresh={() => {
+                  if (workspaceId) fetchFiles(workspaceId);
+                }}
                 onFileSelect={(file) => {
                   navigate(`/ide/${urlWorkspaceId}/${file.id}`);
                 }}
@@ -588,55 +548,6 @@ function IdePage() {
                       <div className="h-2 w-2 rounded-full bg-zinc-500" />
                       <span className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-400">{activeFile.language}</span>
                     </div>
-
-                    <button
-                      onClick={handleExecute}
-                      disabled={isExecuting || userRole === 'viewer'}
-                      title={userRole === 'viewer' ? 'Viewers cannot run code' : ''}
-                      className="
-                        nx-btn-shimmer nx-btn-gradient
-                        flex items-center gap-2
-                        rounded-full
-                        border border-violet-300/20
-                        px-4 py-2
-                        text-sm font-semibold text-white
-                        shadow-[0_16px_30px_rgba(139,92,246,0.2)]
-                        transition-all duration-200
-                        hover:scale-[1.02]
-                        hover:shadow-[0_18px_36px_rgba(99,102,241,0.3)]
-                        active:scale-[0.98]
-                        cursor-pointer
-                        disabled:cursor-not-allowed
-                        disabled:opacity-60
-                      "
-                    >
-                      {isExecuting ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Play size={14} fill="currentColor" />
-                      )}
-                      {isExecuting ? 'Running...' : 'Run Code'}
-                    </button>
-
-                    <button
-                      onClick={() => setIsPerformanceModalOpen(true)}
-                      className="
-                        flex items-center gap-2
-                        rounded-full
-                        border border-white/10
-                        bg-white/5
-                        px-4 py-2
-                        text-sm font-semibold text-zinc-300
-                        transition-all duration-200
-                        hover:bg-white/10
-                        hover:text-white
-                        active:scale-[0.98]
-                        cursor-pointer
-                      "
-                    >
-                      <Activity size={14} className="text-violet-400" />
-                      Diagnostics
-                    </button>
                   </div>
                 )}
               </div>
@@ -678,34 +589,18 @@ function IdePage() {
                   style={{ width: `calc(${100 - editorWidth}% - 12px)` }}
                   className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/[0.08] bg-[rgba(7,6,11,0.9)] shadow-[0_16px_50px_rgba(0,0,0,0.3)] flex-shrink-0"
                 >
-                  {/* Tab Switcher */}
+                  {/* Tab Switcher (Simplified to just Terminal Controls) */}
                   <div className="flex items-center justify-between border-b border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setActiveTab('output')}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all ${
-                          activeTab === 'output'
-                            ? 'bg-violet-500/20 text-violet-300 shadow-[inset_0_0_8px_rgba(139,92,246,0.15)]'
-                            : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
-                        }`}
-                      >
-                        <Play size={11} fill={activeTab === 'output' ? 'currentColor' : 'none'} />
-                        Run Output
-                      </button>
                        <button
-                        onClick={() => setActiveTab('terminal')}
                         title={userRole === 'viewer' ? 'Read-only Terminal' : ''}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all ${
-                          activeTab === 'terminal'
-                            ? 'bg-violet-500/20 text-violet-300 shadow-[inset_0_0_8px_rgba(139,92,246,0.15)]'
-                            : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
-                        }`}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all bg-violet-500/20 text-violet-300 shadow-[inset_0_0_8px_rgba(139,92,246,0.15)] cursor-default"
                       >
                         <TerminalSquare size={11} />
                         Terminal
                       </button>
                     </div>
-                    {activeTab === 'terminal' && userRole !== 'viewer' && (
+                    {userRole !== 'viewer' && (
                       <button
                         onClick={() => {
                           sessionStorage.setItem('resetTerminal', 'true');
@@ -720,42 +615,9 @@ function IdePage() {
                     )}
                   </div>
 
-                  {/* Tab Content */}
-                  <div className={`flex flex-col min-h-0 flex-1 ${activeTab === 'output' ? '' : 'hidden'}`}>
-                    {/* Stdin Input Section */}
-                    <div className="border-b border-white/[0.06]">
-                      <div className="flex items-center gap-1.5 bg-white/[0.03] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
-                        <Keyboard size={12} className="text-violet-400/70" />
-                        Input (stdin)
-                      </div>
-                      <textarea
-                        value={stdinInputs[activeFile?.id || ''] || ''}
-                        onChange={(e) => {
-                          const fileId = activeFile?.id || '';
-                          setStdinInputs((prev) => ({ ...prev, [fileId]: e.target.value }));
-                        }}
-                        disabled={userRole === 'viewer'}
-                        placeholder={userRole === 'viewer' ? "Viewers cannot enter input..." : "Enter input here (e.g. for scanf, input(), cin)..."}
-                        className="w-full resize-none border-0 bg-[rgba(7,6,11,0.95)] px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-300 placeholder:text-zinc-600 outline-none focus:bg-[rgba(13,12,20,0.95)] disabled:opacity-50"
-                        rows={3}
-                      />
-                      <div className="border-t border-white/[0.04] bg-white/[0.02] px-4 py-1.5 text-[10px] text-zinc-500">
-                        If your code reads input, add it above before running.
-                      </div>
-                    </div>
-                    {/* Output Display */}
-                    <div className="min-h-0 flex-1">
-                      <OutputPanel
-                        output={fileOutputs[activeFile?.id || ''] || ''}
-                        isExecuting={isExecuting}
-                        metrics={fileMetrics[activeFile?.id || '']}
-                      />
-                    </div>
-                  </div>
-
-                  <div className={`min-h-0 flex-1 flex flex-col ${activeTab === 'terminal' ? '' : 'hidden'}`}>
+                  <div className="min-h-0 flex-1 flex flex-col">
                     {workspaceId && (
-                      <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} />
+                      <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} isVisible={true} />
                     )}
                   </div>
                 </section>
@@ -774,13 +636,7 @@ function IdePage() {
         />
       )}
 
-      {workspaceId && (
-        <PerformanceModal
-          isOpen={isPerformanceModalOpen}
-          onClose={() => setIsPerformanceModalOpen(false)}
-          workspaceId={workspaceId}
-        />
-      )}
+
     </div>
   );
 }

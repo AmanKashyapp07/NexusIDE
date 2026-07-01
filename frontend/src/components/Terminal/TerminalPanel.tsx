@@ -14,9 +14,10 @@ import {
 interface TerminalPanelProps {
   workspaceId: string;
   userRole?: 'admin' | 'editor' | 'viewer' | null;
+  isVisible: boolean;
 }
 
-export default function TerminalPanel({ workspaceId, userRole }: TerminalPanelProps) {
+export default function TerminalPanel({ workspaceId, userRole, isVisible }: TerminalPanelProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -39,6 +40,18 @@ export default function TerminalPanel({ workspaceId, userRole }: TerminalPanelPr
       xtermRef.current.clear();
     }
   }, []);
+
+  // Trigger a fit when visibility changes to true (switched from another tab)
+  useEffect(() => {
+    if (isVisible && fitAddonRef.current) {
+      const timer = setTimeout(() => {
+        if (fitAddonRef.current) {
+          fitAddonRef.current.fit();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible]);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -90,14 +103,9 @@ export default function TerminalPanel({ workspaceId, userRole }: TerminalPanelPr
     };
     window.addEventListener('resize', handleWindowResize);
 
-    // WebSocket Initialization
     const token = localStorage.getItem('token') || '';
-    const forceNew = sessionStorage.getItem('resetTerminal') === 'true';
-    if (forceNew) {
-      sessionStorage.removeItem('resetTerminal');
-    }
     
-    const wsUrl = `ws://localhost:4000/terminal/${workspaceId}?token=${token}${forceNew ? '&forceNew=true' : ''}`;
+    const wsUrl = `ws://localhost:4000/terminal/${workspaceId}?token=${token}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -121,7 +129,9 @@ export default function TerminalPanel({ workspaceId, userRole }: TerminalPanelPr
 
     ws.onclose = (event) => {
       setConnectionStatus('disconnected');
-      if (event.code === 4403) {
+      if (event.code === 4401) {
+        setError('Session expired. Please log out and log back in.');
+      } else if (event.code === 4403) {
         setError('Access denied: Insufficient permission');
       } else if (event.code === 4404) {
         setError('Workspace not found');
@@ -186,13 +196,6 @@ export default function TerminalPanel({ workspaceId, userRole }: TerminalPanelPr
             title="Clear Terminal"
           >
             <Trash2 size={16} />
-          </button>
-          <button 
-            onClick={handleReconnect}
-            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
-            title="Reconnect Session: Restarts the socket connection (retains active container and files)"
-          >
-            <RefreshCw size={16} className={connectionStatus === 'connecting' ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>

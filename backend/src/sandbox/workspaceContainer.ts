@@ -45,8 +45,10 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
 
   if (workspaceFiles.length > 0) {
     console.log(`[WorkspaceContainer] Hydrating container for ${key} with ${workspaceFiles.length} files`);
-    // Use Docker's native putArchive API for workspace hydration.
-    // This eliminates the ~30-50ms overhead of spawning a tar exec process.
+    // Use Docker exec with tar to extract files.
+    // We cannot use container.putArchive() here because /app is a tmpfs mount.
+    // The Docker daemon's archive API writes directly to the overlayfs layers on the host,
+    // which bypasses the container's tmpfs namespace, causing silent failures.
     const pack = tar.pack();
     for (const file of workspaceFiles) {
       if (file.type === 'directory') {
@@ -56,7 +58,21 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
       }
     }
     pack.finalize();
-    await container.putArchive(pack, { path: '/app' });
+
+    const exec = await container.exec({
+      Cmd: ['tar', '-x', '-C', '/app'],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: true });
+    
+    await new Promise<void>((resolve, reject) => {
+      pack.pipe(stream);
+      pack.on('end', () => resolve());
+      pack.on('error', reject);
+      stream.on('error', reject);
+    });
   }
 
   ref = {

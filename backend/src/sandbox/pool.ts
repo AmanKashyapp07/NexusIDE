@@ -583,7 +583,7 @@ WORKDIR /app
         NanoCpus: 1_000_000_000,        // 1.0 CPU Core
         PidsLimit: 100,                 // Up PidsLimit for multi-threaded LSP servers
         NetworkMode: 'none',
-        ReadonlyRootfs: true,
+        ReadonlyRootfs: false,           // Terminal containers need writable fs for PTY allocation
         Tmpfs: {
           '/app': 'rw,exec,size=10m',
           '/tmp': 'rw,exec,size=10m'

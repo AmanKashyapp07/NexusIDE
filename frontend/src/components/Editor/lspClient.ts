@@ -38,7 +38,7 @@
 //
 // =============================================================================
 
-import * as monaco from 'monaco-editor';
+
 
 // ─── LSP Severity → Monaco Severity Translator ───────────────────────────────
 // Maps LSP severity integers to Monaco Editor's marker severity enums.

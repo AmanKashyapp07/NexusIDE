@@ -165,15 +165,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
           [userId, title || 'Untitled Project']
         );
         
-        // BOOTSTRAPPING: Auto-inject a default index.js file
-        // This ensures the workspace is immediately functional without requiring the user to
-        // manually create their first file.
-        if (result.rows.length > 0) {
-          await getPool().query(
-            `INSERT INTO files (workspace_id, name, type, language, content) VALUES ($1, $2, $3, $4, $5)`,
-            [result.rows[0].id, 'index.js', 'file', 'javascript', '']
-          );
-        }
+        // Note: Workspace is created empty. Users will manually create files.
       }
       
       res.json(result.rows[0]);
@@ -207,11 +199,7 @@ router.get('/default', async (req: AuthRequest, res: Response): Promise<void> =>
         'INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *',
         [userId, 'My First Sandbox']
       );
-      // Bootstrap default workspace files
-      await getPool().query(
-        `INSERT INTO files (workspace_id, name, type, language, content) VALUES ($1, $2, $3, $4, $5)`,
-        [wsResult.rows[0].id, 'index.js', 'file', 'javascript', '']
-      );
+      // Note: Workspace is created empty. Users will manually create files.
     }
     res.json(wsResult.rows[0]);
   } catch (err: any) {

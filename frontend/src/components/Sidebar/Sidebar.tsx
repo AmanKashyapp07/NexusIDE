@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight, FileCode, FolderCode, FilePlus, FolderPlus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileCode, FolderCode, FilePlus, FolderPlus, Trash2, RefreshCw } from 'lucide-react';
 
 export interface AppFile {
   id: string;
@@ -15,10 +15,11 @@ interface SidebarProps {
   onFileSelect: (file: AppFile) => void;
   onFileCreate: (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => void;
   onFileDelete: (id: string) => void;
+  onRefresh?: () => void;
   readOnly?: boolean;
 }
 
-export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreate, onFileDelete, readOnly = false }: SidebarProps) {
+export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreate, onFileDelete, onRefresh, readOnly = false }: SidebarProps) {
   // Consolidated creation state for better control over inline inputs
   const [createState, setCreateState] = useState<{
     isCreating: boolean;
@@ -263,6 +264,15 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
         <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Explorer</span>
         {!readOnly && (
           <div className="flex items-center gap-1">
+            {onRefresh && (
+              <button
+                onClick={onRefresh}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300 mr-1"
+                title="Refresh File Explorer"
+              >
+                <RefreshCw size={13} />
+              </button>
+            )}
             <button
               onClick={() => openCreateForm('file')}
               className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
