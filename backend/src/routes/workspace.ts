@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole, WorkspaceAuthRequest, CollaboratorRole } from '../middleware/workspaceAuth';
+import { ZipArchive } from 'archiver';
 import { executeCode } from '../sandbox/docker';
 import { getPool } from '../db';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
@@ -245,6 +246,62 @@ router.get('/:id', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequ
   }
 });
 
+// GET /:id/export - Export workspace as a ZIP file
+//
+// Streams a dynamically generated ZIP archive directly to the client without
+// saving anything to disk. We use the recursive CTE to map all hierarchical files
+// into a flat list with absolute paths, then pipe them into archiver.
+router.get('/:id/export', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // Get workspace name for the download filename
+    const wsResult = await getPool().query('SELECT title FROM workspaces WHERE id = $1', [id]);
+    if (wsResult.rows.length === 0) {
+      res.status(404).json({ error: 'Workspace not found' });
+      return;
+    }
+    const safeTitle = wsResult.rows[0].title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+
+    // Get all files with their full paths using recursive CTE
+    const filesRes = await getPool().query(`
+      WITH RECURSIVE file_path_cte AS (
+        SELECT id, parent_id, name, type, content, name::text as path
+        FROM files 
+        WHERE workspace_id = $1 AND parent_id IS NULL
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text as path
+        FROM files f
+        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+        WHERE f.workspace_id = $1
+      )
+      SELECT path, type, content FROM file_path_cte WHERE type = 'file';
+    `, [id]);
+
+    res.attachment(`${safeTitle}.zip`);
+    // @ts-ignore
+    const archive = new ZipArchive({
+      zlib: { level: 9 } // maximum compression
+    });
+
+    archive.on('error', (err: any) => {
+      throw err;
+    });
+
+    archive.pipe(res);
+
+    for (const file of filesRes.rows) {
+      archive.append(file.content || '', { name: file.path });
+    }
+
+    archive.finalize();
+  } catch (err: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
 // DELETE /:id - Delete a workspace
 //
 // SYSTEM DESIGN — Cascade Operations:
@@ -438,6 +495,8 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
       return;
     }
 
+    // Validation for language enum if type is file
+    const validLanguages = ['javascript', 'python', 'cpp', 'c', 'html', 'css', 'bash', 'java'];
     const resolvedLanguage = type === 'file' ? (language || 'javascript') : null;
     
     const newFile = await getPool().query(

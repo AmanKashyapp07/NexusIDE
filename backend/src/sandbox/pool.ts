@@ -139,7 +139,7 @@ let TERMINAL_POOL_SIZE = 2;
 
 // Languages for which we pre-warm containers.
 // This must be kept in sync with CONFIGS in docker.ts.
-const WARM_LANGUAGES = ['python', 'javascript', 'cpp', 'c', 'bash'];
+const WARM_LANGUAGES = ['python', 'javascript', 'cpp', 'c', 'bash', 'java'];
 
 // Language → Docker image mapping.
 // Duplicated from docker.ts intentionally: pool.ts is a standalone module that
@@ -151,11 +151,12 @@ const IMAGE_CONFIGS: Record<string, string> = {
   javascript: 'node:20-alpine',
   cpp: 'gcc:12',
   c: 'gcc:12',
-  bash: 'alpine:3.18'
+  bash: 'alpine:3.18',
+  java: 'eclipse-temurin:21-jdk-alpine'
 };
 
 // Terminal sandbox dev environment image pre-installed with Node, NPM, Python, GCC, Git, Curl, Bash
-const TERMINAL_IMAGE = 'sandbox-dev-env:v3';
+const TERMINAL_IMAGE = 'sandbox-dev-env:latest';
 
 // =============================================================================
 // WARM POOL MANAGER
@@ -223,12 +224,12 @@ class WarmPoolManager {
   //   The server still starts — failed languages will fall back to on-demand
   //   container creation (slower but functional).
   private async ensureTerminalImageExists(): Promise<void> {
-    const imageName = 'sandbox-dev-env:v3';
+    const imageName = 'sandbox-dev-env:latest';
     try {
       await docker.getImage(imageName).inspect();
       console.log('[WarmPool] Terminal developer sandbox image is already built and ready.');
     } catch (err) {
-      console.log('[WarmPool] sandbox-dev-env:v3 does not exist, building image now...');
+      console.log('[WarmPool] sandbox-dev-env:latest does not exist, building image now...');
       const dockerfileContent = `FROM alpine:3.18
 RUN apk add --no-cache \
     nodejs \
@@ -241,8 +242,16 @@ RUN apk add --no-cache \
     libc-dev \
     git \
     curl \
-    bash
-RUN npm install -g typescript typescript-language-server pyright
+    bash \
+    py3-numpy \
+    py3-pandas \
+    py3-requests \
+    py3-scipy \
+    py3-scikit-learn \
+    py3-matplotlib \
+    py3-beautifulsoup4
+RUN npm install -g typescript typescript-language-server pyright lodash axios express moment uuid chalk
+ENV NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules
 RUN mkdir -p /viewer_bin && \
     ln -s /bin/busybox /viewer_bin/ls && \
     ln -s /bin/busybox /viewer_bin/cat && \
@@ -253,7 +262,7 @@ RUN mkdir -p /viewer_bin && \
 WORKDIR /app
 `;
       try {
-        execSync('docker build -t sandbox-dev-env:v3 -', { input: dockerfileContent, stdio: 'pipe' });
+        execSync('docker build -t sandbox-dev-env:latest -', { input: dockerfileContent, stdio: 'pipe' });
         console.log('[WarmPool] Terminal developer sandbox image built successfully.');
       } catch (buildErr: any) {
         console.error('[WarmPool] Failed to build custom terminal developer sandbox image:', buildErr.message);

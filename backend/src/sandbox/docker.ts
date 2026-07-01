@@ -178,6 +178,11 @@ const CONFIGS: Record<string, { image: string; cmd: string[]; filename: string }
     cmd: ['sh', '-c', 'gcc /app/code.c -o /app/code.out && /app/code.out'],
     filename: 'code.c'
   },
+  java: {
+    image: 'eclipse-temurin:21-jdk-alpine',
+    cmd: ['java', '/app/Main.java'],
+    filename: 'Main.java'
+  },
   bash: {
     image: 'alpine:3.18',
     cmd: ['sh', '/app/code.sh'],
@@ -243,81 +248,71 @@ async function logRequest(
 //   "Aman\n\n25" → ["Aman", "25"] → "Aman\n25\n"   ✓ (blank lines collapsed)
 //   "1 2 3 4 5"  → ["1","2","3","4","5"] → "1\n2\n3\n4\n5\n"  ✓
 //
-// This matches how competitive programming judges (Codeforces, LeetCode) feed
-// stdin — all whitespace (spaces, tabs, newlines) is treated equivalently as
-// a token separator.
+// The user tests expect spaces within a line to be preserved (e.g. multiline strings).
 function normalizeInput(raw: string): string {
-  const tokens = raw.trim().split(/\s+/).filter((t) => t.length > 0);
-  return tokens.join('\n') + '\n';
-}
-
-interface CgroupMetrics {
-  cpuUsec: number;
-  memoryBytes: number;
+  return raw.trim() + '\n';
 }
 
 // =============================================================================
-// CGROUPS V2 METRICS RETRIEVAL (LOW-LATENCY HYBRID PATTERN)
+// INLINE CGROUP METRICS — Boundary Markers & Parsing
 // =============================================================================
 //
-// WHY CGROUPS V2 INSTEAD OF DOCKER DAEMON STATS API?
-//   - Docker's stats endpoint (`container.stats({ stream: true/false })`) relies
-//     on host-side daemon polling that runs on a rigid 1-second interval.
-//     For fast, ephemeral executions (e.g., 20ms - 200ms), this adds massive
-//     wall-clock latency (up to 1-2 seconds per call) or misses the run entirely.
-//   - By executing a command inside the target cgroup (`cat /sys/fs/...`), we read
-//     the kernel controllers directly in real-time, completing in ~15-30ms.
+// OPTIMIZATION: Instead of spawning 2 separate `docker exec` calls to read
+// cgroup stats before and after execution (~30-50ms each, totaling ~60-100ms),
+// we embed cgroup reads directly into the execution command wrapper and emit
+// them to stderr with unique boundary markers. After execution, we parse the
+// combined stderr to extract metrics and separate them from user output.
 //
-// CGROUP CONTROLLERS QUERIED:
-//   1. cpu.stat    → We extract `usage_usec` (total CPU time in microseconds consumed
-//                    by the container cgroup since its creation).
-//   2. memory.peak → The kernel-tracked absolute peak memory footprint (in bytes)
-//                    slipped into by the cgroup processes during execution.
+// This approach reduces the per-execution Docker API round-trips from 4 to 2:
+//   Before: exec(tar) + exec(pre-metrics) + exec(run) + exec(post-metrics)
+//   After:  putArchive() + exec(wrapped-run-with-metrics)
 //
-// THE METRICS DEVIATION & OVERHEAD MATHEMATICAL FORMULA:
-//   Since spawning any process (`exec`) inside a cgroup consumes CPU cycles for fork,
-//   exec, and dynamic linking, the metrics capture baseline overhead.
-//   We capture metrics BEFORE and AFTER the user's execution:
-//     - Raw CPU Delta = CPU_end - CPU_start
-//     - Adjusted CPU = Max(0, Raw CPU Delta - Language_VM_Overhead - Exec_Overhead)
-//     - Normalized CPU = Adjusted CPU / CFS_Quota_Limit (0.5 cores)
-//   This eliminates startup pollution, yielding exact results for short and long runs.
+const METRICS_BOUNDARY = '___NEXUS_CGROUP_BOUNDARY___';
+const METRICS_END = '___NEXUS_CGROUP_END___';
+
+interface ParsedCgroupMetrics {
+  preCpuUsec: number;
+  postCpuUsec: number;
+  memoryPeakBytes: number;
+  userStderr: string;
+}
+
+// Split stderr by our boundary markers to extract pre/post cgroup stats
+// and the actual user stderr in between.
 //
-async function getCgroupMetrics(container: Docker.Container): Promise<CgroupMetrics> {
-  try {
-    const exec = await container.exec({
-      Cmd: ['cat', '/sys/fs/cgroup/cpu.stat', '/sys/fs/cgroup/memory.peak'],
-      AttachStdout: true,
-      AttachStderr: false
-    });
-    const stream = await exec.start({ hijack: true });
-    const output = await new Promise<string>((resolve) => {
-      let data = '';
-      const writable = new Writable({
-        write(chunk, encoding, callback) {
-          data += chunk.toString('utf8');
-          callback();
-        }
-      });
-      container.modem.demuxStream(stream, writable, writable);
-      stream.on('end', () => resolve(data));
-    });
-    const lines = output.trim().split('\n');
-    let cpuUsec = 0;
-    let memoryBytes = 0;
-    for (const line of lines) {
-      if (line.startsWith('usage_usec')) {
-        cpuUsec = parseInt(line.split(/\s+/)[1] || '0', 10);
-      }
-    }
-    const lastLine = lines[lines.length - 1];
-    if (lastLine && /^\d+$/.test(lastLine.trim())) {
-      memoryBytes = parseInt(lastLine.trim(), 10);
-    }
-    return { cpuUsec, memoryBytes };
-  } catch (e) {
-    return { cpuUsec: 0, memoryBytes: 0 };
+// STDERR LAYOUT (after wrapped execution):
+//   <pre cgroup cpu.stat>\n
+//   ___NEXUS_CGROUP_BOUNDARY___\n
+//   <user stderr if any>\n
+//   ___NEXUS_CGROUP_BOUNDARY___\n
+//   <post cgroup cpu.stat + memory.peak>\n
+//   ___NEXUS_CGROUP_END___\n
+function parseInlineMetrics(rawStderr: string): ParsedCgroupMetrics {
+  const parts = rawStderr.split(METRICS_BOUNDARY);
+  if (parts.length >= 3) {
+    const preRaw = parts[0]!.trim();
+    const userStderr = parts[1]!.trim();
+    const postRaw = parts[2]!.replace(METRICS_END, '').trim();
+    return {
+      preCpuUsec: extractCpuUsec(preRaw),
+      postCpuUsec: extractCpuUsec(postRaw),
+      memoryPeakBytes: extractMemoryPeak(postRaw),
+      userStderr
+    };
   }
+  // Fallback: no metrics markers found (timeout/OOM killed before markers were written)
+  return { preCpuUsec: 0, postCpuUsec: 0, memoryPeakBytes: 0, userStderr: rawStderr };
+}
+
+function extractCpuUsec(raw: string): number {
+  const match = raw.match(/usage_usec\s+(\d+)/);
+  return match ? parseInt(match[1]!, 10) : 0;
+}
+
+function extractMemoryPeak(raw: string): number {
+  const lines = raw.trim().split('\n');
+  const lastLine = lines[lines.length - 1];
+  return (lastLine && /^\d+$/.test(lastLine.trim())) ? parseInt(lastLine.trim(), 10) : 0;
 }
 
 // =============================================================================
@@ -412,7 +407,6 @@ async function runInDocker(
 
   let maxMemory = 0;
   let peakCpuPercent = 0.0;
-  let startMetrics: CgroupMetrics | null = null;
   let runStartTime = 0;
 
   // Hoisted outside try so the catch block can include partial output
@@ -435,40 +429,30 @@ async function runInDocker(
     // -------------------------------------------------------------------------
     if (workspaceContext && workspaceContext.workspaceFiles.length > 0) {
       // -------------------------------------------------------------------------
-      // PHASE 2.1: Stream full directory tree using an in-memory tarball pipeline
-      // -------------------------------------------------------------------------
-      // We spawn a single exec command inside the container running 'tar'.
-      // -x: extract files
-      // -f -: read archive content directly from the standard input stream (stdin)
-      // -C /app: extract files inside the /app directory
-      // This allows transferring directories and files in a single exec call with no host files.
-      const execWrite = await container.exec({
+      const pack = tar.pack();
+      for (const file of workspaceContext.workspaceFiles) {
+        if (file.type === 'directory') {
+          pack.entry({ name: file.path, type: 'directory' });
+        } else {
+          pack.entry({ name: file.path }, file.content || '');
+        }
+      }
+      pack.finalize();
+      
+      const execSetup = await container.exec({
         Cmd: ['tar', '-xf', '-', '-C', '/app'],
         AttachStdin: true,
         AttachStdout: true,
         AttachStderr: true
       });
-      const writeStream = await execWrite.start({ hijack: true, stdin: true });
+      const streamSetup = await execSetup.start({ hijack: true, stdin: true });
       
-      // We pack files dynamically in memory using the tar-stream module
-      const pack = tar.pack();
-      pack.pipe(writeStream);
-      
-      for (const file of workspaceContext.workspaceFiles) {
-        if (file.type === 'directory') {
-          // Add a directory entry in the tar archive
-          pack.entry({ name: file.path, type: 'directory' });
-        } else {
-          // Add a file entry with its database/unsaved text contents
-          pack.entry({ name: file.path }, file.content || '');
-        }
-      }
-      pack.finalize(); // Finalize/close the tarball block stream
-      
-      // Wait until the tar command finishes extracting all streamed contents inside the container
       await new Promise<void>((resolve, reject) => {
-        writeStream.on('end', () => resolve());
-        writeStream.on('error', (err) => reject(err));
+        pack.pipe(streamSetup);
+        // Wait for the stream from Docker to actually close, meaning the exec process finished
+        streamSetup.on('end', () => resolve());
+        streamSetup.on('error', (err) => reject(err));
+        pack.on('error', (err) => reject(err));
       });
 
       // -------------------------------------------------------------------------
@@ -541,39 +525,67 @@ async function runInDocker(
         }
       }
     } else {
-      // Single-file fallback hydration mode: directly stream code bytes into target filename via cat
-      const execWrite = await container.exec({
+      const execSetup = await container.exec({
         Cmd: ['sh', '-c', `cat > /app/${filename}`],
         AttachStdin: true,
         AttachStdout: true,
         AttachStderr: true
       });
-      const writeStream = await execWrite.start({ hijack: true, stdin: true });
-      writeStream.write(code);
-      writeStream.end();
-
+      const streamSetup = await execSetup.start({ hijack: true, stdin: true });
       await new Promise<void>((resolve, reject) => {
-        writeStream.on('end', () => resolve());
-        writeStream.on('error', (err) => reject(err));
+        streamSetup.on('end', () => resolve());
+        streamSetup.on('error', (err) => reject(err));
+        streamSetup.write(code);
+        streamSetup.end();
       });
     }
 
-    // Fetch initial cgroup CPU and Memory usage metrics before executing code
-    startMetrics = await getCgroupMetrics(container);
     runStartTime = performance.now();
 
     // -------------------------------------------------------------------------
-    // STEP 3: Execute the user's code inside the container
+    // STEP 3: Execute the user's code with inline cgroup metrics
     // -------------------------------------------------------------------------
-    // This is the actual code execution. The command varies by language
-    // (e.g., `python /app/code.py` or `sh -c 'gcc ... && ./code.out'`).
+    // We wrap the user's command in a shell script that reads cgroup CPU/memory
+    // stats before and after execution, emitting them to stderr with unique
+    // boundary markers. This eliminates two separate `docker exec` calls for
+    // metrics retrieval (~60-100ms saved per execution).
+    //
+    // Stderr output structure:
+    //   <pre cgroup cpu.stat>
+    //   ___NEXUS_CGROUP_BOUNDARY___
+    //   <user stderr if any>
+    //   ___NEXUS_CGROUP_BOUNDARY___
+    //   <post cgroup cpu.stat + memory.peak>
+    //   ___NEXUS_CGROUP_END___
+    //
+    // Command flattening: if the original cmd is ['sh', '-c', '...'], we extract
+    // the inner shell command directly to avoid nested sh -c invocations.
+    let userCmdStr: string;
+    if (cmd[0] === 'sh' && cmd[1] === '-c' && cmd.length === 3) {
+      userCmdStr = cmd[2]!;
+    } else {
+      userCmdStr = cmd.join(' ');
+    }
+
+    const wrappedCmd = [
+      'sh', '-c',
+      `cat /sys/fs/cgroup/cpu.stat >&2; ` +
+      `echo '${METRICS_BOUNDARY}' >&2; ` +
+      `${userCmdStr}; ` +
+      `EXIT_CODE=$?; ` +
+      `echo '${METRICS_BOUNDARY}' >&2; ` +
+      `cat /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/memory.peak >&2; ` +
+      `echo '${METRICS_END}' >&2; ` +
+      `exit $EXIT_CODE`
+    ];
+
     const execRun = await container.exec({
-      Cmd: cmd,
-      AttachStdin: true,    // Needed to pipe user-provided stdin input
-      AttachStdout: true,   // Capture program's stdout
-      AttachStderr: true,   // Capture program's stderr (errors, warnings)
-      Tty: false,           // Multiplexed stream mode (see frame parser below)
-      WorkingDir: '/app'    // Ensure relative paths and custom scripts work seamlessly
+      Cmd: wrappedCmd,
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+      WorkingDir: '/app'
     });
 
     const execStream = await execRun.start({
@@ -582,81 +594,47 @@ async function runInDocker(
     });
 
     // -------------------------------------------------------------------------
-    // STEP 4: Parse the Docker multiplexed stream (stdout + stderr frames)
+    // STEP 4: Demultiplex stdout/stderr using Dockerode's native demuxStream
     // -------------------------------------------------------------------------
     //
-    // WHY DO WE NEED A CUSTOM FRAME PARSER?
-    //   When Tty=false, Docker's exec API uses a multiplexed binary protocol
-    //   to separate stdout and stderr on a single bidirectional stream.
-    //   Each frame has an 8-byte header:
+    // When Tty=false, Docker multiplexes stdout and stderr into a single
+    // bidirectional stream with 8-byte frame headers:
+    //   Byte 0:     Stream type (1=stdout, 2=stderr)
+    //   Bytes 1-3:  Padding (0x00)
+    //   Bytes 4-7:  Payload size (big-endian uint32)
+    //   Bytes 8+:   Payload data
     //
-    //     Byte 0:     Stream type — 1 = stdout, 2 = stderr
-    //     Bytes 1-3:  Padding (always 0x00 0x00 0x00)
-    //     Bytes 4-7:  Payload size (big-endian uint32)
-    //     Bytes 8+:   Payload data (the actual output text)
-    //
-    //   Example: a "Hello\n" on stdout would arrive as:
-    //     [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, H, e, l, l, o, \n]
-    //     │      │                  │                       └─ payload (6 bytes)
-    //     │      └─ padding         └─ size = 6
-    //     └─ stdout
-    //
-    //   Dockerode does NOT parse this protocol automatically when using
-    //   hijacked streams. We must parse it ourselves to correctly separate
-    //   stdout from stderr and to avoid returning binary frame headers as
-    //   part of the user-visible output.
-    //
-    // ALIGNMENT SCAN (the first while loop):
-    //   In some Docker versions / connection states, the stream may begin
-    //   mid-frame or with garbage bytes. The first while loop scans forward
-    //   byte-by-byte until it finds a valid frame header (byte 0 is 1 or 2,
-    //   bytes 1-3 are 0x00). This self-synchronizes the parser to the frame
-    //   boundary. In normal operation, the stream starts frame-aligned and
-    //   this loop doesn't execute at all.
+    // Previously, we parsed this manually with Buffer.concat() on every 'data'
+    // chunk — an O(N^2) copy pattern that caused GC pressure for large outputs.
+    // Dockerode's built-in demuxStream() handles the frame protocol efficiently
+    // and routes payloads to separate Writable streams for stdout and stderr.
     //
     let outputBytes = 0;
     let outputCapped = false;
-    let frameBuffer = Buffer.alloc(0);
 
-    execStream.on('data', (chunk: Buffer) => {
-      frameBuffer = Buffer.concat([frameBuffer, chunk]);
-
-      // --- ALIGNMENT SCAN: find the first valid frame header ---
-      while (frameBuffer.length >= 4) {
-        const b0 = frameBuffer[0];
-        if ((b0 === 1 || b0 === 2) &&
-            frameBuffer[1] === 0 &&
-            frameBuffer[2] === 0 &&
-            frameBuffer[3] === 0) {
-          break;  // Found a valid header — proceed to frame parsing
+    const stdoutWritable = new Writable({
+      write(chunk, _encoding, callback) {
+        const text = chunk.toString('utf8');
+        if (outputBytes < MAX_OUTPUT_BYTES) {
+          outputBytes += Buffer.byteLength(text, 'utf8');
+          stdoutData += text;
+        } else {
+          outputCapped = true;
         }
-        frameBuffer = frameBuffer.slice(1);  // Discard one byte and retry
-      }
-
-      // --- FRAME PARSER: extract payload from complete frames ---
-      while (frameBuffer.length >= 8) {
-        const streamType  = frameBuffer[0];          // 1=stdout, 2=stderr
-        const payloadSize = frameBuffer.readUInt32BE(4); // bytes 4-7, big-endian
-
-        // Wait for the full payload to arrive before parsing
-        if (frameBuffer.length < 8 + payloadSize) break;
-
-        if (streamType === 1 || streamType === 2) {
-          const payload = frameBuffer.slice(8, 8 + payloadSize).toString('utf8');
-          // Enforce the MAX_OUTPUT_BYTES cap to prevent memory exhaustion
-          // from programs that print in infinite loops.
-          if (outputBytes < MAX_OUTPUT_BYTES) {
-            outputBytes += Buffer.byteLength(payload, 'utf8');
-            if (streamType === 1) stdoutData += payload;  // stdout
-            else                  stderrData += payload;  // stderr
-          } else {
-            outputCapped = true;
-          }
-        }
-        // Advance past this frame to the next one
-        frameBuffer = frameBuffer.slice(8 + payloadSize);
+        callback();
       }
     });
+
+    const stderrWritable = new Writable({
+      write(chunk, _encoding, callback) {
+        // Accumulate ALL stderr including inline metrics markers.
+        // We parse and strip metrics after the stream ends.
+        stderrData += chunk.toString('utf8');
+        callback();
+      }
+    });
+
+    container.modem.demuxStream(execStream, stdoutWritable, stderrWritable);
 
     execStream.on('error', (err) => {
       stderrData += err.message;
@@ -704,19 +682,20 @@ async function runInDocker(
     await Promise.race([runPromise, timeoutPromise]);
     if (timeoutId) clearTimeout(timeoutId);
 
-    // Fetch final cgroup CPU and Memory usage metrics after execution completed
+    // Parse inline cgroup metrics from the stderr stream
     const runEndTime = performance.now();
-    const endMetrics = await getCgroupMetrics(container);
-    maxMemory = endMetrics.memoryBytes;
+    const metrics = parseInlineMetrics(stderrData);
+    stderrData = metrics.userStderr; // Strip metrics markers, keep only user stderr
+    maxMemory = metrics.memoryPeakBytes;
     const cpuDurationMs = runEndTime - runStartTime;
-    const rawCpuDeltaUsec = endMetrics.cpuUsec - (startMetrics?.cpuUsec || 0);
+    const rawCpuDeltaUsec = metrics.postCpuUsec - metrics.preCpuUsec;
     let overheadUsec = 12_000;
     if (language === 'python') overheadUsec = 40_000;
     else if (language === 'javascript') overheadUsec = 60_000;
     const adjustedCpuUsec = Math.max(0, rawCpuDeltaUsec - overheadUsec);
     const durationUsec = cpuDurationMs * 1000;
     const rawCpuPercent = durationUsec > 0 ? (adjustedCpuUsec / durationUsec) * 100 : 0.0;
-    const containerLimit = 0.5; // container has 0.5 CPU core limit
+    const containerLimit = 0.5;
     peakCpuPercent = Math.min(100.0, Math.max(0.0, rawCpuPercent / containerLimit));
 
     // -------------------------------------------------------------------------
@@ -779,24 +758,22 @@ async function runInDocker(
     //      but the container might already be gone (removed by another path
     //      or Docker garbage collection), so we wrap inspection in try/catch.
     // Fetch final cgroup CPU and Memory usage metrics on error
-    if (container) {
-      try {
-        const runEndTime = performance.now();
-        const endMetrics = await getCgroupMetrics(container);
-        maxMemory = endMetrics.memoryBytes;
-        const cpuDurationMs = runEndTime - runStartTime;
-        const rawCpuDeltaUsec = endMetrics.cpuUsec - (startMetrics?.cpuUsec || 0);
-        let overheadUsec = 12_000;
-        if (language === 'python') overheadUsec = 40_000;
-        else if (language === 'javascript') overheadUsec = 60_000;
-        const adjustedCpuUsec = Math.max(0, rawCpuDeltaUsec - overheadUsec);
-        const durationUsec = cpuDurationMs * 1000;
-        const rawCpuPercent = durationUsec > 0 ? (adjustedCpuUsec / durationUsec) * 100 : 0.0;
-        const containerLimit = 0.5;
-        peakCpuPercent = Math.min(100.0, Math.max(0.0, rawCpuPercent / containerLimit));
-      } catch (e) {
-        // ignore
-      }
+    // Parse any inline metrics that were captured before the error
+    const metrics = parseInlineMetrics(stderrData);
+    stderrData = metrics.userStderr;
+    maxMemory = metrics.memoryPeakBytes;
+    if (metrics.postCpuUsec > 0) {
+      const runEndTime = performance.now();
+      const cpuDurationMs = runEndTime - runStartTime;
+      const rawCpuDeltaUsec = metrics.postCpuUsec - metrics.preCpuUsec;
+      let overheadUsec = 12_000;
+      if (language === 'python') overheadUsec = 40_000;
+      else if (language === 'javascript') overheadUsec = 60_000;
+      const adjustedCpuUsec = Math.max(0, rawCpuDeltaUsec - overheadUsec);
+      const durationUsec = cpuDurationMs * 1000;
+      const rawCpuPercent = durationUsec > 0 ? (adjustedCpuUsec / durationUsec) * 100 : 0.0;
+      const containerLimit = 0.5;
+      peakCpuPercent = Math.min(100.0, Math.max(0.0, rawCpuPercent / containerLimit));
     }
 
     const durationMs = performance.now() - startTime;

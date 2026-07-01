@@ -524,8 +524,8 @@ io.use(async (socket, next) => {
 // independent of Yjs awareness — uses Socket.IO events for instant updates
 // with no auth delay.
 //
-// Structure: Map<workspaceId, Map<socketId, { username, color }>>
-const workspacePresence = new Map<string, Map<string, { username: string; color: string }>>();
+// Structure: Map<workspaceId, Map<socketId, { userId: string; username: string; color: string; activeFileId: string | null }>>
+const workspacePresence = new Map<string, Map<string, { userId: string; username: string; color: string; activeFileId: string | null }>>();
 
 const PRESENCE_COLORS = [
   '#ef4444', '#f97316', '#eab308', '#22c55e',
@@ -570,13 +570,28 @@ io.on('connection', (socket) => {
       workspacePresence.set(workspaceId, new Map());
     }
     const username = (user.username || 'unknown') as string;
+    const userId = user.id;
     workspacePresence.get(workspaceId)!.set(socket.id, {
+      userId,
       username,
       color: getPresenceColor(username) || '#8b5cf6',
+      activeFileId: null
     });
 
     // Broadcast updated presence list to ALL users in this workspace
     broadcastPresence(workspaceId);
+  });
+
+  socket.on('active-file-change', ({ activeFileId }: { activeFileId: string | null }) => {
+    const workspaceId = socket.data.presenceWorkspaceId;
+    if (!workspaceId) return;
+
+    const members = workspacePresence.get(workspaceId);
+    if (members && members.has(socket.id)) {
+      const member = members.get(socket.id)!;
+      member.activeFileId = activeFileId;
+      broadcastPresence(workspaceId);
+    }
   });
 
   socket.on('leave-workspace', () => {
@@ -673,60 +688,66 @@ io.on('connection', (socket) => {
 // =============================================================================
 const PORT = process.env.PORT || 4000;
 // on server startup, clean temp_sandboxes of any previous runs to prevent disk bloat from orphaned sandboxes.
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
 
-  // Initialize the warm container pool
-  warmPoolManager.initializePools().catch((err) => {
-    console.error('❌ Failed to initialize warm container pools:', err.message);
-  });
-
-  // Clean temp_sandbox folder of any files left from aborted executions or crashes
-  const tempSandboxDir = path.join(process.cwd(), 'temp_sandbox');
-  fs.readdir(tempSandboxDir)
-    .then(async (files) => {
-      for (const file of files) {
-        // We preserve manual helper files or gitkeep files, but clean up the temp uuid/python files
-        if (file !== '.gitkeep' && file !== 'test.py') {
-          try {
-            await fs.unlink(path.join(tempSandboxDir, file));
-          } catch (err: any) {
-            console.error(`Failed to delete temp file ${file}:`, err.message);
-          }
-        }
-      }
-      console.log('✅ Cleaned up old/orphaned files in temp_sandbox.');
-    })
-    .catch((err) => {
-      // If the directory doesn't exist, that's fine, we'll create it during runs anyway
-      if (err.code !== 'ENOENT') {
-        console.error('Failed to read temp_sandbox directory:', err.message);
-      }
+    // Initialize the warm container pool
+    warmPoolManager.initializePools().catch((err) => {
+      console.error('❌ Failed to initialize warm container pools:', err.message);
     });
 
-  // Quick DB connectivity check on startup.
-  // SELECT NOW() is the lightest possible query — no table scan, just returns
-  // the current timestamp from the DB server clock.
-  // If this fails, the server is up but DB-dependent routes will all error.
-  getPool().query('SELECT NOW()', (err, res) => {
-    if (err) {
-      console.error('❌ Failed to connect to PostgreSQL Database:', err.message);
-    } else {
-      console.log('✅ Successfully connected to PostgreSQL Database!');
-    }
+    // Clean temp_sandbox folder of any files left from aborted executions or crashes
+    const tempSandboxDir = path.join(process.cwd(), 'temp_sandbox');
+    fs.readdir(tempSandboxDir)
+      .then(async (files) => {
+        for (const file of files) {
+          // We preserve manual helper files or gitkeep files, but clean up the temp uuid/python files
+          if (file !== '.gitkeep' && file !== 'test.py') {
+            try {
+              await fs.unlink(path.join(tempSandboxDir, file));
+            } catch (err: any) {
+              console.error(`Failed to delete temp file ${file}:`, err.message);
+            }
+          }
+        }
+        console.log('✅ Cleaned up old/orphaned files in temp_sandbox.');
+      })
+      .catch((err) => {
+        // If the directory doesn't exist, that's fine, we'll create it during runs anyway
+        if (err.code !== 'ENOENT') {
+          console.error('Failed to read temp_sandbox directory:', err.message);
+        }
+      });
+
+    // Quick DB connectivity check on startup.
+    // SELECT NOW() is the lightest possible query — no table scan, just returns
+    // the current timestamp from the DB server clock.
+    // If this fails, the server is up but DB-dependent routes will all error.
+    getPool().query('SELECT NOW()', (err, res) => {
+      if (err) {
+        console.error('❌ Failed to connect to PostgreSQL Database:', err.message);
+      } else {
+        console.log('✅ Successfully connected to PostgreSQL Database!');
+      }
+    });
   });
-});
+}
 
 // Process event listeners for graceful shutdown
 const gracefulShutdown = async (signal: string) => {
-  console.log(`Received ${signal}. Starting graceful shutdown...`);
-  try {
-    await warmPoolManager.cleanup();
-  } catch (err: any) {
-    console.error('Failed to clean up warm pool during shutdown:', err.message);
+  if (process.env.NODE_ENV !== 'test') {
+    console.log(`Received ${signal}. Starting graceful shutdown...`);
+    try {
+      await warmPoolManager.cleanup();
+    } catch (err: any) {
+      console.error('Failed to clean up warm pool during shutdown:', err.message);
+    }
+    process.exit(0);
   }
-  process.exit(0);
 };
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+export { app, server };

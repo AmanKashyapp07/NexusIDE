@@ -7,7 +7,7 @@ import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import PerformanceModal from '../components/Terminal/PerformanceModal';
-import { Play, Zap, Users, Book, LogOut, Loader2, Keyboard, Activity, TerminalSquare, RotateCcw } from 'lucide-react';
+import { Play, Zap, Users, Book, LogOut, Loader2, Keyboard, Activity, TerminalSquare, RotateCcw, Download } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-ignore
 import { WebsocketProvider } from 'y-websocket';
@@ -180,7 +180,7 @@ function IdePage() {
       socket.emit('join-workspace', { workspaceId: urlWorkspaceId });
     });
 
-    socket.on('workspace-presence-update', (users: { username: string; color: string }[]) => {
+    socket.on('workspace-presence-update', (users: { userId: string; username: string; color: string; activeFileId: string | null }[]) => {
       setActiveCollaborators(users);
     });
 
@@ -190,6 +190,12 @@ function IdePage() {
       presenceSocketRef.current = null;
     };
   }, [urlWorkspaceId, user]);
+
+  useEffect(() => {
+    if (presenceSocketRef.current && activeFile) {
+      presenceSocketRef.current.emit('active-file-change', { activeFileId: activeFile.id });
+    }
+  }, [activeFile?.id]);
 
   useEffect(() => {
     if (files.length === 0) return;
@@ -313,6 +319,33 @@ function IdePage() {
     }
   };
 
+  const handleExportWorkspace = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/export`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Failed to export workspace');
+      }
+      
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${workspaceTitle || 'workspace'}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('[Export Workspace Error]', err);
+      alert(`Failed to export: ${err.message}`);
+    }
+  };
+
   if (!user || !workspaceId) {
     return (
       <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#07060b] text-zinc-300">
@@ -431,15 +464,32 @@ function IdePage() {
                     </div>
                     <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
                       {activeCollaborators.map((c, i) => (
-                        <div key={c.username || i} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/5 transition-colors cursor-default">
+                        <button 
+                          key={c.username || i} 
+                          onClick={() => {
+                            if (c.activeFileId && c.activeFileId !== activeFile?.id) {
+                              navigate(`/ide/${workspaceId}/${c.activeFileId}`);
+                              setIsActiveMembersOpen(false);
+                            }
+                          }}
+                          className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors ${c.activeFileId ? 'hover:bg-white/10 cursor-pointer' : 'hover:bg-white/5 cursor-default opacity-70'}`}
+                          title={c.activeFileId ? 'Click to jump to their file' : 'Idle'}
+                        >
                           <div 
-                            className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white border border-white/10"
+                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white border border-white/10"
                             style={{ backgroundColor: c.color || '#8b5cf6' }}
                           >
                             {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
                           </div>
-                          <span className="text-xs text-zinc-300 truncate">{c.username || 'Unknown'}</span>
-                        </div>
+                          <div className="flex flex-col items-start min-w-0">
+                            <span className="text-xs text-zinc-300 truncate w-full text-left">{c.username || 'Unknown'}</span>
+                            {c.activeFileId && (
+                              <span className="text-[9px] text-violet-400/80 truncate w-full text-left">
+                                {files.find(f => f.id === c.activeFileId)?.name || 'Editing file'}
+                              </span>
+                            )}
+                          </div>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -453,6 +503,15 @@ function IdePage() {
             >
               <Users size={14} />
               Share
+            </button>
+
+            <button
+              onClick={handleExportWorkspace}
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
+              title="Export as ZIP"
+            >
+              <Download size={14} />
+              Export
             </button>
 
             <button
