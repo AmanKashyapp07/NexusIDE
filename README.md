@@ -1,159 +1,210 @@
-# NexusIDE: Collaborative Cloud IDE & Secure Sandbox Engine
+# NexusIDE: A Collaborative Web IDE with Containerized Execution
 
-NexusIDE is a high-performance, production-grade cloud development environment engineered to support real-time distributed file synchronization, peer-to-peer multimedia workspaces, and isolated multi-tenant code execution sandboxes. 
-
-Architected from first principles, this platform solves two critical distributed computing challenges: **Strong Eventual Consistency (SEC)** across concurrent, high-frequency text mutations, and **Multi-Tenant Secure Compute Isolation** against arbitrary or malicious code execution.
+NexusIDE is a web-based integrated development environment (IDE) built as a software engineering college project. It allows multiple users to collaborate on code files in real-time, communicate via peer-to-peer audio streams, and run code securely within isolated Docker containers.
 
 ---
 
-## 🛠 Architectural Pillars & Core Systems
-
-### 1. Conflict-Free Concurrency & Real-Time Sync
-* **Mathematical State Convergence:** Leveraging **Yjs (Conflict-free Replicated Data Types - CRDTs)** configured as a bounded join-semilattice. Every keystroke is tracked using an append-only graph of unique operational blocks mapped to absolute **Lamport Timestamps `(siteId, clock)`**. This eliminates the centralized CPU sequencing bottlenecks common in traditional Operational Transformation (OT) setups.
-* **Dual-Channel Persistence Matrix:** Driven by custom backend hooks inside `y-websocket`, the server intercepts mutations and splits persistence into a dual-storage scheme:
-  * **`yjs_state` (BYTEA):** Serializes the entire historical CRDT change-ledger into raw compressed binary arrays to guarantee exact timeline hydration on reconnects.
-  * **`content` (TEXT):** Flattens the current view into human-readable plaintext strings, allowing the runtime execution engine to fetch scripts instantly with zero CRDT decoding overhead.
-* **Asynchronous Write-Back Caching:** To insulate the PostgreSQL storage engine from Disk I/O exhaustion, document flushes are managed via an optimized, server-side debouncing layer that accumulates keystroke deltas in memory before executing parameterized SQL updates.
-* **Fault-Tolerant Offline Sync:** Integrates IndexedDB client storage arrays (`y-indexeddb`) to cache transactional state matrices locally during network drops, seamlessly executing a binary state-vector synchronization handshake upon reconnection.
-
-### 2. Real-Time P2P Voice Infrastructure (Audio)
-* **Decoupled Decentralized Mesh:** Incorporates a fully decentralized **WebRTC Peer-to-Peer Mesh Network** for ultra-low latency voice/audio communication. Audio streams travel via the shortest geographical path over Secure Real-time Transport Protocols (SRTP), completely bypassing backend servers to ensure zero cloud media-routing overhead.
-* **Full-Duplex Signaling Broker:** Built using **Socket.io** to manage multi-tenant room namespaces, coordinate Session Description Protocol (SDP) cryptographic handshakes (Offers/Answers), and dynamically relay Interactive Connectivity Establishment (ICE) candidates.
-* **NAT Traversal Network:** Interacts with public Session Traversal Utilities for NAT (STUN) servers to crack firewalls, discover public-facing WAN IP coordinates, and map reliable direct transport pathways natively.
-
-### 3. File System & Security Foundations
-* **Adjacency List Directories:** The Workspace File Explorer maps nested directory trees in a highly relational PostgreSQL schema using self-referencing foreign keys (`parent_id REFERENCES files(id)`). This avoids heavy NoSQL collection nesting and allows the server to fetch entire folder hierarchies in a single database trip using **Recursive Common Table Expressions (CTEs)**.
-* **Stateless Authorization Boundaries:** Implements cryptographically signed JSON Web Tokens (JWT) for authentication. Backed by `bcrypt` brute-force insulation on the identity gateway, the architecture remains entirely stateless to facilitate horizontal scaling behind standard network load balancers.
-
-### 4. Sandbox Resource Diagnostics & Multi-File Execution Engine
-* **Direct cgroups v2 Kernel Profiling:** Instead of host-side stats stream querying which introduces 1-2s of latency, the server executes a fast `cat /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/memory.peak` inside the container namespace. This returns real-time CPU and peak memory metrics in under ~20ms.
-* **Baseline Overhead Subtraction & Normalization:** The engine automatically subtracts language-specific runtime startup costs (Node/Python VM initialization and exec process overhead) to isolate the user script's actual CPU footprint. CPU usage is then normalized against the container's 0.5 CPU cap to display the precise percentage of allocated resources utilized.
-* **In-Memory Tar Archiving & Hydration:** To support multi-file imports and module dependencies without host bind-mounting, the database files are pulled recursively via a Common Table Expression (CTE) and packaged into an in-memory tar stream, which is piped directly into `tar -xf - -C /app` in the sandbox container before code execution.
-* **Custom Run Configuration Overlays:** Enables users to specify custom execution and compilation scripts via `.nexusrun` or `nexus.config.json` files in the workspace root, bypassing default single-file executors.
-
-### 5. Multi-Tenant Interactive Terminal Sandbox & Watcher Sync
-* **Pseudo-Terminal (PTY) Allocations**: Allocates interactive shell sessions running `/bin/bash` with `Tty: true`. This prevents Docker's standard stream multiplexing headers from leaking, delivering raw ANSI escapes directly to xterm.js for full ANSI coloring and interactive prompt formatting.
-* **Pre-warmed Container Pool Scaling**: Manages a pre-warmed Alpine container pool (`sandbox-dev-env:latest`) that dynamically scales pool size targeting `activeSessions + 2` warm containers, bounded between `1` and `5` containers.
-* **Pre-installed Sandbox Developer Tools**: Dynamic compiler and runtime verification at boot. If `sandbox-dev-env:latest` does not exist, the pool manager dynamically builds it, installing Node.js, NPM, Python3, Pip, G++, GCC, Make, Git, Curl, and Bash.
-* **Bidirectional Filesystem Watcher**: Couples editor-to-container updates (forward write/delete execution) with container-to-editor updates (reverse sync). A background Stat watcher scans `/app` folder metadata changes every 1.5 seconds, synchronizes differences to the database and Yjs states, and triggers Socket.io tree refreshes.
-* **Smart Session Control & Resizing**: Fixed layout containers (KISS principle) keep the IDE interface clean and predictable. WebSocket stream filters protect browsers from crash loops by buffering outputs and flushing them in 50ms batches.
+## Table of Contents
+1. [Project Overview](#project-overview)
+2. [Objectives](#objectives)
+3. [Features](#features)
+4. [Tech Stack](#tech-stack)
+5. [Project Structure](#project-structure)
+6. [Installation](#installation)
+7. [Usage](#usage)
+8. [Screenshots](#screenshots)
+9. [Project Workflow](#project-workflow)
+10. [Challenges Faced](#challenges-faced)
+11. [Learning Outcomes](#learning-outcomes)
+12. [Future Improvements](#future-improvements)
+13. [Contributors](#contributors)
+14. [Acknowledgements](#acknowledgements)
+15. [License](#license)
 
 ---
 
-## 🏗 Tech Stack
+## Project Overview
 
-* **Frontend:** React, Vite, TypeScript, Tailwind CSS, Monaco Editor, Xterm.js
-* **Real-Time Core:** Yjs, `y-websocket`, `y-monaco`, `y-indexeddb`, Socket.io
-* **Media Orchestration:** WebRTC (Native RTCPeerConnection APIs for Audio Chat)
-* **Backend:** Node.js, Express, TypeScript, Raw `pg` Driver
-* **Database:** PostgreSQL (with strict relational constraints)
-* **Sandbox Runtime:** Local Execution via asynchronous `child_process` isolation hooks
+NexusIDE is designed to replicate the core experience of cloud-based development environments like Gitpod or GitHub Codespaces, tailored for an academic/college project scope. The system addresses two primary challenges: 
+- **Real-Time Collaboration**: Ensuring typing conflicts are resolved automatically across concurrent high-frequency text mutations.
+- **Secure Code Execution**: Isolating untrusted compiler execution blocks to prevent security vulnerabilities on the host server.
 
 ---
 
-## 📂 System Topology
+## Objectives
+- Implement a decentralized conflict resolution engine to synchronize text editors without single-server sequencing bottlenecks.
+- Build a container-based sandbox runtime using system resources limits to safely compile and run user code.
+- Learn to multiplex standard terminal shells (PTYs) and stream bidirectional character streams over WebSockets.
+- Set up a peer-to-peer audio mesh network for voice coordination without routing voice streams through server bandwidth.
+
+---
+
+## Features
+
+- **Real-Time Code Collaboration**: Multiple users can edit documents simultaneously using Yjs CRDTs and Monaco Editor.
+- **Visual Presence Tracking**: Real-time cursor coordinates, highlight blocks, and user color indicators are shared across active workspaces.
+- **WebRTC P2P Voice Chat**: Ultra-low latency peer-to-peer voice communications mapped over mesh network signaling rooms.
+- **Secure Sandbox Execution**: Single-click compiler execution for multiple runtimes (Python, Node, C++, Java, Bash) isolated with cgroups v2 boundaries (100MB memory cap, 0.25 vCPU cap, 64 process limit) and absolute network isolation (`NetworkMode: 'none'`).
+- **Interactive Web Terminal**: An interactive `/bin/bash` terminal emulator (xterm.js) mapped to workspace containers, complete with output rate-limiting buffers to protect client UI performance.
+- **Relational Tree Directories**: Explorer file trees represented via PostgreSQL adjacency lists, queried efficiently in a single round-trip using recursive Common Table Expressions (CTEs).
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Frontend** | React, TypeScript, Tailwind CSS | UI components and application layout |
+| **Real-Time Core** | Yjs, `y-websocket`, Socket.io | Text conflict resolution and presence broadcasting |
+| **Media** | WebRTC (Native Browser APIs) | Decentralized peer-to-peer voice chat |
+| **Terminal View** | Xterm.js | Web terminal shell rendering |
+| **Backend** | Node.js, Express, TypeScript | REST APIs, database queries, and socket routing |
+| **Database** | PostgreSQL | Relational storage for workspaces, collaborators, and files |
+| **Sandbox System** | Docker Engine API (Dockerode) | Dynamic container execution and pool provisioning |
+
+---
+
+## Project Structure
 
 ```text
-├── backend/                  # Fastify/Express API and WebSocket Protocol Orchestration
+├── backend/                  # REST APIs, WebSockets, and Sandbox Controllers
 │   ├── src/
-│   │   ├── middleware/       # Cryptographic JWT & Row-Level Access Controls
-│   │   ├── routes/           # Stateless Authentication and Workspace Metadata Routers
-│   │   ├── services/         # Code Execution Runtimes and Process Sockets
-│   │   └── server.ts         # Multi-Protocol HTTP/WS Single-Port Entry Server
-├── frontend/                 # React Client Application
+│   │   ├── middleware/       # Token authorization and access controls
+│   │   ├── routes/           # Routing gates for authentication and workspace operations
+│   │   ├── sandbox/          # Docker execution pipelines and container pool management
+│   │   ├── terminal/         # Websocket shell connections and rate limiters
+│   │   ├── db.ts             # PostgreSQL client initialization
+│   │   └── server.ts         # Main server entrypoint (HTTP/WS server binding)
+│   └── tests/                # Automated backend test suites (Auth, Workspace, Sandbox)
+├── frontend/                 # Client React interface
 │   ├── src/
-│   │   ├── components/       # Monaco Binder, Explorer Trees, and Voice Managers
-│   │   ├── hooks/            # WebRTC Peer Connection and Socket Lifecycle Triggers
-│   │   └── context/          # Global Real-Time Collaboration Core States
-├── database/                 # Relational Schemas & Index Initializations
-└── reports/                  # Systems Architecture & Deep-Dive Specifications
+│   │   ├── components/       # Monaco Editor, explorer, terminal views, audio controls
+│   │   ├── hooks/            # Socket lifecycle bindings and WebRTC setup
+│   │   └── context/          # Collaborative workspace context stores
+├── database/                 # Database schema initialization SQL scripts
+└── interview/                # Technical deep-dive documentation for architecture prep
 ```
 
 ---
 
-## 🚀 Execution & Milestone Roadmap
-
-### Milestone 1: The "Single Player" Base Engine (Complete)
-
-* [x] Integrated the GitHub-themed Monaco Editor view layer.
-* [x] Formulated the core PostgreSQL relational schema with cascading foreign key deletions.
-* [x] Scripted local execution environments for Node.js, Python, C++, and Bash using programmatic execution wrappers.
-* [x] Implemented a 2000ms hard kernel timeout utilizing `SIGTERM` kill signals to stop thread starvation.
-
-### Milestone 2: Advanced Concurrency & Multimedia Mesh (Complete)
-
-* [x] Configured real-time, zero-collision document syncing using multi-room Yjs partitioning.
-* [x] Added visual awareness extensions to project collaborator cursor tracking coordinates and name tags into Monaco.
-* [x] Completed the WebRTC P2P Mesh voice/audio chat engine with native hardware track-toggling for low-overhead audio muting.
-* [x] Resolved the multi-file room memory race condition by pairing server-side `setPersistence` memory pools with `BYTEA` storage sectors.
-
-### Milestone 3: Containerized Sandbox Isolation & Performance Diagnostics (Complete)
-
-* [x] Transition the runtime engine from local child processes to the **Docker Engine API** via the Unix Domain Socket (`/var/run/docker.sock`).
-* [x] Limit execution resource footprints programmatically via **Linux Kernel Control Groups (cgroups)** (100MB RAM, 0.5 CPU CFS cap, PIDs limit of 50).
-* [x] Multiplex output streams (`stdout`/`stderr`) dynamically to push compiler updates over WebSockets in real time.
-* [x] **Live Performance Diagnostics Panel**: Retrieve real-time cgroups v2 CPU and memory statistics with sub-20ms latency, cancel process initialization overhead, and display visual HSL tailored graphs and tabular execution logs.
-
-### Milestone 4: Multi-File Workspace Execution & Custom Configurations (Complete)
-
-* [x] **Pre-Execution Workspace Hydration**: Retrieve workspace folder/file hierarchies recursively using Recursive CTEs and stream them into the sandbox container via in-memory tar archiving.
-* [x] **Custom Execution Config overlays**: Add support for `.nexusrun` or `nexus.config.json` custom compilation/run commands inside the sandbox root.
-
-### Milestone 5: Interactive Web Terminals & Developer Environments (Complete)
-
-* [x] **WebSockets & PTY Integration**: Integrated xterm.js with WebSocket relays and docker exec PTY sessions.
-* [x] **Warm Terminal Pool Scaling**: Implemented dynamic container pool scaling and lifecycle handlers.
-* [x] **Preloaded Developer Runtimes**: Implemented dynamic `sandbox-dev-env:latest` build triggers on server boot (GCC, Node, Python, Git, Curl, Bash).
-* [x] **Smart Sync & Session Recovery**: Reconnect session loops preserve state while Reset Sandbox triggers recycle environment rebuilds.
-
----
-
-## 💻 Local Infrastructure Deployment
+## Installation
 
 ### Prerequisites
+- Node.js v20+
+- PostgreSQL v15+
+- Docker Desktop (Running locally, with Unix socket enabled at `/var/run/docker.sock` or `~/.docker/run/docker.sock`)
 
-* Node.js v20+
-* PostgreSQL v15+
-
-### Database Initialization
-
-1. Spin up your local PostgreSQL engine instance.
-2. Initialize the relational structures using the schema definition file:
+### 1. Database Setup
+Spin up a local PostgreSQL instance and execute the schema file to initialize the tables:
 ```bash
-psql -U your_user -d nexus_ide -f database/schema.sql
+psql -U your_username -d your_database -f database/schema.sql
 ```
 
-### Backend Configuration
+### 2. Backend Installation
+1. Navigate to the backend directory and install dependencies:
+   ```bash
+   cd backend
+   npm install
+   ```
+2. Create a `.env` file in the `backend/` directory:
+   ```env
+   PORT=4000
+   DATABASE_URL=postgresql://your_user:your_password@localhost:5432/your_database
+   JWT_SECRET=your_system_jwt_secret_key
+   ```
+3. Initialize the server runtime (will build the dev sandbox image and pre-warm container pools):
+   ```bash
+   npm run dev
+   ```
 
-1. Navigate to the server environment and pull dependencies:
-```bash
-cd backend
-npm install
+### 3. Frontend Installation
+1. Open a new terminal tab, navigate to the frontend folder, and install dependencies:
+   ```bash
+   cd frontend
+   npm install
+   ```
+2. Launch the Vite bundler locally:
+   ```bash
+   npm run dev
+   ```
+3. Open your browser to the local URL (usually `http://localhost:5173`).
+
+---
+
+## Usage
+
+1. **User Sign Up**: Create a user account via the Auth register dashboard interface.
+2. **Create Workspace**: Add a new workspace from the home dashboard. The backend bootstraps default files.
+3. **Write Code**: Open multiple files. Real-time changes are synchronized across active editors.
+4. **Compile & Run**: Click the "Run" button to execute scripts. Output and runtime performance metrics (CPU, Memory peak) are populated in the logs panel.
+5. **Open Terminal**: Interact directly with the workspace via a bash web shell.
+
+---
+
+## Screenshots
+
+*Placeholders for frontend snapshots:*
+- `![Dashboard View](https://placehold.co/800x450?text=Dashboard+Workspace+View)`
+- `![IDE Editor View](https://placehold.co/800x450?text=IDE+Collaborative+Editor+View)`
+- `![Sandbox Diagnostics Log](https://placehold.co/800x450?text=Sandbox+Execution+Diagnostics+Logs)`
+
+---
+
+## Project Workflow
+
+```text
+  [IDE Frontend (Browser)]
+      │
+      ├─(WebSockets)──────→ [y-websocket Server (Y.Doc Sync)] ──→ [PostgreSQL (BYTEA storage)]
+      ├─(WebSockets)──────→ [PTY WebSocket Handler] <──────────> [Docker Exec (Bash PTY)]
+      └─(WebRTC Media)────→ [P2P WebRTC Audio Mesh] (Peer-to-peer bypass)
 ```
 
-2. Create a `.env` deployment profile in the root of the backend folder:
-```env
-PORT=4000
-DATABASE_URL=postgresql://user:password@localhost:5432/nexus_ide
-JWT_SECRET=your_system_cryptographic_secret_key
-```
+1. **Collaborative Flow**: Edit changes are parsed by Yjs CRDTs locally and broadcasted as binary updates to the backend WebSockets, which applies them and updates PostgreSQL's `yjs_state` column.
+2. **Execution Flow**: When execution is requested, the backend packages current workspace files into an in-memory tarball, streams it to a container popped from the warm pool, runs code, extracts kernel metrics from the container's cgroup filesystem, and cleans up the container.
 
-3. Initialize the server runtime loop:
-```bash
-npm run dev
-```
+---
 
-### Frontend Configuration
+## Challenges Faced
 
-1. Move to the client workspace and pull dependencies:
-```bash
-cd frontend
-npm install
-```
+- **Race Conditions in File Extraction**: We resolved a race condition where compilation executed before the container finished tar extraction by tracking the hijacked execution socket stream `end` event before invoking compiler runtimes.
+- **OT vs CRDT Integration**: Integrating CRDT statevectors over persistent relational database rows required a debounced write-back cache to prevent database connection pool exhaustion.
+- **PTY Frame Corruption**: Passing Tty parameters incorrectly resulted in Docker's multiplexed stream headers leaking into xterm.js character parses. We solved this by passing `Tty: true` to both `exec` creation and `exec.start` socket captures.
+- **Root Naming Collisions in SQL**: Standard SQL treats `NULL` values as distinct, which historically broke root directory unique constraints (`parent_id = NULL`). We resolved this using PostgreSQL 15's `UNIQUE NULLS NOT DISTINCT` modifier.
 
-2. Run the development bundler to open up the application interface:
-```bash
-npm run dev
-```
+---
 
-3. Access the administrative panel at `/dashboard` or spin up isolated workspace files via `/ide/:workspaceId/:fileId`.
+## Learning Outcomes
+
+- **Linux Sandboxing Primitives**: Practical application of namespaces (`CLONE_NEWNS`, `CLONE_NEWNET`), cgroup limits (v2 unified structures like `memory.peak`), and Seccomp profiles.
+- **Bidirectional Stream Multiplexing**: Piping raw characters and tracking escape sequences between browser socket buffers and container process stdin/stdout file descriptors.
+- **Distributed State Convergence**: Mathematical logic of Join-Semilattices and conflict resolution strategies in highly concurrent systems.
+- **SQL Optimization**: Structuring parent-child relational entities and querying hierarchical directory systems efficiently using Recursive CTEs.
+
+---
+
+## Future Improvements
+
+- **Resource Limit Customization**: Allow admin-level customization of sandbox boundaries (CPU, RAM quotas) per user runtime.
+- **Advanced Git Integration**: Supporting Git cloning, staging, and commits directly from the terminal or visual Explorer panel.
+- **Debugger Interface Integration**: Hooking execution loops into `gdb` or `ndb` runtimes to step through program blocks visually in the Monaco interface.
+
+---
+
+## Contributors
+
+- **<Aman Kashyap>** - *Core System Architecture* - [<GitHub User Profile>](https://github.com/AmanKashyapp07)
+
+---
+
+## Acknowledgements
+
+- Project guidance provided by the undergraduate software engineering course coordinators.
+- Documentation deep-dives compiled inside the [interview/](file:///Users/amankashyap/Documents/sandbox/interview/) subdirectory.
+- Library authors and maintainers of Yjs, Dockerode, and Xterm.js.
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
