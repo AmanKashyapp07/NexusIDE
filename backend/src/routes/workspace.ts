@@ -219,6 +219,53 @@ router.get('/default', async (req: AuthRequest, res: Response): Promise<void> =>
   }
 });
 
+router.get('/github-repos', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const userRes = await getPool().query('SELECT github_token FROM users WHERE id = $1', [userId]);
+    if (userRes.rows.length === 0 || !userRes.rows[0].github_token) {
+      res.status(400).json({ error: 'GitHub account not linked or token missing. Please log in again.' });
+      return;
+    }
+
+    const githubToken = userRes.rows[0].github_token;
+    
+    const reposRes = await axios.get('https://api.github.com/user/repos', {
+      params: {
+        per_page: 100,
+        sort: 'pushed'
+      },
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'NexusIDE-App'
+      }
+    });
+
+    const repos = reposRes.data.map((repo: any) => ({
+      id: repo.id,
+      name: repo.name,
+      full_name: repo.full_name,
+      html_url: repo.html_url,
+      description: repo.description,
+      private: repo.private
+    }));
+
+    res.json(repos);
+  } catch (err: any) {
+    res.status(500).json({ 
+      error: 'Failed to fetch repositories from GitHub.', 
+      message: err.message, 
+      details: err.response?.data 
+    });
+  }
+});
+
 // GET /:id - Retrieve workspace metadata by ID
 //
 // SECURITY (BOLA Guard):
@@ -784,6 +831,130 @@ router.get('/:id/execution-history', requireWorkspaceRole('viewer'), async (req:
 // Fallback for global execution if any legacy frontend endpoints attempt it.
 router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> => {
   res.status(400).json({ error: 'Please use the workspace-specific execute endpoint: /api/workspace/:id/execute' });
+});
+
+
+// =============================================================================
+// GITHUB WORKSPACE IMPORT
+// =============================================================================
+import axios from 'axios';
+import AdmZip from 'adm-zip';
+
+router.post('/import-github', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { repoUrl } = req.body;
+    if (!repoUrl) {
+      res.status(400).json({ error: 'repoUrl is required' });
+      return;
+    }
+
+    // Match https://github.com/owner/repo
+    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (!match) {
+      res.status(400).json({ error: 'Invalid GitHub URL' });
+      return;
+    }
+
+    const owner = match[1];
+    let repo = match[2];
+    repo = repo.replace(/\.git$/, '');
+
+    const userRes = await getPool().query('SELECT github_token FROM users WHERE id = $1', [userId]);
+    const githubToken = userRes.rows[0]?.github_token;
+
+    // Fetch zipball
+    const zipUrl = `https://api.github.com/repos/${owner}/${repo}/zipball`;
+    let response;
+    try {
+      const headers: any = {
+        'User-Agent': 'NexusIDE-App',
+        'Accept': 'application/vnd.github.v3+json'
+      };
+      if (githubToken) {
+        headers['Authorization'] = `Bearer ${githubToken}`;
+      }
+      response = await axios.get(zipUrl, { 
+        responseType: 'arraybuffer',
+        headers
+      });
+    } catch (fetchErr: any) {
+      console.error('Failed to fetch github zip', fetchErr.message);
+      res.status(400).json({ error: 'Failed to fetch repository from GitHub. Make sure it is public or you have access.' });
+      return;
+    }
+
+    const zip = new AdmZip(Buffer.from(response.data));
+    const zipEntries = zip.getEntries();
+    
+    // Check file limit
+    if (zipEntries.length > 500) {
+      res.status(400).json({ error: `Repository is too large (contains ${zipEntries.length} files/folders). Maximum allowed is 500.` });
+      return;
+    }
+
+    // Create the workspace
+    const wsResult = await getPool().query(
+      'INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *',
+      [userId, `${owner}/${repo}`]
+    );
+    const workspaceId = wsResult.rows[0].id;
+
+    // We need to map paths to their DB UUIDs to set parent_ids
+    const pathIdMap = new Map<string, string>();
+    
+    // Sort entries by length so we create parents before children
+    zipEntries.sort((a, b) => a.entryName.length - b.entryName.length);
+
+    for (const entry of zipEntries) {
+      const parts = entry.entryName.split('/').filter(p => p.length > 0);
+      if (parts.length <= 1) continue; // Skip the root folder (e.g. owner-repo-sha/)
+
+      // The path without the root folder
+      const relativePathParts = parts.slice(1);
+      const name = relativePathParts[relativePathParts.length - 1] || 'untitled';
+      const type = entry.isDirectory ? 'directory' : 'file';
+      const isFile = type === 'file';
+      
+      const parentPathParts = relativePathParts.slice(0, -1);
+      const parentPath = parentPathParts.join('/');
+      const parentId = parentPath === '' ? null : pathIdMap.get(parentPath);
+      const currentPath = relativePathParts.join('/');
+
+      // For language mapping
+      let language = 'text';
+      if (isFile) {
+        if (name.endsWith('.js') || name.endsWith('.ts')) language = 'javascript';
+        else if (name.endsWith('.py')) language = 'python';
+        else if (name.endsWith('.html')) language = 'html';
+        else if (name.endsWith('.css')) language = 'css';
+        else if (name.endsWith('.c') || name.endsWith('.cpp')) language = 'c';
+      }
+
+      const content = isFile ? entry.getData().toString('utf8') : '';
+
+      try {
+        const fileRes = await getPool().query(
+          `INSERT INTO files (workspace_id, name, type, parent_id, language, content) 
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [workspaceId, name, type, parentId || null, isFile ? language : null, content]
+        );
+        pathIdMap.set(currentPath, fileRes.rows[0].id);
+      } catch (insertErr) {
+        console.warn(`Failed to insert ${currentPath}`, insertErr);
+      }
+    }
+
+    res.status(201).json(wsResult.rows[0]);
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 export default router;

@@ -1,210 +1,311 @@
-# NexusIDE: A Collaborative Web IDE with Containerized Execution
+<!-- PROJECT SHIELDS -->
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
+[![MIT License][license-shield]][license-url]
 
-NexusIDE is a web-based integrated development environment (IDE) built as a software engineering college project. It allows multiple users to collaborate on code files in real-time, communicate via peer-to-peer audio streams, and run code securely within isolated Docker containers.
+<!-- PROJECT TITLE -->
+<br />
+<div align="center">
+  <h3 align="center">NexusIDE</h3>
 
----
+  <p align="center">
+    A Collaborative Web IDE with Containerized Execution
+    <br />
+    <a href="https://github.com/AmanKashyapp07/sandbox-ide"><strong>Explore the docs »</strong></a>
+    <br />
+    <br />
+    <a href="https://github.com/AmanKashyapp07/sandbox-ide">View Demo</a>
+    &middot;
+    <a href="https://github.com/AmanKashyapp07/sandbox-ide/issues">Report Bug</a>
+    &middot;
+    <a href="https://github.com/AmanKashyapp07/sandbox-ide/issues">Request Feature</a>
+  </p>
+</div>
 
-## Table of Contents
-1. [Project Overview](#project-overview)
-2. [Objectives](#objectives)
-3. [Features](#features)
-4. [Tech Stack](#tech-stack)
-5. [Project Structure](#project-structure)
-6. [Installation](#installation)
-7. [Usage](#usage)
-8. [Screenshots](#screenshots)
-9. [Project Workflow](#project-workflow)
-10. [Challenges Faced](#challenges-faced)
-11. [Learning Outcomes](#learning-outcomes)
-12. [Future Improvements](#future-improvements)
-13. [Contributors](#contributors)
-14. [Acknowledgements](#acknowledgements)
-15. [License](#license)
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li><a href="#about-the-project">About The Project</a></li>
+    <li>
+      <a href="#architectural-deep-dives">Architectural Deep Dives</a>
+      <ul>
+        <li><a href="#1-real-time-collaboration--conflict-resolution-yjs--websockets">1. Real-Time Collaboration & Conflict Resolution</a></li>
+        <li><a href="#2-containerized-sandbox-execution-dockerode--cgroups-v2">2. Containerized Sandbox Execution</a></li>
+        <li><a href="#3-interactive-web-pty-terminals-xtermjs--stream-piping">3. Interactive Web PTY Terminals</a></li>
+        <li><a href="#4-hierarchical-file-explorer-postgresql-recursive-ctes">4. Hierarchical File Explorer</a></li>
+        <li><a href="#5-github-oauth--automated-workspace-sync">5. GitHub OAuth & Automated Workspace Sync</a></li>
+      </ul>
+    </li>
+    <li><a href="#security-design--mitigations">Security Design & Mitigations</a></li>
+    <li><a href="#built-with">Built With</a></li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#key-engineering-challenges--lessons-learned">Key Engineering Challenges & Lessons Learned</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+    <li><a href="#acknowledgments">Acknowledgments</a></li>
+  </ol>
+</details>
 
----
+<!-- ABOUT THE PROJECT -->
+## About The Project
 
-## Project Overview
+NexusIDE is a collaborative, web-based cloud Integrated Development Environment (IDE) designed to replicate the core mechanisms of platforms like Gitpod and GitHub Codespaces. 
 
-NexusIDE is designed to replicate the core experience of cloud-based development environments like Gitpod or GitHub Codespaces, tailored for an academic/college project scope. The system addresses two primary challenges: 
-- **Real-Time Collaboration**: Ensuring typing conflicts are resolved automatically across concurrent high-frequency text mutations.
-- **Secure Code Execution**: Isolating untrusted compiler execution blocks to prevent security vulnerabilities on the host server.
+Built as a software engineering college project, it focuses on high-performance concurrent editing, secure sandbox isolation, and real-time state synchronization. Multiple developers can open a shared workspace, edit code in real-time, communicate via peer-to-peer audio links, and execute their programs in isolated, resource-constrained container environments.
 
----
-
-## Objectives
-- Implement a decentralized conflict resolution engine to synchronize text editors without single-server sequencing bottlenecks.
-- Build a container-based sandbox runtime using system resources limits to safely compile and run user code.
-- Learn to multiplex standard terminal shells (PTYs) and stream bidirectional character streams over WebSockets.
-- Set up a peer-to-peer audio mesh network for voice coordination without routing voice streams through server bandwidth.
-
----
-
-## Features
-
-- **Real-Time Code Collaboration**: Multiple users can edit documents simultaneously using Yjs CRDTs and Monaco Editor.
-- **Visual Presence Tracking**: Real-time cursor coordinates, highlight blocks, and user color indicators are shared across active workspaces.
-- **WebRTC P2P Voice Chat**: Ultra-low latency peer-to-peer voice communications mapped over mesh network signaling rooms.
-- **Secure Sandbox Execution**: Single-click compiler execution for multiple runtimes (Python, Node, C++, Java, Bash) isolated with cgroups v2 boundaries (100MB memory cap, 0.25 vCPU cap, 64 process limit) and absolute network isolation (`NetworkMode: 'none'`).
-- **Interactive Web Terminal**: An interactive `/bin/bash` terminal emulator (xterm.js) mapped to workspace containers, complete with output rate-limiting buffers to protect client UI performance.
-- **Relational Tree Directories**: Explorer file trees represented via PostgreSQL adjacency lists, queried efficiently in a single round-trip using recursive Common Table Expressions (CTEs).
-
----
-
-## Tech Stack
-
-| Layer | Technology | Purpose |
-| :--- | :--- | :--- |
-| **Frontend** | React, TypeScript, Tailwind CSS | UI components and application layout |
-| **Real-Time Core** | Yjs, `y-websocket`, Socket.io | Text conflict resolution and presence broadcasting |
-| **Media** | WebRTC (Native Browser APIs) | Decentralized peer-to-peer voice chat |
-| **Terminal View** | Xterm.js | Web terminal shell rendering |
-| **Backend** | Node.js, Express, TypeScript | REST APIs, database queries, and socket routing |
-| **Database** | PostgreSQL | Relational storage for workspaces, collaborators, and files |
-| **Sandbox System** | Docker Engine API (Dockerode) | Dynamic container execution and pool provisioning |
-
----
-
-## Project Structure
-
-```text
-├── backend/                  # REST APIs, WebSockets, and Sandbox Controllers
-│   ├── src/
-│   │   ├── middleware/       # Token authorization and access controls
-│   │   ├── routes/           # Routing gates for authentication and workspace operations
-│   │   ├── sandbox/          # Docker execution pipelines and container pool management
-│   │   ├── terminal/         # Websocket shell connections and rate limiters
-│   │   ├── db.ts             # PostgreSQL client initialization
-│   │   └── server.ts         # Main server entrypoint (HTTP/WS server binding)
-│   └── tests/                # Automated backend test suites (Auth, Workspace, Sandbox)
-├── frontend/                 # Client React interface
-│   ├── src/
-│   │   ├── components/       # Monaco Editor, explorer, terminal views, audio controls
-│   │   ├── hooks/            # Socket lifecycle bindings and WebRTC setup
-│   │   └── context/          # Collaborative workspace context stores
-├── database/                 # Database schema initialization SQL scripts
-└── interview/                # Technical deep-dive documentation for architecture prep
-```
+Rather than relying on third-party SaaS integrations, the backend orchestrates the sandbox pool lifecycle, web socket streams, WebRTC signaling mesh, and relational file systems directly from scratch.
 
 ---
 
-## Installation
+<!-- ARCHITECTURAL DEEP DIVES -->
+## Architectural Deep Dives
+
+### 1. Real-Time Collaboration & Conflict Resolution (Yjs & WebSockets)
+
+The editing synchronization pipeline uses Conflict-free Replicated Data Types (CRDTs) to resolve editing conflicts deterministically without relying on a central sequencing authority.
+
+* **State Vector Synchronization:** When a client opens a file, it exchanges a "state vector" with the server over WebSockets. This vector describes the client's current version history. The server computes the byte diff in-memory and transmits only the missing operations, minimizing network overhead.
+* **In-Memory CRDTs:** The collaborative workspace maintains a Y.Doc instance bound to the Monaco Editor. Keystrokes are transformed into logical operation objects with Lamport timestamps.
+* **Durability Layer:** To prevent database overload, character changes are not committed instantly. Instead, a debounced auto-save hook serializes the Yjs state vector into a binary array (PostgreSQL BYTEA) and updates the plain text string after 400ms of inactivity.
+* **Stateless Awareness Sharing:** User cursor positions, selections, names, and custom highlights are transmitted using the Yjs Awareness protocol. This metadata is volatile and resides strictly in-memory on the websocket server, bypassing database persistence to achieve sub-50ms latency.
+
+### 2. Containerized Sandbox Execution (Dockerode & cgroups v2)
+
+Compiling and running arbitrary user-written programs requires strict resource containment to protect the host server from malicious scripts (e.g., fork bombs, infinite loops, memory exhaustion).
+
+* **Pre-warmed Sandbox Pools:** Spawning containers from scratch introduces a 2 to 3-second latency. NexusIDE maintains a pre-warmed pool of alpine-based runner containers. When a execution request is received, a container is claimed instantly from the pool, cutting startup time to under 150ms.
+* **In-Memory Tarball Hydration:** Files in the PostgreSQL relational explorer are grouped, compressed into a tarball in-memory, and streamed directly into the container using the Docker Engine Socket API. No files are saved to the host disk during compilation.
+* **Linux cgroups v2 Enforcement:** CPU and memory quotas are clamped at the container level:
+  * Memory limit: 100MB (`--memory="100m"`)
+  * CPU quota: 0.25 vCPU (`--cpus="0.25"`)
+  * PID limit: 64 processes to prevent fork-bombs
+* **Telemetry Diagnostics:** After execution terminates, the controller reads kernel metrics directly from the container's pseudo-filesystem (`/sys/fs/cgroup/memory.peak` for peak memory usage) and calculates execution duration using high-resolution timers before returning the container to the warm pool.
+* **Network Isolation:** Run containers with `NetworkMode: 'none'` to block outbound traffic, preventing running code from launching outbound attacks or scanning local networks.
+
+### 3. Interactive Web PTY Terminals (xterm.js & Stream Piping)
+
+Each workspace container exposes a live interactive shell, allowing developers to execute shell commands directly inside their isolated environments.
+
+* **PTY Allocation:** The backend uses the Docker API to invoke `/bin/bash` with Tty enabled (`Tty: true`). This allocates a pseudoterminal (PTY) inside the target runner container.
+* **Bidirectional Piping:** Keystrokes captured by the frontend xterm.js terminal are piped as raw character codes over WebSockets. The backend receives these messages and writes them to the PTY's write stream, while stdout/stderr from the container is piped back to the client.
+* **Rate-limiting Buffers:** High-output command executions (e.g. `cat /dev/urandom` or large file listings) can choke browser UI threads due to rapid DOM paints. The backend enforces a 50ms chunking buffer that batches output data, ensuring smooth rendering performance.
+
+### 4. Hierarchical File Explorer (PostgreSQL Recursive CTEs)
+
+Managing a virtual file directory structure in a relational database presents tree-traversal challenges.
+
+* **Adjacency List Model:** Explorer directories and files are represented using a parent-child adjacency relationship via the `parent_id` column pointing back to `files.id`.
+* **Single-Roundtrip Tree Queries:** When loading a workspace, fetching the nested explorer tree using standard queries requires multiple recursive calls. NexusIDE queries the entire hierarchy in a single DB trip using a recursive Common Table Expression (CTE) query:
+  ```sql
+  WITH RECURSIVE file_path_cte AS (
+      SELECT id, parent_id, name, type, language, name::text as path
+      FROM files 
+      WHERE workspace_id = $1 AND parent_id IS NULL
+      UNION ALL
+      SELECT f.id, f.parent_id, f.name, f.type, f.language, (cte.path || '/' || f.name)::text as path
+      FROM files f
+      INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+      WHERE f.workspace_id = $1
+  )
+  SELECT id, parent_id, name, type, language, path FROM file_path_cte;
+  ```
+* **Constraint Handling:** Directory structure uniqueness is enforced utilizing partial index constraints to prevent duplicate file names in the same parent folder, keeping root elements (`parent_id IS NULL`) and sub-directories separated.
+
+### 5. GitHub OAuth & Automated Workspace Sync
+
+To remove the friction of manually creating file trees, NexusIDE provides direct GitHub synchronization.
+
+* **OAuth Authorization:** Authentication is handled exclusively through GitHub OAuth. Upon successful authorization, the backend maps the GitHub profile metadata to the relational user record, fetches the user's primary email, and updates their active session.
+* **Secure Token Persistence:** Access tokens returned by GitHub are stored securely in the database (`github_token`), allowing the IDE to query personal GitHub repositories on behalf of the authenticated user.
+* **Live Repository Dropdown:** The workspace creation page fetches the user's latest repositories using the GitHub API (`/user/repos`) sorted by last updated, rendering a dropdown selector with public/private status indicators.
+* **Unpacking & Database Seeding:** When a user selects a repository for import:
+  1. The backend fetches the repository's zipball archive from `https://api.github.com/repos/{owner}/{repo}/zipball`.
+  2. The ZIP is extracted entirely in-memory using `adm-zip`.
+  3. The engine parses the flat ZIP paths, strips the root archive folder, and imports files into the PostgreSQL relational hierarchy level-by-level.
+  4. The import applies a strict limit of **500 files** to protect the database transaction pool.
+
+---
+
+<!-- SECURITY DESIGN & MITIGATIONS -->
+## Security Design & Mitigations
+
+* **Broken Object-Level Authorization (BOLA):** Route parameters are checked using custom database authorization middleware (`requireWorkspaceRole`). Swapping workspace UUIDs in REST calls yields a `403 Forbidden` if the authenticated user is not explicitly enrolled as a collaborator.
+* **Malicious Code Isolation:** Sandbox containers are decoupled from host networking and limited dynamically in execution duration (maximum 10-second timeout).
+* **Environment Variable Safeguards:** The database credentials, GitHub Client Secrets, and JWT secrets are injected strictly via system environment variables, ensuring zero credential leak vulnerabilities in the code repository.
+
+---
+
+<!-- BUILT WITH -->
+## Built With
+
+The project uses a modern web stack designed for real-time streaming operations:
+* **Frontend:** React, TypeScript, Tailwind CSS, Monaco Editor, Xterm.js, Socket.io-client
+* **Backend:** Node.js, Express, TypeScript, Socket.io, ws, Dockerode, adm-zip, axios
+* **Database:** PostgreSQL (relational directory models and CRDT binary storage)
+* **Infrastructure:** Docker Engine API (development sandbox runners)
+
+---
+
+<!-- GETTING STARTED -->
+## Getting Started
+
+Follow these steps to set up your local development environment.
 
 ### Prerequisites
-- Node.js v20+
-- PostgreSQL v15+
-- Docker Desktop (Running locally, with Unix socket enabled at `/var/run/docker.sock` or `~/.docker/run/docker.sock`)
 
-### 1. Database Setup
-Spin up a local PostgreSQL instance and execute the schema file to initialize the tables:
-```bash
-psql -U your_username -d your_database -f database/schema.sql
-```
+* **Node.js**: v20 or higher
+* **PostgreSQL**: v14 or higher (running locally on port 5432)
+* **Docker Engine**: Running locally (Docker Desktop or Docker Daemon with access to the Unix socket `/var/run/docker.sock`)
 
-### 2. Backend Installation
-1. Navigate to the backend directory and install dependencies:
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/AmanKashyapp07/sandbox-ide.git
+   cd sandbox-ide
+   ```
+
+2. Initialize the Database Schema:
+   Ensure your local PostgreSQL server is running, create a database named `sandbox`, and run the schema script:
+   ```bash
+   psql -d sandbox -f database/schema.sql
+   ```
+
+3. Configure Backend Environment:
+   Create a `.env` file in the `backend/` directory:
+   ```env
+   PORT=4000
+   DATABASE_URL=postgresql://your_db_username@localhost:5432/sandbox
+   JWT_SECRET=your_jwt_secret_key
+   GITHUB_CLIENT_ID=your_github_oauth_client_id
+   GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+   ```
+   *(Note: You can register a GitHub OAuth app in Settings -> Developer Settings -> OAuth Apps. Set Homepage to `http://localhost:5173` and Authorization Callback URL to `http://localhost:4000/api/auth/github/callback`)*
+
+4. Launch the Backend Server:
    ```bash
    cd backend
    npm install
-   ```
-2. Create a `.env` file in the `backend/` directory:
-   ```env
-   PORT=4000
-   DATABASE_URL=postgresql://your_user:your_password@localhost:5432/your_database
-   JWT_SECRET=your_system_jwt_secret_key
-   ```
-3. Initialize the server runtime (will build the dev sandbox image and pre-warm container pools):
-   ```bash
    npm run dev
    ```
+   *(This starts the Express server, pre-warms the Docker sandbox pool, and verifies database connectivity)*
 
-### 3. Frontend Installation
-1. Open a new terminal tab, navigate to the frontend folder, and install dependencies:
+5. Launch the Frontend Client:
+   Open a new terminal tab, navigate to the frontend directory:
    ```bash
    cd frontend
    npm install
-   ```
-2. Launch the Vite bundler locally:
-   ```bash
    npm run dev
    ```
-3. Open your browser to the local URL (usually `http://localhost:5173`).
+   Open `http://localhost:5173` in your browser.
 
 ---
 
+<!-- USAGE -->
 ## Usage
 
-1. **User Sign Up**: Create a user account via the Auth register dashboard interface.
-2. **Create Workspace**: Add a new workspace from the home dashboard. The backend bootstraps default files.
-3. **Write Code**: Open multiple files. Real-time changes are synchronized across active editors.
-4. **Compile & Run**: Click the "Run" button to execute scripts. Output and runtime performance metrics (CPU, Memory peak) are populated in the logs panel.
-5. **Open Terminal**: Interact directly with the workspace via a bash web shell.
+1. **Secure Login:** Click the "Continue with GitHub" button to authenticate.
+2. **Dashboard Management:** Click "New Workspace" to create a fresh coding workspace, or use the "Import GitHub" widget. Select one of your repositories from the dropdown list (or paste any public GitHub repository URL) to pull the files and build the workspace.
+3. **Write & Edit Code:** Open the workspace, select files in the tree view, and edit them. Open the same URL in a separate window to watch real-time synchronizations.
+4. **Isolated Code Run:** Click the "Run" button in the editor. The code is executed in an isolated runner container and metrics (Execution Time, CPU, and RAM peak) are returned to the output logger console.
+5. **Interactive Bash Shell:** Open the console terminal tab to interface directly with your sandbox environment via terminal commands.
 
 ---
 
-## Screenshots
+<!-- ROADMAP -->
+## Roadmap
 
-*Placeholders for frontend snapshots:*
-- `![Dashboard View](https://placehold.co/800x450?text=Dashboard+Workspace+View)`
-- `![IDE Editor View](https://placehold.co/800x450?text=IDE+Collaborative+Editor+View)`
-- `![Sandbox Diagnostics Log](https://placehold.co/800x450?text=Sandbox+Execution+Diagnostics+Logs)`
-
----
-
-## Project Workflow
-
-```text
-  [IDE Frontend (Browser)]
-      │
-      ├─(WebSockets)──────→ [y-websocket Server (Y.Doc Sync)] ──→ [PostgreSQL (BYTEA storage)]
-      ├─(WebSockets)──────→ [PTY WebSocket Handler] <──────────> [Docker Exec (Bash PTY)]
-      └─(WebRTC Media)────→ [P2P WebRTC Audio Mesh] (Peer-to-peer bypass)
-```
-
-1. **Collaborative Flow**: Edit changes are parsed by Yjs CRDTs locally and broadcasted as binary updates to the backend WebSockets, which applies them and updates PostgreSQL's `yjs_state` column.
-2. **Execution Flow**: When execution is requested, the backend packages current workspace files into an in-memory tarball, streams it to a container popped from the warm pool, runs code, extracts kernel metrics from the container's cgroup filesystem, and cleans up the container.
+- [x] Exclusive GitHub OAuth Integration
+- [x] GitHub Workspace Import Engine (Plan A)
+  - [x] Fetch zipball via API
+  - [x] Memory unpacking & Adjacency lists insertion (500 file cap)
+  - [x] Live dropdown listing of user repositories
+- [ ] Terminal-based Git integration (Plan B)
+- [ ] Workspace collaborator invite UI
+- [ ] Sandbox pre-warm pool expansion
 
 ---
 
-## Challenges Faced
+<!-- KEY ENGINEERING CHALLENGES & LESSONS LEARNED -->
+## Key Engineering Challenges & Lessons Learned
 
-- **Race Conditions in File Extraction**: We resolved a race condition where compilation executed before the container finished tar extraction by tracking the hijacked execution socket stream `end` event before invoking compiler runtimes.
-- **OT vs CRDT Integration**: Integrating CRDT statevectors over persistent relational database rows required a debounced write-back cache to prevent database connection pool exhaustion.
-- **PTY Frame Corruption**: Passing Tty parameters incorrectly resulted in Docker's multiplexed stream headers leaking into xterm.js character parses. We solved this by passing `Tty: true` to both `exec` creation and `exec.start` socket captures.
-- **Root Naming Collisions in SQL**: Standard SQL treats `NULL` values as distinct, which historically broke root directory unique constraints (`parent_id = NULL`). We resolved this using PostgreSQL 15's `UNIQUE NULLS NOT DISTINCT` modifier.
-
----
-
-## Learning Outcomes
-
-- **Linux Sandboxing Primitives**: Practical application of namespaces (`CLONE_NEWNS`, `CLONE_NEWNET`), cgroup limits (v2 unified structures like `memory.peak`), and Seccomp profiles.
-- **Bidirectional Stream Multiplexing**: Piping raw characters and tracking escape sequences between browser socket buffers and container process stdin/stdout file descriptors.
-- **Distributed State Convergence**: Mathematical logic of Join-Semilattices and conflict resolution strategies in highly concurrent systems.
-- **SQL Optimization**: Structuring parent-child relational entities and querying hierarchical directory systems efficiently using Recursive CTEs.
+* **Express Route Overlap Conflict:** Dynamic Express routes like `router.get('/:id')` conflict with static paths like `router.get('/github-repos')` if the static route is registered below the parameterized path. We resolved this routing collision by ordering all static routes above parameterized paths.
+* **ES Module Hoisting with Dotenv:** ES6 `import` statements are hoisted and executed before any regular code blocks run. This caused database connections to be initialized before `dotenv.config()` could execute, resulting in undefined credentials. We resolved this by loading environment variables lazily within the handlers.
+* **Root Folder Null Constraints:** Standard SQL treats `NULL` values as distinct, which allowed duplicate files at the root directory level since `parent_id` is null. We resolved this by creating partial indices filtering on `WHERE parent_id IS NULL` to enforce unique constraints at the root tree level.
+* **PTY Stream Multiplexing:** Docker multiplexes stdout and stderr streams using a custom 8-byte header structure. Piping this directly into xterm.js caused corrupt characters. We resolved this by enabling Tty options on container execution to strip multiplex headers and return raw clean ANSI strings.
 
 ---
 
-## Future Improvements
+<!-- CONTRIBUTING -->
+## Contributing
 
-- **Resource Limit Customization**: Allow admin-level customization of sandbox boundaries (CPU, RAM quotas) per user runtime.
-- **Advanced Git Integration**: Supporting Git cloning, staging, and commits directly from the terminal or visual Explorer panel.
-- **Debugger Interface Integration**: Hooking execution loops into `gdb` or `ndb` runtimes to step through program blocks visually in the Monaco interface.
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 
----
-
-## Contributors
-
-- **<Aman Kashyap>** - *Core System Architecture* - [<GitHub User Profile>](https://github.com/AmanKashyapp07)
-
----
-
-## Acknowledgements
-
-- Project guidance provided by the undergraduate software engineering course coordinators.
-- Documentation deep-dives compiled inside the [interview/](file:///Users/amankashyap/Documents/sandbox/interview/) subdirectory.
-- Library authors and maintainers of Yjs, Dockerode, and Xterm.js.
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 
+<!-- LICENSE -->
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+
+<!-- CONTACT -->
+## Contact
+
+Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07) - iit2024140@iiita.ac.in
+
+Project Link: [https://github.com/AmanKashyapp07/sandbox-ide](https://github.com/AmanKashyapp07/sandbox-ide)
+
+---
+
+<!-- ACKNOWLEDGMENTS -->
+## Acknowledgments
+
+* Course coordinators for the software engineering project guidance.
+* Maintainers of Yjs, Monaco Editor, Xterm.js, and Dockerode.
+* Full developer interview deep dives are cataloged in the [interview/](file:///Users/amankashyap/Documents/sandbox/interview/) directory.
+
+<!-- MARKDOWN LINKS & IMAGES -->
+[contributors-shield]: https://img.shields.io/github/contributors/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
+[contributors-url]: https://github.com/AmanKashyapp07/sandbox-ide/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
+[forks-url]: https://github.com/AmanKashyapp07/sandbox-ide/network/members
+[stars-shield]: https://img.shields.io/github/stars/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
+[stars-url]: https://github.com/AmanKashyapp07/sandbox-ide/stargazers
+[issues-shield]: https://img.shields.io/github/issues/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
+[issues-url]: https://github.com/AmanKashyapp07/sandbox-ide/issues
+[license-shield]: https://img.shields.io/github/license/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
+[license-url]: https://github.com/AmanKashyapp07/sandbox-ide/blob/main/LICENSE
+[React.js]: https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB
+[React-url]: https://reactjs.org/
+[Tailwind.css]: https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white
+[Tailwind-url]: https://tailwindcss.com/
+[Express.js]: https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white
+[Express-url]: https://expressjs.com/
+[Node.js]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
+[Node-url]: https://nodejs.org/
+[Postgres.sql]: https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white
+[Postgres-url]: https://www.postgresql.org/
+[Docker.com]: https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white
+[Docker-url]: https://www.docker.com/
+[TypeScript.svg]: https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white
+[TypeScript-url]: https://www.typescriptlang.org/

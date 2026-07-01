@@ -26,7 +26,9 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
+    github_id VARCHAR(255) UNIQUE,
+    github_token VARCHAR(1024),
     avatar_url VARCHAR(1024),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -80,9 +82,11 @@ CREATE TABLE files (
     language VARCHAR(50), 
     size_bytes BIGINT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT unique_name_per_parent UNIQUE NULLS NOT DISTINCT (workspace_id, parent_id, name)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX unique_name_root ON files (workspace_id, name) WHERE parent_id IS NULL;
+CREATE UNIQUE INDEX unique_name_child ON files (workspace_id, parent_id, name) WHERE parent_id IS NOT NULL;
 
 CREATE INDEX idx_files_workspace ON files(workspace_id);
 CREATE INDEX idx_files_parent ON files(parent_id);

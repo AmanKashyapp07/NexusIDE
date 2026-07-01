@@ -1,79 +1,84 @@
 import { Router } from 'express';
-import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import axios from 'axios';
 import { getPool } from '../db';
 
 const router = Router();
 
-
-// Register User
-router.post('/register', async (req, res) => {
-  try {
-    const { username, email, password } = req.body;
-
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Username, email, and password are required' });
-    }
-
-    // Check if user exists
-    const userExists = await getPool().query('SELECT * FROM users WHERE username = $1 OR email = $2', [username, email]);
-    if (userExists.rows.length > 0) {
-      return res.status(400).json({ error: 'Username or email already taken' });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const password_hash = await bcrypt.hash(password, salt);
-
-    const newUser = await getPool().query(
-      'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id, username, email',
-      [username, email, password_hash]
-    );
-
-    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-    const token = jwt.sign({ id: newUser.rows[0].id, username }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.status(201).json({ token, user: newUser.rows[0] });
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error during registration' });
-  }
+// Redirect to GitHub OAuth
+router.get('/github', (req, res) => {
+  const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
+  const redirectUri = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=user:email`;
+  res.redirect(redirectUri);
 });
 
-// Login User
-router.post('/login', async (req, res) => {
+// GitHub OAuth Callback
+router.get('/github/callback', async (req, res) => {
+  const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
+  const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
+  const code = req.query.code;
+  if (!code) {
+    return res.status(400).send('No code provided');
+  }
+
   try {
-    const { username, password } = req.body;
+    const tokenResponse = await axios.post(
+      'https://github.com/login/oauth/access_token',
+      {
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code
+      },
+      { headers: { Accept: 'application/json' } }
+    );
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    const accessToken = tokenResponse.data.access_token;
+    if (!accessToken) {
+       return res.status(400).send('Failed to fetch access token');
     }
 
-    const userResult = await getPool().query('SELECT * FROM users WHERE username = $1', [username]);
-    if (userResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Invalid credentials' });
+    const userResponse = await axios.get('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    
+    const emailsResponse = await axios.get('https://api.github.com/user/emails', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    const githubUser = userResponse.data;
+    const primaryEmail = emailsResponse.data.find((e: any) => e.primary)?.email || emailsResponse.data[0]?.email;
+    
+    if (!primaryEmail) {
+      return res.status(400).send('GitHub email required');
     }
 
-    const user = userResult.rows[0];
-    const isMatch = await bcrypt.compare(password, user.password_hash);
+    const githubId = githubUser.id.toString();
+    const username = githubUser.login;
+    const avatarUrl = githubUser.avatar_url;
 
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Invalid credentials' });
+    const pool = getPool();
+    // Use email to link existing users who registered before GitHub OAuth
+    let dbUser = await pool.query('SELECT * FROM users WHERE github_id = $1 OR email = $2', [githubId, primaryEmail]);
+    let userId;
+
+    if (dbUser.rows.length > 0) {
+      userId = dbUser.rows[0].id;
+      await pool.query('UPDATE users SET github_id = $1, avatar_url = $2, github_token = $3 WHERE id = $4', [githubId, avatarUrl, accessToken, userId]);
+    } else {
+      const newUser = await pool.query(
+        'INSERT INTO users (username, email, github_id, avatar_url, github_token) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [username, primaryEmail, githubId, avatarUrl, accessToken]
+      );
+      userId = newUser.rows[0].id;
     }
 
     const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '7d' });
 
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email
-      }
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error during login' });
+    res.redirect(`http://localhost:5173/auth/callback?token=${token}`);
+  } catch (error: any) {
+    console.error('GitHub Auth Error:', error.response?.data || error.message);
+    res.status(500).send('Authentication failed');
   }
 });
 
@@ -86,7 +91,7 @@ router.get('/me', async (req, res) => {
     const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     
-    const userResult = await getPool().query('SELECT id, username, email FROM users WHERE id = $1', [decoded.id]);
+    const userResult = await getPool().query('SELECT id, username, email, avatar_url FROM users WHERE id = $1', [decoded.id]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -98,7 +103,3 @@ router.get('/me', async (req, res) => {
 });
 
 export default router;
-
-// this files handles user authentication routes for registration, login, and fetching the current user's information. It uses bcrypt for password hashing and JWT for token-based authentication. The routes interact with the PostgreSQL database to store and retrieve user data securely.
-
-// all about JWT token - When a user registers or logs in successfully, a JWT token is generated using the `jsonwebtoken` library. The token contains the user's ID and username as payload and is signed with a secret key (defined in `JWT_SECRET`). The token is set to expire in 7 days. This token is returned to the client, which can then use it for authenticated requests by including it in the Authorization header as a Bearer token. The `/me` route verifies the token to authenticate the user and retrieves their information from the database. 
