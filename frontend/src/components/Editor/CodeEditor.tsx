@@ -5,7 +5,6 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { LspClient } from './lspClient';
 import { type AppFile } from '../Sidebar/Sidebar';
 
 interface CodeEditorProps {
@@ -40,8 +39,6 @@ const getUserColor = (username: string) => {
   return COLORS[Math.abs(hash) % COLORS.length];
 };
 
-// Languages supported by our backend LSP relay
-const LSP_SUPPORTED_LANGUAGES = new Set(['python', 'javascript', 'typescript']);
 
 export default function CodeEditor({
   workspaceId,
@@ -53,10 +50,8 @@ export default function CodeEditor({
   onAwarenessChange,
   onConnectionStatusChange,
   readOnly = false,
-  files = [],
 }: CodeEditorProps) {
   const [editor, setEditor] = useState<any>(null);
-  const [monacoInstance, setMonacoInstance] = useState<any>(null);
   const [awarenessStates, setAwarenessStates] = useState<any[]>([]);
 
   // ── Collaborative editing (Yjs) ────────────────────────────────────────────
@@ -127,72 +122,26 @@ export default function CodeEditor({
     };
   }, [editor, workspaceId, fileId]);
 
-  // Compute relative file path inside container
-  const computeFilePath = (fid: string, allFiles: AppFile[]): string => {
-    const file = allFiles.find(f => f.id === fid);
-    if (!file) return '';
-    const parts = [file.name];
-    let pId = file.parent_id;
-    while (pId) {
-      const parent = allFiles.find(f => f.id === pId);
-      if (!parent) break;
-      parts.unshift(parent.name);
-      pId = parent.parent_id;
-    }
-    return parts.join('/');
-  };
 
-  const filePath = computeFilePath(fileId, files);
-
-  // ── LSP integration (best-effort, never crashes the editor) ───────────────
-  useEffect(() => {
-    if (!editor || readOnly) return;
-    if (!LSP_SUPPORTED_LANGUAGES.has(language)) return;
-
-    const token = localStorage.getItem('token') || '';
-    if (!token) {
-      console.warn('[LSP] No auth token — skipping LSP');
-      return;
-    }
-
-    // Validate JWT expiry client-side by decoding the payload (no secret required
-    // for decoding — only for verifying). This catches stale tokens before we
-    // even open the WebSocket, giving a clear console message instead of 4401.
-    try {
-      const payloadBase64 = token.split('.')[1];
-      if (payloadBase64) {
-        const payload = JSON.parse(atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')));
-        const nowSec = Math.floor(Date.now() / 1000);
-        if (payload.exp && payload.exp < nowSec) {
-          console.warn('[LSP] JWT token is expired — skipping LSP. Please log out and log back in.');
-          return;
-        }
-      }
-    } catch (_) {
-      // malformed token, let the server reject it
-    }
-
-    const lspLang = language; // python | javascript | typescript
-    const socketUrl = `ws://localhost:4000/ws/lsp/${workspaceId}/${lspLang}?token=${encodeURIComponent(token)}`;
-
-    let lspClient: LspClient | null = null;
-    try {
-      lspClient = new LspClient(socketUrl, editor, monacoInstance, lspLang, filePath);
-    } catch (err) {
-      console.warn('[LSP] Failed to create LSP client (non-fatal):', err);
-    }
-
-    return () => {
-      try {
-        lspClient?.dispose();
-      } catch (_) { /* ignore */ }
-    };
-  }, [editor, monacoInstance, workspaceId, language, readOnly, fileId, filePath]);
 
 
   const handleEditorDidMount = (editorInstance: any, monaco: any) => {
     setEditor(editorInstance);
-    setMonacoInstance(monaco);
+    // Explicitly configure Monaco for maximum built-in intelligence
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+      target: monaco.languages.typescript.ScriptTarget.ES2020,
+      allowNonTsExtensions: true,
+      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+      module: monaco.languages.typescript.ModuleKind.CommonJS,
+      noEmit: true,
+      esModuleInterop: true,
+    });
+    monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+      target: monaco.languages.typescript.ScriptTarget.ES2020,
+      allowNonTsExtensions: true,
+    });
+    // Enable built-in word completions for other languages
+    editorInstance.updateOptions({ wordBasedSuggestions: 'currentDocument' });
     if (onEditorReady) {
       onEditorReady(editorInstance);
     }
