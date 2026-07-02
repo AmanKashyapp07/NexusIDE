@@ -7,19 +7,16 @@ export default function AuthPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#07060b] text-zinc-200 selection:bg-violet-400/25">
-      {/* Animated Aurora Orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="nx-orb nx-orb-1" />
         <div className="nx-orb nx-orb-2" />
         <div className="nx-orb nx-orb-3" />
       </div>
 
-      {/* Grid Overlay */}
       <div className="absolute inset-0 nx-grid-overlay opacity-40" />
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-10 sm:px-6 lg:px-8">
         <div className="grid w-full gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-          {/* Left Hero Panel */}
           <section className="flex flex-col justify-between rounded-[2rem] nx-glass-strong p-8 shadow-[0_30px_80px_rgba(0,0,0,0.45)] sm:p-10 lg:p-12">
             <div className="max-w-xl space-y-8">
               <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-violet-200">
@@ -69,7 +66,6 @@ export default function AuthPage() {
             </div>
           </section>
 
-          {/* Right Auth Form Panel */}
           <section className="flex items-center justify-center">
             <div className="w-full max-w-[32rem] rounded-[2rem] nx-glass-strong p-6 shadow-[0_24px_90px_rgba(0,0,0,0.5),0_0_60px_rgba(139,92,246,0.06)] sm:p-8">
               <div className="mb-8 flex flex-col items-center text-center">

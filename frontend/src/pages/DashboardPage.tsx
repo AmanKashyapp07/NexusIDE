@@ -11,6 +11,14 @@ interface Workspace {
   user_role?: string;
 }
 
+interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  html_url: string;
+  private: boolean;
+}
+
 export default function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [user, setUser] = useState<{ username: string, id: string, avatar_url?: string } | null>(null);
@@ -23,13 +31,6 @@ export default function DashboardPage() {
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState('');
-  interface GitHubRepo {
-    id: number;
-    name: string;
-    full_name: string;
-    html_url: string;
-    private: boolean;
-  }
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [reposError, setReposError] = useState('');
@@ -63,7 +64,6 @@ export default function DashboardPage() {
         const wsData = await wsRes.json();
         setWorkspaces(wsData);
 
-        // Fetch user's GitHub repos
         setIsLoadingRepos(true);
         const reposRes = await fetch('http://localhost:4000/api/workspace/github-repos', {
           headers: { Authorization: `Bearer ${token}` }
@@ -136,8 +136,8 @@ export default function DashboardPage() {
       } else {
         setImportError(data.error || 'Failed to import repository');
       }
-    } catch (err: any) {
-      setImportError(err.message || 'Server error during import');
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Server error during import');
       console.error(err);
     } finally {
       setIsImporting(false);
@@ -147,7 +147,6 @@ export default function DashboardPage() {
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinId.trim()) return;
-    // Just navigate to the IDE with that UUID. If it doesn't exist, IDE will handle 404.
     navigate(`/ide/${joinId.trim()}`);
   };
 
@@ -231,14 +230,12 @@ export default function DashboardPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#07060b] text-zinc-200 selection:bg-violet-400/25 font-sans">
-      {/* Animated Aurora Orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="nx-orb nx-orb-1" />
         <div className="nx-orb nx-orb-2" />
         <div className="nx-orb nx-orb-3" />
       </div>
 
-      {/* Grid Overlay */}
       <div className="absolute inset-0 nx-grid-overlay opacity-30" />
 
       <div className="relative mx-auto max-w-6xl px-6 py-12">
@@ -410,7 +407,6 @@ export default function DashboardPage() {
                   <div className="text-xs text-zinc-500 py-1">No repositories found. Enter custom URL below.</div>
                 )}
                 
-                {/* Fallback Custom URL Input */}
                 <div className="mt-2 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Or enter custom URL</div>
                 <input
                   type="url"

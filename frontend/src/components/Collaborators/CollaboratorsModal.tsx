@@ -1,57 +1,65 @@
-import React, { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { X, Users, UserPlus, Loader2, Trash2, Shield } from 'lucide-react';
+
+type CollaboratorRole = 'admin' | 'editor' | 'viewer';
 
 interface Collaborator {
   id: string;
   username: string;
   email: string;
-  role: 'admin' | 'editor' | 'viewer';
+  role: CollaboratorRole;
   joined_at: string;
 }
 
 interface CollaboratorsModalProps {
   workspaceId: string;
-  userRole: string; // current user's role
+  userRole: string;
   isOpen: boolean;
   onClose: () => void;
 }
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected error';
+
 export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onClose }: CollaboratorsModalProps) {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [newCollabInput, setNewCollabInput] = useState('');
-  const [newCollabRole, setNewCollabRole] = useState<'editor' | 'viewer'>('viewer');
+  const [newCollabRole, setNewCollabRole] = useState<CollaboratorRole>('viewer');
   const [isAdding, setIsAdding] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const loadCollaborators = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/collaborators`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Failed to fetch collaborators');
+    return res.json() as Promise<Collaborator[]>;
+  }, [workspaceId]);
+
   useEffect(() => {
-    if (isOpen) {
-      fetchCollaborators();
-      setNewCollabInput('');
-      setError(null);
-    }
-  }, [isOpen, workspaceId]);
+    if (!isOpen) return;
 
-  const fetchCollaborators = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/collaborators`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error('Failed to fetch collaborators');
-      const data = await res.json();
-      setCollaborators(data);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    let isActive = true;
+    const fetchInitialCollaborators = async () => {
+      try {
+        const data = await loadCollaborators();
+        if (isActive) setCollaborators(data);
+      } catch (err) {
+        if (isActive) setError(getErrorMessage(err));
+      } finally {
+        if (isActive) setIsLoading(false);
+      }
+    };
 
-  const handleAddCollaborator = async (e: React.FormEvent) => {
+    void fetchInitialCollaborators();
+    return () => {
+      isActive = false;
+    };
+  }, [isOpen, loadCollaborators]);
+
+  const handleAddCollaborator = async (e: FormEvent) => {
     e.preventDefault();
     if (!newCollabInput.trim()) return;
 
@@ -72,9 +80,9 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
       if (!res.ok) throw new Error(data.error || 'Failed to add collaborator');
       
       setNewCollabInput('');
-      await fetchCollaborators();
-    } catch (err: any) {
-      setError(err.message);
+      setCollaborators(await loadCollaborators());
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setIsAdding(false);
     }
@@ -98,14 +106,14 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
       }
       
       setCollaborators(prev => prev.filter(c => c.id !== userId));
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setProcessingId(null);
     }
   };
 
-  const handleRoleChange = async (userId: string, newRole: string) => {
+  const handleRoleChange = async (userId: string, newRole: CollaboratorRole) => {
     setProcessingId(userId);
     setError(null);
     try {
@@ -124,9 +132,9 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
         throw new Error(data.error || 'Failed to update role');
       }
       
-      setCollaborators(prev => prev.map(c => c.id === userId ? { ...c, role: newRole as any } : c));
-    } catch (err: any) {
-      setError(err.message);
+      setCollaborators(prev => prev.map(c => c.id === userId ? { ...c, role: newRole } : c));
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setProcessingId(null);
     }
@@ -179,7 +187,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
                 />
                 <select
                   value={newCollabRole}
-                  onChange={e => setNewCollabRole(e.target.value as any)}
+                  onChange={e => setNewCollabRole(e.target.value as CollaboratorRole)}
                   className="bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-zinc-300 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/50 transition-all"
                 >
                   <option value="viewer">Viewer</option>
@@ -233,7 +241,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
                       ) : userRole === 'admin' ? (
                         <select
                           value={c.role}
-                          onChange={e => handleRoleChange(c.id, e.target.value)}
+                          onChange={e => handleRoleChange(c.id, e.target.value as CollaboratorRole)}
                           disabled={processingId !== null}
                           className="bg-black/30 border border-white/5 rounded-lg px-2 py-1 text-xs text-zinc-300 font-medium cursor-pointer hover:bg-black/50 focus:outline-none focus:border-violet-500/50 transition-colors"
                         >

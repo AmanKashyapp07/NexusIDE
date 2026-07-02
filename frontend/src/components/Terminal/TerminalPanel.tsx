@@ -65,17 +65,17 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
       rows: 30,
       cols: 80,
       theme: {
-        background: '#1a1b26',       // Tokyo Night Background
-        foreground: '#a9b1d6',       // Tokyo Night Foreground
-        cursor: '#f7768e',           // Tokyo Night Pink Cursor
+        background: '#1a1b26',
+        foreground: '#a9b1d6',
+        cursor: '#f7768e',
         cursorAccent: '#1a1b26',
-        selectionBackground: 'rgba(187, 154, 247, 0.3)', // Soft purple selection
+        selectionBackground: 'rgba(187, 154, 247, 0.3)',
         black: '#32344a',
-        red: '#f7768e',              // Pinkish Red
+        red: '#f7768e',
         green: '#9ece6a',
         yellow: '#e0af68',
         blue: '#7aa2f7',
-        magenta: '#bb9af7',          // Soft Purple
+        magenta: '#bb9af7',
         cyan: '#7dcfff',
         white: '#a9b1d6',
         brightBlack: '#444b6a',
@@ -177,10 +177,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#1a1b26] text-[#a9b1d6] font-sans border-t border-[#292e42]">
-      
-      {/* Panel Header */}
       <div className="flex h-9 shrink-0 items-center justify-between px-4 select-none bg-[#1a1b26]">
-        {/* Tabs */}
         <div className="flex h-full items-center gap-6 text-[11px] font-medium tracking-wide">
           <div className="flex h-full items-center text-[#565f89] hover:text-[#a9b1d6] cursor-pointer transition-colors">PROBLEMS</div>
           <div className="flex h-full items-center text-[#565f89] hover:text-[#a9b1d6] cursor-pointer transition-colors">OUTPUT</div>
@@ -190,7 +187,6 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
           </div>
         </div>
 
-        {/* Right Toolbar Actions */}
         <div className="flex items-center gap-1 text-[#a9b1d6]">
           {userRole === 'viewer' && (
             <span className="flex items-center gap-1.5 mr-3 text-[11px] text-[#e0af68]" title="Read-only mode">
@@ -224,9 +220,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
         </div>
       </div>
 
-      {/* Terminal View area */}
       <div className="flex-1 relative">
-        {/* Modal Overlay for Connection Issues */}
         {connectionStatus !== 'connected' && (
           <div className="absolute inset-0 z-10 flex items-start justify-center pt-10 bg-[#1a1b26]/60 backdrop-blur-sm">
             {connectionStatus === 'connecting' ? (
@@ -258,7 +252,6 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
           </div>
         )}
 
-        {/* Terminal Container */}
         <div 
           ref={terminalRef} 
           className="absolute inset-0 p-3 pt-2 [&_.xterm-viewport::-webkit-scrollbar]:w-3 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-[#292e42] [&_.xterm-viewport:hover::-webkit-scrollbar-thumb]:bg-[#3b4261] [&_.xterm-viewport::-webkit-scrollbar-thumb:hover]:bg-[#565f89] [&_.xterm-viewport]:scrollbar-thin [&_.xterm-viewport]:scrollbar-track-transparent" 

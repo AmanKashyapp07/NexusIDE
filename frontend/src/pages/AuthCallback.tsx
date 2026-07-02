@@ -8,7 +8,7 @@ export default function AuthCallback() {
 
   useEffect(() => {
     const token = searchParams.get('token');
-    
+
     if (token) {
       localStorage.setItem('token', token);
       navigate('/dashboard');

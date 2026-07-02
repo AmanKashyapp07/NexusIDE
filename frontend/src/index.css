@@ -1,22 +1,17 @@
 @import "tailwindcss";
 
-/* ===== NexusIDE Design System ===== */
-
 :root {
   color-scheme: dark;
 
-  /* Core Palette */
   --nx-bg-deep: #07060b;
   --nx-bg-surface: #0d0c14;
   --nx-bg-elevated: #13121d;
 
-  /* Accent Gradient Stops */
   --nx-violet: #8b5cf6;
   --nx-indigo: #6366f1;
   --nx-cyan: #22d3ee;
   --nx-purple: #a78bfa;
 
-  /* Glass */
   --nx-glass-bg: rgba(255, 255, 255, 0.04);
   --nx-glass-border: rgba(255, 255, 255, 0.08);
   --nx-glass-hover: rgba(255, 255, 255, 0.07);
@@ -40,8 +35,6 @@ html, body {
 .font-mono {
   font-family: 'JetBrains Mono', monospace;
 }
-
-/* ===== Animated Aurora Orbs ===== */
 
 @keyframes float-orb-1 {
   0%, 100% { transform: translate(0, 0) scale(1); }
@@ -95,12 +88,9 @@ html, body {
   animation: float-orb-3 18s ease-in-out infinite;
 }
 
-/* Dimmed orbs for IDE (less distraction) */
 .nx-orb-dim .nx-orb-1 { opacity: 0.4; }
 .nx-orb-dim .nx-orb-2 { opacity: 0.3; }
 .nx-orb-dim .nx-orb-3 { opacity: 0.25; }
-
-/* ===== Shimmer Button Animation ===== */
 
 @keyframes shimmer-sweep {
   0% { transform: translateX(-120%); }
@@ -125,8 +115,6 @@ html, body {
   animation: shimmer-sweep 0.8s ease-out forwards;
 }
 
-/* ===== Gradient Button Base ===== */
-
 .nx-btn-gradient {
   background: linear-gradient(135deg, var(--nx-violet), var(--nx-indigo), var(--nx-cyan));
   background-size: 200% 200%;
@@ -137,8 +125,6 @@ html, body {
   background-position: 100% 100%;
   box-shadow: 0 12px 30px rgba(139, 92, 246, 0.25), 0 4px 12px rgba(99, 102, 241, 0.15);
 }
-
-/* ===== Glassmorphism Panel ===== */
 
 .nx-glass {
   background: var(--nx-glass-bg);
@@ -154,16 +140,12 @@ html, body {
   -webkit-backdrop-filter: blur(24px) saturate(1.5);
 }
 
-/* ===== Gradient Text ===== */
-
 .nx-text-gradient {
   background: linear-gradient(135deg, var(--nx-violet), var(--nx-cyan));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-
-/* ===== Subtle Grid Overlay ===== */
 
 .nx-grid-overlay {
   background-image:
@@ -174,28 +156,21 @@ html, body {
   -webkit-mask-image: radial-gradient(circle at center, black 20%, transparent 80%);
 }
 
-/* ===== Glow Ring on Focus ===== */
-
 .nx-input-glow:focus {
   border-color: rgba(139, 92, 246, 0.5);
   box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1), 0 0 20px rgba(139, 92, 246, 0.08);
 }
-
-/* ===== Subtle Pulse ===== */
 
 @keyframes nx-pulse-glow {
   0%, 100% { box-shadow: 0 0 8px rgba(139, 92, 246, 0.4); }
   50% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.7); }
 }
 
-/* ===== Active Sidebar Indicator ===== */
-
 .nx-active-bar {
   background: linear-gradient(180deg, var(--nx-violet), var(--nx-cyan));
   box-shadow: 0 0 12px rgba(139, 92, 246, 0.5);
 }
 
-/* ===== Base Yjs Monaco Remote Cursor Styles ===== */
 .yRemoteSelection {
   opacity: 0.25;
 }

@@ -1,28 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
 import { Mic, MicOff, PhoneOff } from 'lucide-react';
+
+interface VoiceUser {
+  username: string;
+  id: string;
+}
 
 interface VoiceChatProps {
   workspaceId: string;
-  user: { username: string; id: string };
+  user: VoiceUser;
 }
 
 interface PeerInfo {
   socketId: string;
-  user: { username: string; id: string };
-  isSpeaking: boolean;
+  user: VoiceUser;
 }
 
-// Color hash function to ensure users have the same color everywhere in the app
 const COLORS = [
-  '#ef4444', // red
-  '#f97316', // orange
-  '#eab308', // yellow
-  '#22c55e', // green
-  '#06b6d4', // cyan
-  '#3b82f6', // blue
-  '#a855f7', // purple
-  '#ec4899', // pink
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#22c55e',
+  '#06b6d4',
+  '#3b82f6',
+  '#a855f7',
+  '#ec4899',
 ];
 
 const getUserColor = (username: string) => {
@@ -58,10 +61,10 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
       });
       socketRef.current.emit('join-voice-room', { workspaceId, user });
 
-      socketRef.current.on('existing-voice-users', (existingPeers: {socketId: string, user: any}[]) => {
+      socketRef.current.on('existing-voice-users', (existingPeers: { socketId: string; user: VoiceUser }[]) => {
         setPeers(prev => {
           const newPeers = existingPeers.filter(ep => !prev.some(p => p.socketId === ep.socketId));
-          return [...prev, ...newPeers.map(p => ({ ...p, isSpeaking: false }))];
+          return [...prev, ...newPeers];
         });
         existingPeers.forEach(p => {
           createPeerConnection(p.socketId, true);
@@ -69,14 +72,14 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
       });
 
       socketRef.current.on('user-joined-voice', ({ socketId, user: newUser }) => {
-        setPeers(prev => [...prev, { socketId, user: newUser, isSpeaking: false }]);
+        setPeers(prev => [...prev, { socketId, user: newUser }]);
         createPeerConnection(socketId, false);
       });
 
       socketRef.current.on('webrtc-offer', async ({ offer, from, user: fromUser }) => {
         setPeers(prev => {
           if (!prev.some(p => p.socketId === from)) {
-            return [...prev, { socketId: from, user: fromUser, isSpeaking: false }];
+            return [...prev, { socketId: from, user: fromUser }];
           }
           return prev;
         });
@@ -159,7 +162,7 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
     return pc;
   };
 
-  const disconnectVoice = () => {
+  const disconnectVoice = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -173,7 +176,7 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
     remoteAudioRefs.current = {};
     setPeers([]);
     setIsConnected(false);
-  };
+  }, []);
 
   const toggleMute = () => {
     if (localStreamRef.current) {
@@ -189,7 +192,7 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
     return () => {
       disconnectVoice();
     };
-  }, []);
+  }, [disconnectVoice]);
 
   if (!isConnected) {
     return (
@@ -206,7 +209,6 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
   return (
     <div className="relative">
       
-      {/* Active Voice Trigger Button */}
       <div 
         onClick={() => setIsVoiceMenuOpen(!isVoiceMenuOpen)}
         className="flex cursor-pointer items-center gap-2 rounded-full border border-emerald-500/30 bg-[linear-gradient(135deg,rgba(16,185,129,0.15),rgba(5,150,105,0.05))] px-3 py-1.5 text-xs font-medium text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all duration-300 hover:border-emerald-500/50 hover:bg-emerald-500/20"
@@ -218,17 +220,14 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
         Voice Active ({peers.length + 1})
       </div>
 
-      {/* Floating Panel with gradient top border */}
       <div className={`absolute right-0 top-full mt-3 w-64 rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.6),0_4px_20px_rgba(0,0,0,0.4)] ring-1 ring-black/50 transition-all duration-300 z-50 ${
         isVoiceMenuOpen 
           ? 'opacity-100 translate-y-0 pointer-events-auto' 
           : 'opacity-0 translate-y-2 pointer-events-none'
       }`}>
-        {/* Gradient Top Accent */}
         <div className="h-[2px] w-full bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-500" />
         
         <div className="bg-[rgba(13,12,20,0.95)] backdrop-blur-2xl border border-white/[0.08] border-t-0 rounded-b-2xl">
-          {/* Panel Header */}
           <div className="border-b border-white/5 bg-white/[0.03] p-3 flex justify-between items-center">
             <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Voice Channel</span>
             <div className="flex gap-1.5">
@@ -260,10 +259,7 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
             </div>
           </div>
           
-          {/* Participants List */}
           <div className="p-2 space-y-0.5 max-h-56 overflow-y-auto">
-            
-            {/* Local User */}
             <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl bg-white/5 border border-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
               <div 
                 className={`relative flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white shadow-sm transition-all ${
@@ -277,7 +273,6 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
               {isMuted && <MicOff size={14} className="text-red-400/80" />}
             </div>
 
-            {/* Remote Peers */}
             {peers.map(p => (
               <div key={p.socketId} className="flex items-center gap-2.5 px-2 py-2 rounded-xl transition-colors hover:bg-white/5">
                 <div 

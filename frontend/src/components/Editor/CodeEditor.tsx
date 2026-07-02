@@ -1,11 +1,42 @@
 import { useEffect, useState } from 'react';
-import Editor from '@monaco-editor/react';
-import * as Y from 'yjs'; 
-// @ts-ignore
+import Editor, { type OnMount } from '@monaco-editor/react';
+import type * as Monaco from 'monaco-editor';
+import * as Y from 'yjs';
+// @ts-expect-error y-websocket does not ship complete TypeScript declarations.
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { type AppFile } from '../Sidebar/Sidebar';
+
+type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
+type MonacoInstance = typeof Monaco;
+type MonacoCodeEditor = Monaco.editor.IStandaloneCodeEditor;
+
+interface AwarenessUser {
+  name: string;
+  color: string;
+}
+
+interface AwarenessState {
+  user?: AwarenessUser;
+}
+
+interface YAwareness {
+  setLocalStateField(field: 'user', value: AwarenessUser): void;
+  getStates(): Map<number, AwarenessState>;
+  on(event: 'change', handler: () => void): void;
+  off(event: 'change', handler: () => void): void;
+}
+
+interface CollaborationProvider {
+  awareness: YAwareness;
+  on(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
+  off(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
+  destroy(): void;
+}
+
+interface AutocompleteResponse {
+  completion?: string;
+}
 
 interface CodeEditorProps {
   workspaceId: string;
@@ -13,22 +44,21 @@ interface CodeEditorProps {
   language: string;
   currentUser: { username: string; id: string };
   onCodeChange?: (code: string) => void;
-  onEditorReady?: (editor: any) => void;
-  onAwarenessChange?: (users: any[]) => void;
-  onConnectionStatusChange?: (status: 'connected' | 'disconnected' | 'connecting') => void;
+  onEditorReady?: (editor: MonacoCodeEditor) => void;
+  onAwarenessChange?: (users: AwarenessUser[]) => void;
+  onConnectionStatusChange?: (status: ConnectionStatus) => void;
   readOnly?: boolean;
-  files?: AppFile[];
 }
 
 const COLORS = [
-  '#ef4444', // red
-  '#f97316', // orange
-  '#eab308', // yellow
-  '#22c55e', // green
-  '#06b6d4', // cyan
-  '#3b82f6', // blue
-  '#a855f7', // purple
-  '#ec4899', // pink
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#22c55e',
+  '#06b6d4',
+  '#3b82f6',
+  '#a855f7',
+  '#ec4899',
 ];
 
 const getUserColor = (username: string) => {
@@ -40,7 +70,6 @@ const getUserColor = (username: string) => {
 };
 
 
-// ── Lightweight LRU Cache ─────────────────────────────────────────────────
 class AutocompleteCache {
   private capacity: number;
   private cache: Map<string, string>;
@@ -52,26 +81,23 @@ class AutocompleteCache {
 
   get(key: string): string | undefined {
     if (!this.cache.has(key)) return undefined;
-    // Move to the end to mark as recently used
-    const val = this.cache.get(key)!;
+    const value = this.cache.get(key)!;
     this.cache.delete(key);
-    this.cache.set(key, val);
-    return val;
+    this.cache.set(key, value);
+    return value;
   }
 
   set(key: string, value: string): void {
     if (this.cache.has(key)) this.cache.delete(key);
     else if (this.cache.size >= this.capacity) {
-      // Evict the oldest item
-      this.cache.delete(this.cache.keys().next().value!); 
+      this.cache.delete(this.cache.keys().next().value!);
     }
     this.cache.set(key, value);
   }
 }
 
-// Initialize once so it persists across component re-renders
+// The module-level LRU cache avoids repeated autocomplete calls for identical local context.
 const ghostTextCache = new AutocompleteCache(50);
-
 
 export default function CodeEditor({
   workspaceId,
@@ -84,30 +110,27 @@ export default function CodeEditor({
   onConnectionStatusChange,
   readOnly = false,
 }: CodeEditorProps) {
-  const [editor, setEditor] = useState<any>(null);
-  const [awarenessStates, setAwarenessStates] = useState<any[]>([]);
+  const [editor, setEditor] = useState<MonacoCodeEditor | null>(null);
+  const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
+  const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
 
-  // ── Collaborative editing (Yjs) ────────────────────────────────────────────
   useEffect(() => {
     if (!editor) return;
 
     const ydoc = new Y.Doc();
     const roomName = `${workspaceId}-${fileId}`;
-
-    // Offline persistence
     const indexeddbProvider = new IndexeddbPersistence(roomName, ydoc);
-
     const token = localStorage.getItem('token') || '';
     const wsProvider = new WebsocketProvider(
       'ws://localhost:4000',
       roomName,
       ydoc,
       { params: { token } }
-    );
+    ) as CollaborationProvider;
 
     let isActive = true;
 
-    const handleStatusChange = (event: { status: 'connected' | 'disconnected' | 'connecting' }) => {
+    const handleStatusChange = (event: { status: ConnectionStatus }) => {
       if (isActive && onConnectionStatusChange) {
         onConnectionStatusChange(event.status);
       }
@@ -127,8 +150,10 @@ export default function CodeEditor({
       setAwarenessStates(states);
 
       if (onAwarenessChange) {
-        const users = states.map(([, state]: any) => state.user).filter(Boolean);
-        const uniqueUsers = Array.from(new Map(users.map((u: any) => [u.name, u])).values());
+        const users = states
+          .map(([, state]) => state.user)
+          .filter((user): user is AwarenessUser => Boolean(user));
+        const uniqueUsers = Array.from(new Map(users.map((user) => [user.name, user])).values());
         onAwarenessChange(uniqueUsers);
       }
     };
@@ -137,11 +162,15 @@ export default function CodeEditor({
     handleAwarenessChange();
 
     const type = ydoc.getText('monaco');
+    const model = editor.getModel();
+    if (!model) return;
+
+    // Yjs owns document reconciliation while Monaco stays focused on editor rendering.
     const binding = new MonacoBinding(
       type,
-      editor.getModel(),
+      model,
       new Set([editor]),
-      wsProvider.awareness
+      wsProvider.awareness as ConstructorParameters<typeof MonacoBinding>[3]
     );
 
     return () => {
@@ -153,24 +182,18 @@ export default function CodeEditor({
       indexeddbProvider.destroy();
       ydoc.destroy();
     };
-  }, [editor, workspaceId, fileId]);
+  }, [editor, workspaceId, fileId, currentUser.username, onAwarenessChange, onConnectionStatusChange]);
 
-
-
-
-  const [monacoInstance, setMonacoInstance] = useState<any>(null);
-
-  // ── Gemini Autocomplete ───────────────────────────────────────────────────
   useEffect(() => {
     if (!editor || !monacoInstance || readOnly) return;
 
-    let debounceTimer: any = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let activeAbortController: AbortController | null = null;
+    const emptyCompletions = { items: [] };
 
     const provider = monacoInstance.languages.registerInlineCompletionsProvider('*', {
-      provideInlineCompletions: async (model: any, position: any, _context: any, token: any) => {
-        
-        // 1. Get Truncated Context (saves bandwidth and speeds up TTFB)
+      provideInlineCompletions: async (model, position, _context, token) => {
+        // The API only needs nearby text; bounding context keeps latency and payload size stable.
         const startLine = Math.max(1, position.lineNumber - 500);
         const endLine = Math.min(model.getLineCount(), position.lineNumber + 500);
 
@@ -184,10 +207,9 @@ export default function CodeEditor({
           endLineNumber: endLine, endColumn: model.getLineMaxColumn(endLine),
         });
 
-        // 2. Check Cache First
         const cacheKey = `${language}:${textUntilPosition}|${textAfterPosition}`;
         const cachedCompletion = ghostTextCache.get(cacheKey);
-        
+
         if (cachedCompletion) {
           return {
             items: [{
@@ -200,18 +222,16 @@ export default function CodeEditor({
           };
         }
 
-        // 3. Fallback to API if not cached
         return new Promise((resolve) => {
           if (debounceTimer) clearTimeout(debounceTimer);
 
           debounceTimer = setTimeout(async () => {
-            if (token.isCancellationRequested) return resolve({ items: [] });
+            if (token.isCancellationRequested) return resolve(emptyCompletions);
 
-            // Cancel stale requests
             if (activeAbortController) activeAbortController.abort();
             activeAbortController = new AbortController();
 
-            // Link Monaco's cancellation token to our AbortController
+            // Monaco cancellation and fetch aborts are linked to prevent stale ghost text.
             token.onCancellationRequested(() => activeAbortController?.abort());
 
             try {
@@ -226,15 +246,14 @@ export default function CodeEditor({
                 body: JSON.stringify({ prefix: textUntilPosition, suffix: textAfterPosition, language })
               });
 
-              if (!res.ok) return resolve({ items: [] });
-              
-              const data = await res.json();
-              
+              if (!res.ok) return resolve(emptyCompletions);
+
+              const data = await res.json() as AutocompleteResponse;
+
               if (token.isCancellationRequested || !data.completion) {
-                return resolve({ items: [] });
+                return resolve(emptyCompletions);
               }
 
-              // 4. Save to Cache
               ghostTextCache.set(cacheKey, data.completion);
 
               resolve({
@@ -246,18 +265,18 @@ export default function CodeEditor({
                   )
                 }]
               });
-            } catch (err: any) {
-              if (err.name === 'AbortError') {
-                resolve({ items: [] });
+            } catch (error) {
+              if (error instanceof DOMException && error.name === 'AbortError') {
+                resolve(emptyCompletions);
               } else {
-                console.error('Autocomplete error:', err);
-                resolve({ items: [] });
+                console.error('Autocomplete error:', error);
+                resolve(emptyCompletions);
               }
             }
-          }, 350); // 350ms debounce
+          }, 350);
         });
       },
-      freeInlineCompletions: () => {}
+      disposeInlineCompletions: () => {}
     });
 
     return () => {
@@ -267,10 +286,10 @@ export default function CodeEditor({
     };
   }, [editor, monacoInstance, readOnly, workspaceId, language]);
 
-  const handleEditorDidMount = (editorInstance: any, monaco: any) => {
+  const handleEditorDidMount: OnMount = (editorInstance, monaco) => {
     setEditor(editorInstance);
-    setMonacoInstance(monaco);
-    // Explicitly configure Monaco for maximum built-in intelligence
+    setMonacoInstance(monaco as MonacoInstance);
+
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
       target: monaco.languages.typescript.ScriptTarget.ES2020,
       allowNonTsExtensions: true,
@@ -283,14 +302,12 @@ export default function CodeEditor({
       target: monaco.languages.typescript.ScriptTarget.ES2020,
       allowNonTsExtensions: true,
     });
-    // Enable built-in word completions for other languages
-    editorInstance.updateOptions({ 
+
+    editorInstance.updateOptions({
       wordBasedSuggestions: 'currentDocument',
       inlineSuggest: { enabled: true }
     });
-    if (onEditorReady) {
-      onEditorReady(editorInstance);
-    }
+    onEditorReady?.(editorInstance);
   };
 
   return (
@@ -365,10 +382,10 @@ export default function CodeEditor({
           lineNumbersMinChars: 3,
           scrollBeyondLastLine: false,
           renderLineHighlight: 'none',
-          readOnly: readOnly,
+          readOnly,
         }}
         onMount={handleEditorDidMount}
-        onChange={(value) => onCodeChange && onCodeChange(value || '')}
+        onChange={(value) => onCodeChange?.(value || '')}
       />
     </div>
   );

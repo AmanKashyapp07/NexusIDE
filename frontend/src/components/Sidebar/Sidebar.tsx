@@ -19,21 +19,20 @@ interface SidebarProps {
   readOnly?: boolean;
 }
 
+interface CreateState {
+  type: 'file' | 'directory';
+  parentId: string | null;
+}
+
 export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreate, onFileDelete, onRefresh, readOnly = false }: SidebarProps) {
-  // Consolidated creation state for better control over inline inputs
-  const [createState, setCreateState] = useState<{
-    isCreating: boolean;
-    type: 'file' | 'directory';
-    parentId: string | null;
-  } | null>(null);
-  
+  const [createState, setCreateState] = useState<CreateState | null>(null);
   const [newFileName, setNewFileName] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus the input when creation state activates
   useEffect(() => {
-    if (createState?.isCreating) {
+    if (createState) {
+      // The delay lets React mount the inline input before focus is requested.
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [createState]);
@@ -50,7 +49,6 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
 
     const sortNodes = (nodes: AppFile[]) =>
       [...nodes].sort((left, right) => {
-        // Directories first, then files
         if (left.type !== right.type) {
           return left.type === 'directory' ? -1 : 1;
         }
@@ -73,7 +71,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
 
     let lang: string | null = null;
     if (createState.type === 'file') {
-      lang = 'javascript'; // Default
+      lang = 'javascript';
       const nameLower = newFileName.toLowerCase();
       if (nameLower.endsWith('.py')) lang = 'python';
       else if (nameLower.endsWith('.cpp') || nameLower.endsWith('.cc') || nameLower.endsWith('.cxx')) lang = 'cpp';
@@ -94,10 +92,9 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
   };
 
   const openCreateForm = (type: 'file' | 'directory', parentId: string | null = null) => {
-    setCreateState({ isCreating: true, type, parentId });
+    setCreateState({ type, parentId });
     setNewFileName('');
-    
-    // Auto-expand the target folder so the user can see the input box
+
     if (parentId) {
       setExpandedFolders((prev) => ({ ...prev, [parentId]: true }));
     }
@@ -110,8 +107,6 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
     }));
   };
 
-  // Helper function to render the inline input 
-  // (Defined as a standard function to prevent React from unmounting it on every keystroke)
   const renderInlineInput = (depth: number) => {
     const isFolder = createState?.type === 'directory';
     return (
@@ -133,7 +128,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
             if (e.key === 'Enter') handleCreateSubmit();
             if (e.key === 'Escape') cancelCreate();
           }}
-          onBlur={cancelCreate} // Hides input if user clicks away
+          onBlur={cancelCreate}
           className="h-6 flex-1 rounded-[4px] border border-violet-500/50 bg-black/40 px-1.5 text-[13px] text-zinc-200 outline-none focus:border-violet-400 focus:bg-black/60"
         />
       </div>
@@ -165,7 +160,6 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
                 : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
             }`}
           >
-            {/* Active Indicator Line — Gradient bar */}
             {activeFileId === file.id && (
               <span className="absolute left-0 top-0 h-full w-[2px] nx-active-bar" />
             )}
@@ -179,7 +173,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
                   {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
               ) : (
-                <span className="h-4 w-4" /> // Spacer for file alignment
+                <span className="h-4 w-4" />
               )}
 
               {isFolder ? (
@@ -190,7 +184,6 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
               <span className="truncate text-[13px] tracking-wide">{file.name}</span>
             </div>
 
-            {/* Hover Actions */}
             {!readOnly && (
               <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                 {isFolder && (
@@ -235,10 +228,8 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
             )}
           </div>
 
-          {/* Render nested children OR the inline creation input if targeted */}
           {isFolder && (isExpanded || isCreatingInsideThisFolder) && (
             <div className="relative">
-              {/* Optional VS Code style vertical guide line for deep nesting */}
               {depth > 0 && (
                 <div 
                   className="absolute bottom-0 top-0 border-l border-white/5" 
@@ -246,10 +237,8 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
                 />
               )}
               
-              {/* Render the inline input form AT THE TOP of the folder contents if creating here */}
               {isCreatingInsideThisFolder && renderInlineInput(depth + 1)}
-              
-              {/* Render the rest of the children */}
+
               {hasChildren && <div className="space-y-[1px]">{renderNodes(childNodes, depth + 1)}</div>}
             </div>
           )}
@@ -259,7 +248,6 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
 
   return (
     <div className="flex h-full w-full flex-col border-r border-white/5 bg-transparent">
-      {/* Sidebar Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Explorer</span>
         {!readOnly && (
@@ -291,12 +279,9 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
         )}
       </div>
 
-      {/* File Tree Container */}
       <div className="flex-1 space-y-[1px] overflow-y-auto py-2 outline-none">
-        {/* Render Root Level Creation Input */}
         {createState?.parentId === null && renderInlineInput(0)}
-        
-        {/* Render Root Nodes */}
+
         {renderNodes(fileTree.rootNodes)}
       </div>
     </div>

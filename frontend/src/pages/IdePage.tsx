@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
 import TerminalPanel from '../components/Terminal/TerminalPanel';
@@ -7,59 +7,62 @@ import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import { Zap, Users, Book, LogOut, Loader2, TerminalSquare, RotateCcw, Download } from 'lucide-react';
 import * as Y from 'yjs';
-// @ts-ignore
+// @ts-expect-error y-websocket does not ship complete TypeScript declarations.
 import { WebsocketProvider } from 'y-websocket';
-import { io, Socket } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 
-// =============================================================================
-// MAIN COLLABORATIVE IDE CANVAS (IdePage.tsx)
-// =============================================================================
-//
-// INTERVIEW PREP & CENTRAL ARCHITECTURAL PATTERNS:
-//
-// 1. COLLABORATION CORE ARCHITECTURE (Yjs CRDTs + Socket.IO Presence):
-//    - Real-time multiplayer document synchronization is achieved using Yjs (Conflict-free
-//      Replicated Data Types) paired with `WebsocketProvider` to resolve text edit conflict trees.
-//    - A hybrid connection strategy is used: Yjs over WebSockets handle character sync,
-//      while a separate Socket.IO client handles cursor presence, username listings, and user role updates.
-//
-// 2. CLIENT-SIDE RBAC (Role-Based Access Control) ENFORCEMENT:
-//    - Users are assigned roles ('admin', 'editor', 'viewer').
-//    - The frontend mirrors the backend security rules: if `userRole === 'viewer'`, mutation
-//      inputs, folder creations, and code run triggers (`isExecuting`) are locked to prevent
-//      wasted host cycles.
-//
-// 3. STATE SPLITTING FOR MULTI-FILE CODE RUNS:
-//    - Instead of a single output/metrics state, we maintain `fileOutputs` and `fileMetrics`
-//      mapped dynamically by `fileId`. This isolates execution states so the user can switch
-//      between scripts without losing console data or metrics pills of other documents.
-//
+type UserRole = 'admin' | 'editor' | 'viewer';
+type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
+
+interface User {
+  username: string;
+  id: string;
+}
+
+interface CollaboratorPresence {
+  userId: string;
+  username: string;
+  color: string;
+  activeFileId: string | null;
+}
+
+interface WorkspaceProvider {
+  doc: Y.Doc;
+  on(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
+  destroy(): void;
+}
+
+interface EditorHandle {
+  setValue(value: string): void;
+}
 
 function IdePage() {
-  const [user, setUser] = useState<{ username: string; id: string } | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [workspaceTitle, setWorkspaceTitle] = useState<string>('Loading...');
   const [files, setFiles] = useState<AppFile[]>([]);
-  const [activeFile, setActiveFile] = useState<AppFile | null>(null);
-  const [userRole, setUserRole] = useState<'admin' | 'editor' | 'viewer' | null>(null);
-  const [activeCollaborators, setActiveCollaborators] = useState<any[]>([]);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [activeCollaborators, setActiveCollaborators] = useState<CollaboratorPresence[]>([]);
   const [isCollabModalOpen, setIsCollabModalOpen] = useState(false);
   const [isActiveMembersOpen, setIsActiveMembersOpen] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
-  
-  // Terminal state
-  const [terminalKey, setTerminalKey] = useState(0); // Used to remount terminal
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [terminalKey, setTerminalKey] = useState(0);
 
-  // Fixed widths for UI panels (KISS principle)
   const sidebarWidth = 256;
   const editorWidth = 60;
   const mainSplitRef = useRef<HTMLDivElement>(null);
-
-  const editorRef = useRef<any>(null);
-  const workspaceWsProviderRef = useRef<any>(null);
+  const editorRef = useRef<EditorHandle | null>(null);
+  const workspaceWsProviderRef = useRef<WorkspaceProvider | null>(null);
   const presenceSocketRef = useRef<Socket | null>(null);
   const navigate = useNavigate();
   const { workspaceId: urlWorkspaceId, fileId: urlFileId } = useParams<{ workspaceId: string, fileId: string }>();
+
+  const activeFile = useMemo(() => {
+    const firstFile = files.find((file) => file.type === 'file') || null;
+    if (!urlFileId) return firstFile;
+    return files.find((file) => file.id === urlFileId && file.type === 'file') || firstFile;
+  }, [files, urlFileId]);
+  const activeFileId = activeFile?.id ?? null;
   
   const fetchFiles = async (wsId: string) => {
     try {
@@ -126,7 +129,6 @@ function IdePage() {
     }
   }, [navigate, urlWorkspaceId]);
 
-  // Workspace-level Yjs Sync for File Tree Updates
   useEffect(() => {
     if (!urlWorkspaceId || !user) return;
 
@@ -137,17 +139,15 @@ function IdePage() {
       `workspace-${urlWorkspaceId}`,
       ydoc,
       { params: { token } }
-    );
+    ) as WorkspaceProvider;
     workspaceWsProviderRef.current = wsProvider;
 
     const eventsMap = ydoc.getMap('workspace-events');
     eventsMap.observe(() => {
-      // A file was created or deleted by someone else
       fetchFiles(urlWorkspaceId);
     });
 
-
-    wsProvider.on('status', (event: { status: 'connected' | 'disconnected' | 'connecting' }) => {
+    wsProvider.on('status', (event: { status: ConnectionStatus }) => {
       setConnectionStatus(event.status);
     });
 
@@ -158,7 +158,6 @@ function IdePage() {
     };
   }, [urlWorkspaceId, user]);
 
-  // Socket.IO-based Workspace Presence — instant, no Yjs auth delay
   useEffect(() => {
     if (!urlWorkspaceId || !user) return;
 
@@ -172,7 +171,7 @@ function IdePage() {
       socket.emit('join-workspace', { workspaceId: urlWorkspaceId });
     });
 
-    socket.on('workspace-presence-update', (users: { userId: string; username: string; color: string; activeFileId: string | null }[]) => {
+    socket.on('workspace-presence-update', (users: CollaboratorPresence[]) => {
       setActiveCollaborators(users);
     });
 
@@ -188,34 +187,34 @@ function IdePage() {
   }, [urlWorkspaceId, user]);
 
   useEffect(() => {
-    if (presenceSocketRef.current && activeFile) {
-      presenceSocketRef.current.emit('active-file-change', { activeFileId: activeFile.id });
+    if (presenceSocketRef.current && activeFileId) {
+      presenceSocketRef.current.emit('active-file-change', { activeFileId });
     }
-  }, [activeFile?.id]);
+  }, [activeFileId]);
 
   useEffect(() => {
     if (files.length === 0) return;
 
     if (!urlFileId) {
-      const firstFile = files.find((file) => file.type === 'file');
-      if (firstFile) {
-        navigate(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
+      if (activeFileId) {
+        navigate(`/ide/${urlWorkspaceId}/${activeFileId}`, { replace: true });
       }
       return;
     }
 
-    const fileToSelect = files.find((file) => file.id === urlFileId && file.type === 'file') || files.find((file) => file.type === 'file') || null;
-    if (fileToSelect && activeFile?.id !== fileToSelect.id) {
-      setActiveFile(fileToSelect);
-      if (fileToSelect.id !== urlFileId) {
-        navigate(`/ide/${urlWorkspaceId}/${fileToSelect.id}`, { replace: true });
-      }
+    if (activeFileId && activeFileId !== urlFileId) {
+      navigate(`/ide/${urlWorkspaceId}/${activeFileId}`, { replace: true });
     }
-  }, [urlFileId, files, urlWorkspaceId, navigate, activeFile]);
+  }, [urlFileId, files.length, urlWorkspaceId, navigate, activeFileId]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     navigate('/login');
+  };
+
+  const broadcastFileTreeUpdate = () => {
+    // Yjs acts as a tiny invalidation bus so other clients can refetch canonical file metadata.
+    workspaceWsProviderRef.current?.doc.getMap('workspace-events').set('lastFileUpdate', Date.now());
   };
 
   const handleFileCreate = async (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => {
@@ -236,17 +235,13 @@ function IdePage() {
       if (!res.ok) throw new Error(newFile.error);
 
       setFiles((prev) => [...prev, newFile].sort((a, b) => a.name.localeCompare(b.name)));
-
-      // Notify other clients in the workspace
-      if (workspaceWsProviderRef.current) {
-        workspaceWsProviderRef.current.doc.getMap('workspace-events').set('lastFileUpdate', Date.now());
-      }
+      broadcastFileTreeUpdate();
 
       if (type === 'file') {
         navigate(`/ide/${urlWorkspaceId}/${newFile.id}`);
       }
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create file');
     }
   };
 
@@ -262,14 +257,10 @@ function IdePage() {
 
       setFiles((prev) => prev.filter((f) => f.id !== id));
       if (activeFile?.id === id) {
-        setActiveFile(null);
         editorRef.current?.setValue('');
       }
 
-      // Notify other clients in the workspace
-      if (workspaceWsProviderRef.current) {
-        workspaceWsProviderRef.current.doc.getMap('workspace-events').set('lastFileUpdate', Date.now());
-      }
+      broadcastFileTreeUpdate();
     } catch (err) {
       console.error(err);
     }
@@ -297,9 +288,10 @@ function IdePage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Export Workspace Error]', err);
-      alert(`Failed to export: ${err.message}`);
+      const message = err instanceof Error ? err.message : 'Unknown export error';
+      alert(`Failed to export: ${message}`);
     }
   };
 
@@ -318,7 +310,6 @@ function IdePage() {
     );
   }
 
-  // Helper to generate the full path breadcrumbs for the active file
   const getFileBreadcrumbs = () => {
     if (!activeFile) return [];
 
@@ -343,15 +334,13 @@ function IdePage() {
 
   return (
     <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#07060b] text-zinc-300 selection:bg-violet-400/25">
-      {/* Very subtle ambient orbs for IDE (dimmed) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none nx-orb-dim">
         <div className="nx-orb nx-orb-1" />
         <div className="nx-orb nx-orb-2" />
       </div>
       
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        {/* Added z-50 to header so Voice Chat floats over the code editor perfectly */}
-       <header className="relative z-50 flex items-center justify-between border-b border-violet-500/10 bg-[rgba(13,12,20,0.75)] px-5 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18),0_0_1px_rgba(139,92,246,0.1)] backdrop-blur-2xl sm:px-6">
+        <header className="relative z-50 flex items-center justify-between border-b border-violet-500/10 bg-[rgba(13,12,20,0.75)] px-5 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18),0_0_1px_rgba(139,92,246,0.1)] backdrop-blur-2xl sm:px-6">
           <div className="flex items-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-violet-400/15 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <Zap className="text-violet-300" size={18} />
@@ -373,11 +362,8 @@ function IdePage() {
           </div>
 
           <div className="flex items-center gap-3">
-
-            {/* Voice Chat Component */}
             <VoiceChat workspaceId={workspaceId} user={user} />
 
-            {/* Connection Indicator */}
             <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors mr-2 ${connectionStatus === 'connected'
               ? 'border-emerald-400/15 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/12'
               : connectionStatus === 'disconnected'
@@ -400,11 +386,10 @@ function IdePage() {
               </span>
             </div>
 
-            {/* Upgraded Collaborators Section: Button & Dropdown */}
             {activeCollaborators.length > 0 && (
               <div className="relative mr-2">
                 <button
-                  onClick={() => setIsActiveMembersOpen(!isActiveMembersOpen)}
+                  onClick={() => setIsActiveMembersOpen((isOpen) => !isOpen)}
                   className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
                 >
                   <div className="relative flex h-2 w-2 items-center justify-center">
@@ -420,11 +405,11 @@ function IdePage() {
                       Active Members
                     </div>
                     <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
-                      {activeCollaborators.map((c, i) => (
+                      {activeCollaborators.map((c) => (
                         <button 
-                          key={c.username || i} 
+                          key={c.userId} 
                           onClick={() => {
-                            if (c.activeFileId && c.activeFileId !== activeFile?.id) {
+                            if (c.activeFileId && c.activeFileId !== activeFileId) {
                               navigate(`/ide/${workspaceId}/${c.activeFileId}`);
                               setIsActiveMembersOpen(false);
                             }
@@ -491,11 +476,10 @@ function IdePage() {
 
         <div className="flex min-h-0 flex-1 overflow-hidden p-4 sm:p-5">
           <div className="flex min-h-0 w-full overflow-hidden rounded-[1.75rem] border border-white/[0.08] bg-[rgba(13,12,20,0.6)] shadow-[0_24px_90px_rgba(0,0,0,0.45),0_0_1px_rgba(139,92,246,0.08)] backdrop-blur-2xl">
-            {/* Sidebar Width Wrapper */}
             <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 flex h-full min-w-[160px] max-w-[480px]">
               <Sidebar
                 files={files}
-                activeFileId={activeFile?.id || null}
+                activeFileId={activeFileId}
                 readOnly={userRole === 'viewer'}
                 onRefresh={() => {
                   if (workspaceId) fetchFiles(workspaceId);
@@ -508,7 +492,6 @@ function IdePage() {
               />
             </div>
 
-            {/* Sidebar Divider */}
             <div className="w-[1px] bg-white/[0.06] h-full flex-shrink-0" />
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(13,12,20,0.95),rgba(7,6,11,0.98))]">
@@ -568,7 +551,6 @@ function IdePage() {
                         language={activeFile.language || 'javascript'}
                         currentUser={user}
                         readOnly={userRole === 'viewer'}
-                        files={files}
                         onEditorReady={(editor) => {
                           editorRef.current = editor;
                         }}
@@ -582,14 +564,12 @@ function IdePage() {
                   </div>
                 </section>
 
-                {/* Static Space between Editor and Output panel */}
                 <div className="w-3 flex-shrink-0" />
 
                 <section 
                   style={{ width: `calc(${100 - editorWidth}% - 12px)` }}
                   className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/[0.08] bg-[rgba(7,6,11,0.9)] shadow-[0_16px_50px_rgba(0,0,0,0.3)] flex-shrink-0"
                 >
-                  {/* Tab Switcher (Simplified to just Terminal Controls) */}
                   <div className="flex items-center justify-between border-b border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
                     <div className="flex items-center gap-1">
                        <button
@@ -637,11 +617,11 @@ function IdePage() {
         </div>
       </div>
       
-      {workspaceId && userRole && (
+      {isCollabModalOpen && workspaceId && userRole && (
         <CollaboratorsModal
           workspaceId={workspaceId}
           userRole={userRole}
-          isOpen={isCollabModalOpen}
+          isOpen
           onClose={() => setIsCollabModalOpen(false)}
         />
       )}
