@@ -102,3 +102,5 @@ export default function AuthPage() {
     </div>
   );
 }
+
+// this is just basic authentication page that allows users to log in with their GitHub account. It has a button that redirects the user to the GitHub OAuth flow. Once authenticated, the user will be redirected back to the application with a token.

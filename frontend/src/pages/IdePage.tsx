@@ -5,7 +5,7 @@ import TerminalPanel from '../components/Terminal/TerminalPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
-import { Zap, Users, Book, LogOut, Loader2, TerminalSquare, RotateCcw, Download } from 'lucide-react';
+import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Play, Globe } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-expect-error y-websocket does not ship complete TypeScript declarations.
 import { WebsocketProvider } from 'y-websocket';
@@ -35,6 +35,19 @@ interface WorkspaceProvider {
 interface EditorHandle {
   setValue(value: string): void;
 }
+
+// Helper to give a touch of color to files based on extension in the tab
+const getFileColor = (name: string) => {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text-[#3178c6]';
+  if (lower.endsWith('.js') || lower.endsWith('.jsx')) return 'text-[#f7df1e]';
+  if (lower.endsWith('.py')) return 'text-[#3572A5]';
+  if (lower.endsWith('.html')) return 'text-[#e34c26]';
+  if (lower.endsWith('.css')) return 'text-[#563d7c]';
+  if (lower.endsWith('.json')) return 'text-[#cbd5e1]';
+  if (lower.endsWith('.md')) return 'text-[#3b82f6]';
+  return 'text-zinc-400';
+};
 
 function IdePage() {
   const [user, setUser] = useState<User | null>(null);
@@ -213,7 +226,6 @@ function IdePage() {
   };
 
   const broadcastFileTreeUpdate = () => {
-    // Yjs acts as a tiny invalidation bus so other clients can refetch canonical file metadata.
     workspaceWsProviderRef.current?.doc.getMap('workspace-events').set('lastFileUpdate', Date.now());
   };
 
@@ -266,7 +278,6 @@ function IdePage() {
     }
   };
 
-
   const handleExportWorkspace = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -297,14 +308,10 @@ function IdePage() {
 
   if (!user || !workspaceId) {
     return (
-      <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#07060b] text-zinc-300">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none nx-orb-dim">
-          <div className="nx-orb nx-orb-1" />
-          <div className="nx-orb nx-orb-2" />
-        </div>
-        <div className="relative flex flex-col items-center gap-4 rounded-[1.75rem] nx-glass-strong px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.5)]">
-          <Loader2 className="h-8 w-8 animate-spin text-violet-300" />
-          <p className="text-sm text-zinc-400">Initializing your workspace...</p>
+      <div className="flex h-screen w-full items-center justify-center bg-[#1e1e1e] text-[#cccccc]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-[#007fd4]" />
+          <p className="text-[13px] font-medium tracking-wide">Initializing Workspace...</p>
         </div>
       </div>
     );
@@ -315,8 +322,6 @@ function IdePage() {
 
     const path = [activeFile];
     let currentParentId = activeFile.parent_id;
-
-    // Safety limit to prevent infinite loops in case of corrupted data
     let depth = 0;
     while (currentParentId && depth < 20) {
       const parent = files.find(f => f.id === currentParentId);
@@ -328,293 +333,270 @@ function IdePage() {
         break;
       }
     }
-
     return path;
   };
 
   return (
-    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#07060b] text-zinc-300 selection:bg-violet-400/25">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none nx-orb-dim">
-        <div className="nx-orb nx-orb-1" />
-        <div className="nx-orb nx-orb-2" />
-      </div>
+    <div className="flex h-screen w-full flex-col bg-[#1e1e1e] text-[#cccccc] overflow-hidden selection:bg-[#264f78]">
       
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <header className="relative z-50 flex items-center justify-between border-b border-violet-500/10 bg-[rgba(13,12,20,0.75)] px-5 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18),0_0_1px_rgba(139,92,246,0.1)] backdrop-blur-2xl sm:px-6">
-          <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-violet-400/15 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-              <Zap className="text-violet-300" size={18} />
-            </div>
-            <div className="flex items-center text-sm font-medium">
-              <span className="cursor-pointer text-zinc-400 transition-colors hover:text-zinc-200">{user.username}</span>
-              <span className="mx-2 text-zinc-700">/</span>
-              <span className="cursor-pointer font-semibold text-white transition-colors hover:text-violet-200">{workspaceTitle}</span>
-              {userRole && (
-                <span className={`ml-3 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.22em] ${
-                  userRole === 'admin' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' :
-                  userRole === 'editor' ? 'border-blue-400/20 bg-blue-400/10 text-blue-300' :
-                  'border-orange-400/20 bg-orange-400/10 text-orange-300'
-                }`}>
-                  {userRole}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <VoiceChat workspaceId={workspaceId} user={user} />
-
-            <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors mr-2 ${connectionStatus === 'connected'
-              ? 'border-emerald-400/15 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/12'
-              : connectionStatus === 'disconnected'
-                ? 'border-red-400/15 bg-red-400/10 text-red-200 hover:bg-red-400/12'
-                : 'border-amber-400/15 bg-amber-400/10 text-amber-200 hover:bg-amber-400/12'
-              }`}>
-              <span className="relative flex h-2 w-2">
-                {connectionStatus === 'connected' && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                )}
-                {connectionStatus === 'connecting' && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-70" />
-                )}
-                <span className={`relative inline-flex h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-400' : connectionStatus === 'disconnected' ? 'bg-red-400' : 'bg-amber-400'
-                  }`} />
+      {/* Title Bar */}
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-[#2b2b2b] bg-[#181818] px-4 shadow-sm z-50">
+        
+        {/* Left: Project Info */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-[13px]">
+            <Code2 size={15} className="text-[#007fd4]" />
+            <span className="font-medium text-[#cccccc] cursor-pointer hover:text-white transition-colors">{workspaceTitle}</span>
+            {userRole && (
+              <span className="ml-1 rounded-[3px] bg-[#2a2d2e] px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                {userRole}
               </span>
-              {connectionStatus === 'connected' ? <Users size={14} className="text-emerald-200/80" /> : connectionStatus === 'disconnected' ? <Zap size={14} className="text-red-200/80" /> : <Loader2 size={14} className="animate-spin text-amber-200/80" />}
-              <span>
-                {connectionStatus === 'connected' ? 'Live Sync' : connectionStatus === 'disconnected' ? 'Offline' : 'Connecting...'}
-              </span>
-            </div>
-
-            {activeCollaborators.length > 0 && (
-              <div className="relative mr-2">
-                <button
-                  onClick={() => setIsActiveMembersOpen((isOpen) => !isOpen)}
-                  className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
-                >
-                  <div className="relative flex h-2 w-2 items-center justify-center">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                  </div>
-                  {activeCollaborators.length} Online
-                </button>
-                
-                {isActiveMembersOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-white/10 bg-[#0d0c14] p-2 shadow-2xl z-50">
-                    <div className="mb-2 px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 border-b border-white/5">
-                      Active Members
-                    </div>
-                    <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
-                      {activeCollaborators.map((c) => (
-                        <button 
-                          key={c.userId} 
-                          onClick={() => {
-                            if (c.activeFileId && c.activeFileId !== activeFileId) {
-                              navigate(`/ide/${workspaceId}/${c.activeFileId}`);
-                              setIsActiveMembersOpen(false);
-                            }
-                          }}
-                          className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors ${c.activeFileId ? 'hover:bg-white/10 cursor-pointer' : 'hover:bg-white/5 cursor-default opacity-70'}`}
-                          title={c.activeFileId ? 'Click to jump to their file' : 'Idle'}
-                        >
-                          <div 
-                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white border border-white/10"
-                            style={{ backgroundColor: c.color || '#8b5cf6' }}
-                          >
-                            {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
-                          </div>
-                          <div className="flex flex-col items-start min-w-0">
-                            <span className="text-xs text-zinc-300 truncate w-full text-left">{c.username || 'Unknown'}</span>
-                            {c.activeFileId && (
-                              <span className="text-[9px] text-violet-400/80 truncate w-full text-left">
-                                {files.find(f => f.id === c.activeFileId)?.name || 'Editing file'}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
             )}
-
-            <button
-              onClick={() => setIsCollabModalOpen(true)}
-              className="flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/20"
-            >
-              <Users size={14} />
-              Share
-            </button>
-
-            <button
-              onClick={handleExportWorkspace}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
-              title="Export as ZIP"
-            >
-              <Download size={14} />
-              Export
-            </button>
-
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
-            >
-              Back to Dashboard
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-300"
-            >
-              <LogOut size={14} />
-              Logout
-            </button>
-
-          </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1 overflow-hidden p-4 sm:p-5">
-          <div className="flex min-h-0 w-full overflow-hidden rounded-[1.75rem] border border-white/[0.08] bg-[rgba(13,12,20,0.6)] shadow-[0_24px_90px_rgba(0,0,0,0.45),0_0_1px_rgba(139,92,246,0.08)] backdrop-blur-2xl">
-            <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 flex h-full min-w-[160px] max-w-[480px]">
-              <Sidebar
-                files={files}
-                activeFileId={activeFileId}
-                readOnly={userRole === 'viewer'}
-                onRefresh={() => {
-                  if (workspaceId) fetchFiles(workspaceId);
-                }}
-                onFileSelect={(file) => {
-                  navigate(`/ide/${urlWorkspaceId}/${file.id}`);
-                }}
-                onFileCreate={handleFileCreate}
-                onFileDelete={handleFileDelete}
-              />
-            </div>
-
-            <div className="w-[1px] bg-white/[0.06] h-full flex-shrink-0" />
-
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(13,12,20,0.95),rgba(7,6,11,0.98))]">
-              <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3 sm:px-6">
-                <div className="flex items-center gap-2.5 text-sm">
-                  <Book size={16} className="text-violet-300/80" />
-
-                  {activeFile ? (
-                    <div className="flex items-center">
-                      {getFileBreadcrumbs().map((crumb, index, arr) => {
-                        const isLast = index === arr.length - 1;
-                        return (
-                          <div key={crumb.id} className="flex items-center">
-                            <span
-                              className={`transition-colors ${isLast
-                                  ? 'font-medium text-zinc-100'
-                                  : 'text-zinc-400 hover:text-zinc-300'
-                                }`}
-                            >
-                              {crumb.name}
-                            </span>
-                            {!isLast && (
-                              <span className="mx-2 text-zinc-600 font-light">/</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <span className="font-medium text-zinc-100">No file selected</span>
-                  )}
-                </div>
-
-                {activeFile && (
-                  <div className="flex items-center gap-3 sm:gap-4">
-                    <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
-                      <div className="h-2 w-2 rounded-full bg-zinc-500" />
-                      <span className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-400">{activeFile.language}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <main ref={mainSplitRef} className="flex min-h-0 flex-1 flex-col lg:flex-row gap-0 overflow-hidden p-4 lg:p-5 relative select-none">
-                <section 
-                  style={{ width: `${editorWidth}%` }}
-                  className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/[0.08] bg-[rgba(7,6,11,0.9)] shadow-[0_16px_50px_rgba(0,0,0,0.3)] flex-shrink-0"
-                >
-                  <div className="border-b border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
-                    Editor
-                  </div>
-                  <div className="min-h-0 flex-1 bg-[rgba(7,6,11,0.95)]">
-                    {activeFile ? (
-                      <CodeEditor
-                        workspaceId={workspaceId}
-                        fileId={activeFile.id}
-                        language={activeFile.language || 'javascript'}
-                        currentUser={user}
-                        readOnly={userRole === 'viewer'}
-                        onEditorReady={(editor) => {
-                          editorRef.current = editor;
-                        }}
-                      />
-                    ) : (
-                      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-zinc-500">
-                        <Zap className="h-12 w-12 opacity-20" />
-                        <p>Select or create a file to start coding.</p>
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-                <div className="w-3 flex-shrink-0" />
-
-                <section 
-                  style={{ width: `calc(${100 - editorWidth}% - 12px)` }}
-                  className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/[0.08] bg-[rgba(7,6,11,0.9)] shadow-[0_16px_50px_rgba(0,0,0,0.3)] flex-shrink-0"
-                >
-                  <div className="flex items-center justify-between border-b border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
-                    <div className="flex items-center gap-1">
-                       <button
-                        title={userRole === 'viewer' ? 'Read-only Terminal' : ''}
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] transition-all bg-violet-500/20 text-violet-300 shadow-[inset_0_0_8px_rgba(139,92,246,0.15)] cursor-default"
-                      >
-                        <TerminalSquare size={11} />
-                        Terminal
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => window.open(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${localStorage.getItem('token')}`, '_blank')}
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-colors hover:bg-emerald-500/20"
-                        title="Open Live Web Preview in a new tab"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg>
-                        Live Preview
-                      </button>
-                      {userRole !== 'viewer' && (
-                        <button
-                          onClick={() => {
-                            sessionStorage.setItem('resetTerminal', 'true');
-                            setTerminalKey(prev => prev + 1);
-                          }}
-                          className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
-                          title="Reset Sandbox: Re-hydrates workspace files and starts a fresh container (loses unsaved container state)"
-                        >
-                          <RotateCcw size={10} />
-                          Reset Sandbox
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="min-h-0 flex-1 flex flex-col">
-                    {workspaceId && (
-                      <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} isVisible={true} />
-                    )}
-                  </div>
-                </section>
-              </main>
-            </div>
           </div>
         </div>
+
+        {/* Center: Top Breadcrumbs (Optional, usually clear enough in tabs) */}
+        
+        {/* Right: Actions */}
+        <div className="flex items-center gap-1.5">
+          <VoiceChat workspaceId={workspaceId} user={user} />
+
+          {/* Connection Status */}
+          <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium cursor-default transition-colors mr-1">
+            <span className="relative flex h-2 w-2">
+              {connectionStatus === 'connected' && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              )}
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${
+                connectionStatus === 'connected' ? 'bg-emerald-500' : 
+                connectionStatus === 'disconnected' ? 'bg-red-500' : 'bg-amber-500'
+              }`} />
+            </span>
+            <span className={
+                connectionStatus === 'connected' ? 'text-emerald-500' : 
+                connectionStatus === 'disconnected' ? 'text-red-500' : 'text-amber-500'
+            }>
+              {connectionStatus === 'connected' ? 'Connected' : 
+               connectionStatus === 'disconnected' ? 'Offline' : 'Connecting...'}
+            </span>
+          </div>
+
+          {/* Active Members Dropdown */}
+          {activeCollaborators.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setIsActiveMembersOpen((isOpen) => !isOpen)}
+                className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  isActiveMembersOpen 
+                    ? 'bg-[#2a2d2e] border-[#404040] text-white' 
+                    : 'bg-transparent border-transparent text-zinc-300 hover:bg-[#2a2d2e]'
+                }`}
+              >
+                <Users size={14} />
+                <span>{activeCollaborators.length} Online</span>
+              </button>
+              
+              {isActiveMembersOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-56 rounded-md border border-[#333333] bg-[#1e1e1e] p-1 shadow-xl z-50">
+                  <div className="mb-1 px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 border-b border-[#2b2b2b]">
+                    Active Members
+                  </div>
+                  <div className="max-h-48 overflow-y-auto flex flex-col gap-0.5 ide-scrollbar">
+                    {activeCollaborators.map((c) => (
+                      <button 
+                        key={c.userId} 
+                        onClick={() => {
+                          if (c.activeFileId && c.activeFileId !== activeFileId) {
+                            navigate(`/ide/${workspaceId}/${c.activeFileId}`);
+                            setIsActiveMembersOpen(false);
+                          }
+                        }}
+                        className={`w-full flex items-center gap-2 rounded px-2 py-1.5 transition-colors ${
+                          c.activeFileId ? 'hover:bg-[#2a2d2e] cursor-pointer' : 'opacity-70 cursor-default'
+                        }`}
+                        title={c.activeFileId ? 'Click to jump to their file' : 'Idle'}
+                      >
+                        <div 
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium text-white"
+                          style={{ backgroundColor: c.color || '#8b5cf6' }}
+                        >
+                          {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
+                        </div>
+                        <div className="flex flex-col items-start min-w-0">
+                          <span className="text-[12px] text-zinc-200 truncate w-full text-left leading-tight">{c.username || 'Unknown'}</span>
+                          {c.activeFileId && (
+                            <span className="text-[10px] text-zinc-400 truncate w-full text-left mt-0.5">
+                              {files.find(f => f.id === c.activeFileId)?.name || 'Editing'}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="h-4 w-px bg-[#333333] mx-1" />
+
+          <button
+            onClick={() => setIsCollabModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:bg-[#2a2d2e] hover:text-white"
+          >
+            <Users size={14} />
+            Share
+          </button>
+
+          <button
+            onClick={handleExportWorkspace}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:bg-[#2a2d2e] hover:text-white"
+            title="Export Workspace as ZIP"
+          >
+            <Download size={14} />
+            Export
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-400 ml-1"
+            title="Logout"
+          >
+            <LogOut size={14} />
+          </button>
+
+        </div>
+      </header>
+
+      {/* Main IDE Layout */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        
+        {/* Sidebar */}
+        <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 flex h-full">
+          <Sidebar
+            files={files}
+            activeFileId={activeFileId}
+            readOnly={userRole === 'viewer'}
+            onRefresh={() => {
+              if (workspaceId) fetchFiles(workspaceId);
+            }}
+            onFileSelect={(file) => {
+              navigate(`/ide/${urlWorkspaceId}/${file.id}`);
+            }}
+            onFileCreate={handleFileCreate}
+            onFileDelete={handleFileDelete}
+          />
+        </div>
+
+        {/* Editor & Terminal Area */}
+        <main ref={mainSplitRef} className="flex min-h-0 flex-1 flex-col lg:flex-row overflow-hidden bg-[#1e1e1e]">
+          
+          {/* Editor Container */}
+          <section 
+            style={{ width: `${editorWidth}%` }}
+            className="flex min-h-0 flex-col flex-shrink-0 border-r border-[#2b2b2b]"
+          >
+            {/* Editor Tab Bar */}
+            <div className="flex h-9 items-center bg-[#181818] overflow-x-auto ide-scrollbar select-none">
+              {activeFile ? (
+                <div className="flex h-full items-center gap-2 border-t border-[#007fd4] bg-[#1e1e1e] px-4 pr-6">
+                  <FileText size={14} className={getFileColor(activeFile.name)} />
+                  <span className="text-[13px] text-white">{activeFile.name}</span>
+                </div>
+              ) : (
+                <div className="flex h-full items-center px-4">
+                  <span className="text-[12px] italic text-zinc-500">No file selected</span>
+                </div>
+              )}
+            </div>
+
+            {/* Breadcrumbs Ribbon (below tabs) */}
+            <div className="flex h-6 items-center border-b border-[#2b2b2b] bg-[#1e1e1e] px-4 shadow-sm z-10">
+              {activeFile && (
+                <div className="flex items-center text-[11px] text-zinc-400">
+                  {getFileBreadcrumbs().map((crumb, index, arr) => {
+                    const isLast = index === arr.length - 1;
+                    return (
+                      <div key={crumb.id} className="flex items-center">
+                        <span className={`transition-colors ${isLast ? 'text-[#cccccc]' : 'hover:text-[#cccccc] cursor-pointer'}`}>
+                          {crumb.name}
+                        </span>
+                        {!isLast && <ChevronRight size={12} className="mx-0.5 text-zinc-600" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Monaco Canvas */}
+            <div className="min-h-0 flex-1 relative bg-[#1e1e1e]">
+              {activeFile ? (
+                <CodeEditor
+                  workspaceId={workspaceId}
+                  fileId={activeFile.id}
+                  language={activeFile.language || 'javascript'}
+                  currentUser={user}
+                  readOnly={userRole === 'viewer'}
+                  onEditorReady={(editor) => {
+                    editorRef.current = editor;
+                  }}
+                />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-zinc-600">
+                  <Code2 className="h-16 w-16 opacity-20" />
+                  <p>Select a file from the explorer to start coding.</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Terminal Container */}
+          <section 
+            style={{ width: `calc(${100 - editorWidth}%)` }}
+            className="flex min-h-0 flex-col flex-shrink-0 bg-[#1e1e1e]"
+          >
+            {/* Terminal Tab Bar */}
+            <div className="flex h-9 items-center justify-between border-b border-[#2b2b2b] bg-[#181818] pr-2">
+              <div className="flex h-full items-center gap-2 border-t border-transparent bg-[#1e1e1e] px-4 pr-6">
+                <TerminalSquare size={14} className="text-zinc-400" />
+                <span className="text-[12px] uppercase tracking-wider text-zinc-300">Terminal</span>
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => window.open(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${localStorage.getItem('token')}`, '_blank')}
+                  className="flex items-center gap-1.5 rounded-[3px] px-2 py-1 text-[11px] text-emerald-400 transition-colors hover:bg-[#2a2d2e]"
+                  title="Open Live Web Preview"
+                >
+                  <Globe size={12} />
+                  <span>Preview</span>
+                </button>
+                {userRole !== 'viewer' && (
+                  <button
+                    onClick={() => {
+                      sessionStorage.setItem('resetTerminal', 'true');
+                      setTerminalKey(prev => prev + 1);
+                    }}
+                    className="flex items-center gap-1.5 rounded-[3px] px-2 py-1 text-[11px] text-zinc-400 transition-colors hover:bg-[#2a2d2e] hover:text-white"
+                    title="Restart Container"
+                  >
+                    <RotateCcw size={12} />
+                    <span>Restart</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Terminal Canvas */}
+            <div className="min-h-0 flex-1 relative">
+              {workspaceId && (
+                <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} isVisible={true} />
+              )}
+            </div>
+          </section>
+
+        </main>
       </div>
       
       {isCollabModalOpen && workspaceId && userRole && (
@@ -625,8 +607,6 @@ function IdePage() {
           onClose={() => setIsCollabModalOpen(false)}
         />
       )}
-
-
     </div>
   );
 }

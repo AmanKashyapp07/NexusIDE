@@ -28,3 +28,5 @@ export default function AuthCallback() {
     </div>
   );
 }
+
+// this file just handles the redirect from GitHub after the user has authenticated. It extracts the token from the URL and stores it in localStorage, then navigates to the dashboard. If no token is found, it redirects back to the home page.

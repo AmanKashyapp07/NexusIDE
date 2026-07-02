@@ -7,8 +7,6 @@ import { getPool } from '../db';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { getRunningContainerRef } from '../sandbox/workspaceContainer';
-import axios from 'axios';
-import AdmZip from 'adm-zip';
 import { GoogleGenAI } from '@google/genai';
 
 const router = Router();
@@ -249,61 +247,7 @@ router.get('/:id/execution-history', requireWorkspaceRole('viewer'), async (req:
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// =============================================================================
-// GITHUB INTEGRATION
-// =============================================================================
 
-router.get('/github-repos', async (req: AuthRequest, res: Response) => {
-  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    const token = (await getPool().query('SELECT github_token FROM users WHERE id = $1', [req.user.id])).rows[0]?.github_token;
-    if (!token) return res.status(400).json({ error: 'GitHub not linked.' });
-    
-    const reposRes = await axios.get('https://api.github.com/user/repos', { params: { per_page: 100, sort: 'pushed' }, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'NexusIDE' }});
-    res.json(reposRes.data.map((r: any) => ({ id: r.id, name: r.name, full_name: r.full_name, html_url: r.html_url, description: r.description, private: r.private })));
-  } catch (err: any) { res.status(500).json({ error: 'Failed fetch' }); }
-});
-
-router.post('/import-github', async (req: AuthRequest, res: Response) => {
-  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    const match = req.body.repoUrl?.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-    if (!match) return res.status(400).json({ error: 'Invalid GitHub URL' });
-    
-    const [_, owner, rawRepo] = match;
-    const repo = rawRepo.replace(/\.git$/, '');
-    const token = (await getPool().query('SELECT github_token FROM users WHERE id = $1', [req.user.id])).rows[0]?.github_token;
-    
-    const zipData = await axios.get(`https://api.github.com/repos/${owner}/${repo}/zipball`, { responseType: 'arraybuffer', headers: { 'User-Agent': 'NexusIDE', ...(token && { Authorization: `Bearer ${token}` }) } }).catch(() => null);
-    if (!zipData) return res.status(400).json({ error: 'Failed to fetch repo' });
-
-    const entries = new AdmZip(Buffer.from(zipData.data)).getEntries().sort((a, b) => a.entryName.length - b.entryName.length);
-    if (entries.length > 500) return res.status(400).json({ error: 'Max 500 files allowed.' });
-
-    const wsId = (await getPool().query('INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING id', [req.user.id, `${owner}/${repo}`])).rows[0].id;
-    const pathMap = new Map<string, string>();
-
-    for (const entry of entries) {
-      const parts = entry.entryName.split('/').filter(Boolean);
-      if (parts.length <= 1) continue;
-      
-      const relPath = parts.slice(1);
-      const parentId = relPath.length > 1 ? pathMap.get(relPath.slice(0, -1).join('/')) || null : null;
-      const type = entry.isDirectory ? 'directory' : 'file';
-      const name = relPath[relPath.length - 1] || '';
-      const content = type === 'file' ? entry.getData().toString('utf8') : '';
-      
-      const ext = name.split('.').pop();
-      const lang = ext && ['js','ts'].includes(ext) ? 'javascript' : ext === 'py' ? 'python' : ['c','cpp'].includes(ext || '') ? 'c' : 'text';
-
-      try {
-        const fileRes = await getPool().query('INSERT INTO files (workspace_id, name, type, parent_id, language, content) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id', [wsId, name, type, parentId, type === 'file' ? lang : null, content]);
-        pathMap.set(relPath.join('/'), fileRes.rows[0].id);
-      } catch (e) {}
-    }
-    res.status(201).json({ id: wsId });
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
-});
 
 // =============================================================================
 // AI ASSISTANT & PREVIEW PROXY

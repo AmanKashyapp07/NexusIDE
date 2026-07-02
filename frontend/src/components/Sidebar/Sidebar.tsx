@@ -1,5 +1,16 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight, FileCode, FolderCode, FilePlus, FolderPlus, Trash2, RefreshCw } from 'lucide-react';
+import { 
+  ChevronDown, 
+  ChevronRight, 
+  FileCode, 
+  Folder, 
+  FolderOpen, 
+  FilePlus, 
+  FolderPlus, 
+  Trash2, 
+  RefreshCw,
+  FileText
+} from 'lucide-react';
 
 export interface AppFile {
   id: string;
@@ -24,6 +35,19 @@ interface CreateState {
   parentId: string | null;
 }
 
+// Helper to give a touch of color to files based on extension, matching modern IDEs
+const getFileColor = (name: string) => {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text-[#3178c6]';
+  if (lower.endsWith('.js') || lower.endsWith('.jsx')) return 'text-[#f7df1e]';
+  if (lower.endsWith('.py')) return 'text-[#3572A5]';
+  if (lower.endsWith('.html')) return 'text-[#e34c26]';
+  if (lower.endsWith('.css')) return 'text-[#563d7c]';
+  if (lower.endsWith('.json')) return 'text-[#cbd5e1]';
+  if (lower.endsWith('.md')) return 'text-[#3b82f6]';
+  return 'text-zinc-400';
+};
+
 export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreate, onFileDelete, onRefresh, readOnly = false }: SidebarProps) {
   const [createState, setCreateState] = useState<CreateState | null>(null);
   const [newFileName, setNewFileName] = useState('');
@@ -32,7 +56,6 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
 
   useEffect(() => {
     if (createState) {
-      // The delay lets React mount the inline input before focus is requested.
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [createState]);
@@ -111,13 +134,13 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
     const isFolder = createState?.type === 'directory';
     return (
       <div 
-        className="flex items-center gap-1.5 py-1 pr-2"
-        style={{ paddingLeft: `${depth * 16 + 24}px` }}
+        className="flex items-center gap-1.5 py-0.5 pr-2"
+        style={{ paddingLeft: `${depth * 12 + 24}px` }}
       >
         {isFolder ? (
-          <FolderCode size={15} className="text-violet-400/70" />
+          <Folder size={14} className="text-violet-400" />
         ) : (
-          <FileCode size={15} className="text-zinc-400" />
+          <FileText size={14} className="text-zinc-400" />
         )}
         <input
           ref={inputRef}
@@ -129,7 +152,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
             if (e.key === 'Escape') cancelCreate();
           }}
           onBlur={cancelCreate}
-          className="h-6 flex-1 rounded-[4px] border border-violet-500/50 bg-black/40 px-1.5 text-[13px] text-zinc-200 outline-none focus:border-violet-400 focus:bg-black/60"
+          className="h-6 flex-1 rounded-[3px] border border-[#007fd4] bg-[#252526] px-1.5 text-[13px] text-zinc-200 shadow-sm outline-none font-mono"
         />
       </div>
     );
@@ -142,6 +165,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
       const childNodes = isFolder ? fileTree.childrenFor(file.id) : [];
       const hasChildren = childNodes.length > 0;
       const isCreatingInsideThisFolder = createState?.parentId === file.id;
+      const isActive = activeFileId === file.id;
 
       return (
         <div key={file.id} className="select-none">
@@ -153,35 +177,42 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
                 onFileSelect(file);
               }
             }}
-            style={{ paddingLeft: `${depth * 16 + 4}px` }}
-            className={`group relative flex h-[28px] cursor-pointer items-center justify-between pr-2 transition-all duration-200 ${
-              activeFileId === file.id
-                ? 'bg-violet-500/10 text-violet-200'
-                : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
+            style={{ paddingLeft: `${depth * 12 + 4}px` }}
+            className={`group relative flex h-[26px] cursor-pointer items-center justify-between pr-2 transition-none ${
+              isActive
+                ? 'bg-[#37373d] text-white'
+                : 'text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white'
             }`}
           >
-            {activeFileId === file.id && (
-              <span className="absolute left-0 top-0 h-full w-[2px] nx-active-bar" />
+            {isActive && (
+              <span className="absolute left-0 top-0 h-full w-[2px] bg-[#007fd4]" />
             )}
 
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 pl-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
               {isFolder ? (
                 <button
                   type="button"
-                  className="flex h-4 w-4 items-center justify-center text-zinc-500 transition-colors hover:text-zinc-300"
+                  className="flex h-4 w-4 items-center justify-center text-zinc-400 transition-colors hover:text-zinc-200"
                 >
-                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  <ChevronRight 
+                    size={14} 
+                    className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} 
+                  />
                 </button>
               ) : (
                 <span className="h-4 w-4" />
               )}
 
               {isFolder ? (
-                <FolderCode size={15} className={isExpanded ? 'text-violet-400/80' : 'text-zinc-500 group-hover:text-violet-400/60'} />
+                isExpanded ? (
+                  <FolderOpen size={14} className="text-violet-400 shrink-0" />
+                ) : (
+                  <Folder size={14} className="text-violet-400 shrink-0" />
+                )
               ) : (
-                <FileCode size={15} className={activeFileId === file.id ? 'text-violet-300' : 'text-zinc-500 group-hover:text-zinc-400'} />
+                <FileText size={14} className={`${getFileColor(file.name)} shrink-0`} />
               )}
-              <span className="truncate text-[13px] tracking-wide">{file.name}</span>
+              <span className="truncate text-[13px] ml-0.5 tracking-wide">{file.name}</span>
             </div>
 
             {!readOnly && (
@@ -194,7 +225,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
                         event.stopPropagation();
                         openCreateForm('file', file.id);
                       }}
-                      className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                      className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
                       title="New File"
                     >
                       <FilePlus size={13} />
@@ -205,7 +236,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
                         event.stopPropagation();
                         openCreateForm('directory', file.id);
                       }}
-                      className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                      className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
                       title="New Folder"
                     >
                       <FolderPlus size={13} />
@@ -219,7 +250,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
                     event.stopPropagation();
                     onFileDelete(file.id);
                   }}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-red-500/20 hover:text-red-400"
+                  className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-red-500/20 hover:text-red-400"
                   title={isFolder ? 'Delete Folder' : 'Delete File'}
                 >
                   <Trash2 size={13} />
@@ -230,12 +261,11 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
 
           {isFolder && (isExpanded || isCreatingInsideThisFolder) && (
             <div className="relative">
-              {depth > 0 && (
-                <div 
-                  className="absolute bottom-0 top-0 border-l border-white/5" 
-                  style={{ left: `${depth * 16 + 11}px` }} 
-                />
-              )}
+              {/* Hierarchy guide line */}
+              <div 
+                className="absolute bottom-0 top-0 border-l border-white/10" 
+                style={{ left: `${depth * 12 + 15}px` }} 
+              />
               
               {isCreatingInsideThisFolder && renderInlineInput(depth + 1)}
 
@@ -247,31 +277,54 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
     });
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-white/5 bg-transparent">
-      <div className="flex items-center justify-between px-4 py-3">
-        <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Explorer</span>
+    <div className="flex h-full w-full flex-col border-r border-[#2b2b2b] bg-[#181818] text-[#cccccc]">
+      <style>
+        {`
+          .ide-scrollbar::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+          }
+          .ide-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .ide-scrollbar::-webkit-scrollbar-thumb {
+            background: transparent;
+            border: 3px solid #181818;
+            border-radius: 6px;
+          }
+          .ide-scrollbar:hover::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+          }
+          .ide-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+          }
+        `}
+      </style>
+      
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Explorer</span>
         {!readOnly && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {onRefresh && (
               <button
                 onClick={onRefresh}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300 mr-1"
-                title="Refresh File Explorer"
+                className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+                title="Refresh Explorer"
               >
                 <RefreshCw size={13} />
               </button>
             )}
             <button
               onClick={() => openCreateForm('file')}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
-              title="New File at Root"
+              className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+              title="New File"
             >
               <FilePlus size={14} />
             </button>
             <button
               onClick={() => openCreateForm('directory')}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-violet-300"
-              title="New Folder at Root"
+              className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+              title="New Folder"
             >
               <FolderPlus size={14} />
             </button>
@@ -279,9 +332,8 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
         )}
       </div>
 
-      <div className="flex-1 space-y-[1px] overflow-y-auto py-2 outline-none">
+      <div className="ide-scrollbar flex-1 overflow-y-auto py-1 outline-none">
         {createState?.parentId === null && renderInlineInput(0)}
-
         {renderNodes(fileTree.rootNodes)}
       </div>
     </div>

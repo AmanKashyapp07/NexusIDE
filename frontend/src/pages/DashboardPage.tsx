@@ -11,13 +11,7 @@ interface Workspace {
   user_role?: string;
 }
 
-interface GitHubRepo {
-  id: number;
-  name: string;
-  full_name: string;
-  html_url: string;
-  private: boolean;
-}
+
 
 export default function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -28,12 +22,6 @@ export default function DashboardPage() {
   const [joinId, setJoinId] = useState('');
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
-  const [importUrl, setImportUrl] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
-  const [importError, setImportError] = useState('');
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
-  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
-  const [reposError, setReposError] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -63,22 +51,10 @@ export default function DashboardPage() {
         });
         const wsData = await wsRes.json();
         setWorkspaces(wsData);
-
-        setIsLoadingRepos(true);
-        const reposRes = await fetch('http://localhost:4000/api/workspace/github-repos', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (reposRes.ok) {
-          const reposData = await reposRes.json();
-          setRepos(reposData);
-        } else {
-          setReposError('Could not load repos from GitHub.');
-        }
       } catch (err) {
         console.error(err);
       } finally {
         setIsLoading(false);
-        setIsLoadingRepos(false);
       }
     };
     init();
@@ -114,35 +90,7 @@ export default function DashboardPage() {
     }
   };
 
-  const handleImport = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!importUrl.trim()) return;
 
-    setIsImporting(true);
-    setImportError('');
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:4000/api/workspace/import-github', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ repoUrl: importUrl })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        navigate(`/ide/${data.id}`);
-      } else {
-        setImportError(data.error || 'Failed to import repository');
-      }
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Server error during import');
-      console.error(err);
-    } finally {
-      setIsImporting(false);
-    }
-  };
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -370,62 +318,6 @@ export default function DashboardPage() {
               </form>
             </div>
 
-            <div className="rounded-[1.5rem] nx-glass-strong p-6 shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
-              <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400 mb-4 flex items-center gap-2">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="css-i6dzq1"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-                Import GitHub
-              </h3>
-              <form onSubmit={handleImport} className="space-y-4">
-                {importError && (
-                  <div className="text-xs text-red-400 bg-red-400/10 p-2 rounded-lg border border-red-400/20">
-                    {importError}
-                  </div>
-                )}
-                {isLoadingRepos ? (
-                  <div className="flex items-center gap-2 text-xs text-zinc-500 py-2">
-                    <Loader2 size={14} className="animate-spin text-violet-400" />
-                    Loading your repositories...
-                  </div>
-                ) : reposError ? (
-                  <div className="text-xs text-amber-400/80 bg-amber-400/5 p-2 rounded-lg border border-amber-400/10 mb-2">
-                    {reposError} Enter custom URL below.
-                  </div>
-                ) : repos.length > 0 ? (
-                  <select
-                    value={importUrl}
-                    onChange={(e) => setImportUrl(e.target.value)}
-                    className="nx-input-glow block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-300 shadow-inner outline-none transition duration-200 hover:border-white/20"
-                  >
-                    <option value="">Select a repository...</option>
-                    {repos.map(repo => (
-                      <option key={repo.id} value={repo.html_url}>
-                        {repo.full_name} {repo.private ? '🔒' : '🌐'}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="text-xs text-zinc-500 py-1">No repositories found. Enter custom URL below.</div>
-                )}
-                
-                <div className="mt-2 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Or enter custom URL</div>
-                <input
-                  type="url"
-                  required={!importUrl}
-                  value={importUrl}
-                  onChange={(e) => setImportUrl(e.target.value)}
-                  placeholder="https://github.com/user/repo"
-                  className="nx-input-glow mt-1 block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-zinc-600 shadow-inner outline-none transition duration-200 hover:border-white/20"
-                />
-                <button
-                  type="submit"
-                  disabled={isImporting}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-500/30 bg-[#24292e] hover:bg-[#2f363d] px-4 py-2.5 text-sm font-semibold text-white transition duration-200 shadow-lg disabled:opacity-50"
-                >
-                  {isImporting ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
-                  Import Repository
-                </button>
-              </form>
-            </div>
 
             <div className="rounded-[1.5rem] nx-glass-strong p-6 shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
               <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400 mb-4">Join Existing</h3>
@@ -453,3 +345,6 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+
+// this file is responsible for rendering the dashboard page of the application. It fetches the user's workspaces and GitHub repositories, allowing them to create new workspaces, import from GitHub, or join existing workspaces. The page also handles user authentication and logout functionality. It's basic CRUD operations for workspaces, including creating, joining, editing, and deleting workspaces. The UI is designed with a modern glassmorphism aesthetic and includes responsive design elements for better user experience across devices. Here, there is no collaboration feature, just basic workspace management. The dashboard is the main hub for users to manage their coding environments and projects. Users can join their team's workspaces or create new ones, making it a central point for project management and collaboration.

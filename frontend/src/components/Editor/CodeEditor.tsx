@@ -69,7 +69,6 @@ const getUserColor = (username: string) => {
   return COLORS[Math.abs(hash) % COLORS.length];
 };
 
-
 class AutocompleteCache {
   private capacity: number;
   private cache: Map<string, string>;
@@ -311,7 +310,7 @@ export default function CodeEditor({
   };
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full bg-[#1e1e1e]">
       <style>
         {awarenessStates
           .map(([clientId, state]) => {
@@ -342,22 +341,23 @@ export default function CodeEditor({
             .yRemoteSelectionHead-${clientId}::after {
               position: absolute;
               content: "${name}";
-              top: -24px;
+              top: -22px;
               left: -2px;
               background-color: ${color} !important;
               color: #ffffff;
               font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
               font-size: 11px;
-              font-weight: 600;
+              font-weight: 500;
+              letter-spacing: 0.02em;
               line-height: 1;
-              padding: 4px 6px;
+              padding: 4px 8px;
               border-radius: 4px 4px 4px 0px;
               white-space: nowrap;
               pointer-events: none;
               opacity: 0;
-              transform: translateY(4px);
-              transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+              transform: translateY(2px);
+              transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
               z-index: 20;
             }
             .yRemoteSelectionHead-${clientId}:hover::after {
@@ -372,16 +372,37 @@ export default function CodeEditor({
         height="100%"
         language={language}
         theme="vs-dark"
-        loading={<div className="h-full w-full bg-transparent" />}
+        loading={
+          <div className="flex h-full w-full items-center justify-center bg-[#1e1e1e]">
+            <div className="flex flex-col items-center gap-4">
+              <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#3b82f6] border-t-transparent" />
+              <span className="text-sm font-medium tracking-wide text-gray-400 font-mono">Loading Editor...</span>
+            </div>
+          </div>
+        }
         options={{
           minimap: { enabled: false },
-          fontSize: 13,
-          fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+          fontSize: 14,
+          fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+          fontLigatures: true,
           wordWrap: 'on',
-          padding: { top: 12 },
+          padding: { top: 16, bottom: 16 },
           lineNumbersMinChars: 3,
           scrollBeyondLastLine: false,
-          renderLineHighlight: 'none',
+          renderLineHighlight: 'all',
+          cursorBlinking: 'smooth',
+          cursorSmoothCaretAnimation: 'on',
+          smoothScrolling: true,
+          bracketPairColorization: { enabled: true },
+          guides: {
+            bracketPairs: true,
+            indentation: true,
+          },
+          scrollbar: {
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10,
+            useShadows: false,
+          },
           readOnly,
         }}
         onMount={handleEditorDidMount}

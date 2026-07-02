@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { Mic, MicOff, PhoneOff } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, Users } from 'lucide-react';
 
 interface VoiceUser {
   username: string;
@@ -198,10 +198,10 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
     return (
       <button 
         onClick={connectToVoice}
-        className="group flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-all duration-300 hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.15)]"
+        className="group flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-[#2a2d2e] hover:text-white"
       >
-        <Mic size={14} className="transition-transform duration-300 group-hover:scale-110" />
-        Join Voice
+        <Mic size={14} className="text-zinc-500 transition-colors group-hover:text-zinc-300" />
+        <span>Join Voice</span>
       </button>
     );
   }
@@ -209,93 +209,131 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
   return (
     <div className="relative">
       
-      <div 
+      {/* Active State Button */}
+      <button 
         onClick={() => setIsVoiceMenuOpen(!isVoiceMenuOpen)}
-        className="flex cursor-pointer items-center gap-2 rounded-full border border-emerald-500/30 bg-[linear-gradient(135deg,rgba(16,185,129,0.15),rgba(5,150,105,0.05))] px-3 py-1.5 text-xs font-medium text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all duration-300 hover:border-emerald-500/50 hover:bg-emerald-500/20"
+        className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          isVoiceMenuOpen 
+            ? 'bg-[#2a2d2e] border-[#404040] text-white' 
+            : 'bg-[#252526] border-[#333333] text-emerald-400 hover:bg-[#2a2d2e] hover:border-[#404040]'
+        }`}
       >
-        <span className="relative flex h-2.5 w-2.5 mr-1">
+        <span className="relative flex h-2 w-2 mr-0.5">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
         </span>
-        Voice Active ({peers.length + 1})
-      </div>
+        Voice Connected
+      </button>
 
-      <div className={`absolute right-0 top-full mt-3 w-64 rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.6),0_4px_20px_rgba(0,0,0,0.4)] ring-1 ring-black/50 transition-all duration-300 z-50 ${
-        isVoiceMenuOpen 
-          ? 'opacity-100 translate-y-0 pointer-events-auto' 
-          : 'opacity-0 translate-y-2 pointer-events-none'
-      }`}>
-        <div className="h-[2px] w-full bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-500" />
-        
-        <div className="bg-[rgba(13,12,20,0.95)] backdrop-blur-2xl border border-white/[0.08] border-t-0 rounded-b-2xl">
-          <div className="border-b border-white/5 bg-white/[0.03] p-3 flex justify-between items-center">
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Voice Channel</span>
-            <div className="flex gap-1.5">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleMute();
-                }}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-200 ${
-                  isMuted 
-                    ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 shadow-[inset_0_0_0_1px_rgba(239,68,68,0.2)]' 
-                    : 'bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]'
-                }`}
-                title={isMuted ? "Unmute" : "Mute"}
-              >
-                {isMuted ? <MicOff size={14} /> : <Mic size={14} />}
-              </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  disconnectVoice();
-                  setIsVoiceMenuOpen(false);
-                }}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/10 text-red-400 shadow-[inset_0_0_0_1px_rgba(239,68,68,0.2)] transition-all duration-200 hover:bg-red-500 hover:text-white hover:shadow-none"
-                title="Disconnect"
-              >
-                <PhoneOff size={14} />
-              </button>
-            </div>
+      {/* Popover Menu */}
+      <div 
+        className={`absolute right-0 top-full mt-2 w-64 origin-top-right rounded-md border border-[#333333] bg-[#1e1e1e] p-1 shadow-xl transition-all duration-150 z-50 ${
+          isVoiceMenuOpen 
+            ? 'opacity-100 scale-100 pointer-events-auto' 
+            : 'opacity-0 scale-95 pointer-events-none'
+        }`}
+      >
+        {/* Header Actions */}
+        <div className="flex items-center justify-between border-b border-[#2b2b2b] px-2 pb-2 pt-1 mb-1">
+          <div className="flex items-center gap-1.5 text-zinc-400">
+            <Users size={12} />
+            <span className="text-[10px] font-semibold uppercase tracking-wider">Channel ({peers.length + 1})</span>
           </div>
           
-          <div className="p-2 space-y-0.5 max-h-56 overflow-y-auto">
-            <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl bg-white/5 border border-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-              <div 
-                className={`relative flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white shadow-sm transition-all ${
-                  isMuted ? 'opacity-40 grayscale' : 'ring-2 ring-white/20'
-                }`}
-                style={{ backgroundColor: getUserColor(user.username) }}
-              >
-                {user.username.substring(0, 2).toUpperCase()}
-              </div>
-              <span className="flex-1 truncate text-[13px] font-medium text-zinc-200">{user.username} <span className="text-zinc-500 font-normal">(You)</span></span>
-              {isMuted && <MicOff size={14} className="text-red-400/80" />}
-            </div>
-
-            {peers.map(p => (
-              <div key={p.socketId} className="flex items-center gap-2.5 px-2 py-2 rounded-xl transition-colors hover:bg-white/5">
-                <div 
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white shadow-sm border border-white/5"
-                  style={{ backgroundColor: p.user?.username ? getUserColor(p.user.username) : '#3f3f46' }}
-                >
-                  {p.user?.username ? p.user.username.substring(0, 2).toUpperCase() : '??'}
-                </div>
-                <span className="flex-1 truncate text-[13px] font-medium text-zinc-300">{p.user?.username || 'Anonymous'}</span>
-              </div>
-            ))}
-            
-            {peers.length === 0 && (
-               <div className="py-6 flex flex-col items-center justify-center gap-2 text-center">
-                 <div className="h-8 w-8 rounded-full bg-white/5 flex items-center justify-center shadow-inner">
-                   <Mic size={14} className="text-zinc-500" />
-                 </div>
-                 <span className="text-xs text-zinc-500">You're the only one here.</span>
-               </div>
-            )}
+          <div className="flex gap-1">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleMute();
+              }}
+              className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
+                isMuted 
+                  ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20' 
+                  : 'text-zinc-400 hover:bg-[#2a2d2e] hover:text-white'
+              }`}
+              title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
+            >
+              {isMuted ? <MicOff size={13} /> : <Mic size={13} />}
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                disconnectVoice();
+                setIsVoiceMenuOpen(false);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-red-500 hover:text-white"
+              title="Disconnect"
+            >
+              <PhoneOff size={13} />
+            </button>
           </div>
         </div>
+        
+        {/* User List */}
+        <div className="p-1 max-h-60 overflow-y-auto ide-scrollbar space-y-0.5">
+          {/* Local User */}
+          <div className="flex items-center gap-2.5 rounded px-2 py-1.5 bg-[#252526] border border-[#2b2b2b]">
+            <div 
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium text-white transition-opacity ${
+                isMuted ? 'opacity-40 grayscale' : ''
+              }`}
+              style={{ backgroundColor: getUserColor(user.username) }}
+            >
+              {user.username.substring(0, 2).toUpperCase()}
+            </div>
+            <div className="flex flex-1 items-center justify-between min-w-0">
+              <span className="truncate text-[13px] text-white">
+                {user.username} <span className="text-zinc-500">(You)</span>
+              </span>
+              {isMuted && <MicOff size={12} className="text-red-400 shrink-0 ml-2" />}
+            </div>
+          </div>
+
+          {/* Remote Peers */}
+          {peers.map(p => (
+            <div key={p.socketId} className="flex items-center gap-2.5 rounded px-2 py-1.5 transition-colors hover:bg-[#2a2d2e]">
+              <div 
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium text-white"
+                style={{ backgroundColor: p.user?.username ? getUserColor(p.user.username) : '#3f3f46' }}
+              >
+                {p.user?.username ? p.user.username.substring(0, 2).toUpperCase() : '??'}
+              </div>
+              <span className="truncate text-[13px] text-zinc-300">
+                {p.user?.username || 'Anonymous'}
+              </span>
+            </div>
+          ))}
+          
+          {/* Empty State */}
+          {peers.length === 0 && (
+             <div className="py-4 flex flex-col items-center justify-center gap-1.5 text-center px-2">
+               <div className="h-7 w-7 rounded-full bg-[#252526] flex items-center justify-center border border-[#2b2b2b]">
+                 <Users size={12} className="text-zinc-500" />
+               </div>
+               <span className="text-[11px] text-zinc-500">Waiting for others to join...</span>
+             </div>
+          )}
+        </div>
       </div>
+
+      {/* Reusable thin scrollbar style specifically for the popover (if not defined globally) */}
+      <style>
+        {`
+          .ide-scrollbar::-webkit-scrollbar {
+            width: 6px;
+          }
+          .ide-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .ide-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+          }
+          .ide-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+          }
+        `}
+      </style>
     </div>
   );
 }
