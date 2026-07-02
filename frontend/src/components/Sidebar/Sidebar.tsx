@@ -1,8 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { 
-  ChevronDown, 
   ChevronRight, 
-  FileCode, 
   Folder, 
   FolderOpen, 
   FilePlus, 

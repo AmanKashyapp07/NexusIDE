@@ -75,9 +75,9 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
   
   await new Promise<void>((resolve, reject) => {
     pack.pipe(stream);
-    pack.on('end', resolve);
-    pack.on('error', reject);
+    stream.on('end', resolve);
     stream.on('error', reject);
+    pack.on('error', reject);
   });
 
   // [SYSTEM SETUP] Bootstrap Environment
@@ -86,7 +86,8 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
   //    The user gets control of the terminal instantly while heavy dependencies install invisibly.
   try {
     const setupExec = await container.exec({ Cmd: ['sh', '-c', 'cp /app/.run.sh /usr/local/bin/run && chmod +x /usr/local/bin/run && rm -f /app/.run.sh'] });
-    await setupExec.start({ hijack: true, stdin: false });
+    const setupStream = await setupExec.start({ hijack: true, stdin: false });
+    await new Promise<void>((res) => { setupStream.on('end', res); setupStream.on('error', res); });
 
     const installExec = await container.exec({ Cmd: ['sh', '-c', 'cd /app && if [ -f package.json ] && [ ! -d node_modules ]; then npm install; fi'] });
     installExec.start({ Detach: true, hijack: false }).catch(() => {});

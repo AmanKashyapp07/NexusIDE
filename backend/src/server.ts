@@ -18,6 +18,7 @@ import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 import workspaceRoutes from './routes/workspace';
 import authRoutes from './routes/auth';
 import { requireAuth } from './middleware/auth';
+import { setIO } from './socket';
 import { getPool } from './db';
 import { warmPoolManager } from './sandbox/pool';
 import { handleTerminalConnection, syncFileToTerminal } from './terminal/terminalHandler';
@@ -166,11 +167,8 @@ wss.on('connection', async (ws, req) => {
 // INTERVIEW KEY: Why use Socket.IO here but raw WebSockets above?
 // Socket.IO provides built-in "Rooms" and pub/sub semantics, perfect for chat/presence.
 // The raw WebSockets above are required because Yjs and XTerm.js strictly expect standard binary WS streams.
-let ioInstance: SocketIOServer | null = null;
-export const getIO = () => ioInstance;
-
 const io = new SocketIOServer(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
-ioInstance = io;
+setIO(io);
 
 io.use((socket, next) => {
   try {

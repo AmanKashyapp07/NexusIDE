@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import Docker from 'dockerode';
 import { Writable } from 'stream';
 import * as Y from 'yjs';
-import { getIO } from '../server';
+import { getIO } from '../socket';
 // @ts-ignore
 import { docs } from 'y-websocket/bin/utils';
 import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer } from '../sandbox/workspaceContainer';
@@ -265,8 +265,13 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
         }
       }
 
-      if (changed) getIO()?.to(`presence-${workspaceId}`).emit('file-tree-update');
-    } catch {}
+      if (changed) {
+        console.log(`[Watcher] File tree changed in workspace ${workspaceId}, emitting file-tree-update to presence-${workspaceId}`);
+        getIO()?.to(`presence-${workspaceId}`).emit('file-tree-update');
+      }
+    } catch (err: any) {
+      console.error('[Watcher] Scan error:', err.message);
+    }
     
     if (ws.readyState === WebSocket.OPEN) watcherTimeout.current = setTimeout(runScan, 1500);
   };
