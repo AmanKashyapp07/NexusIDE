@@ -3,12 +3,14 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { 
-  TerminalSquare, 
-  WifiOff, 
-  Loader2, 
-  Terminal as TerminalIcon, 
-  Trash2, 
-  RefreshCw 
+  Plus,
+  SplitSquareHorizontal,
+  Trash2,
+  ChevronUp,
+  X,
+  RefreshCw,
+  AlertTriangle,
+  Info
 } from 'lucide-react';
 
 interface TerminalPanelProps {
@@ -27,21 +29,18 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
   const [error, setError] = useState<string | null>(null);
   const [reconnectCounter, setReconnectCounter] = useState(0);
 
-  // Trigger a manual reconnect by updating the counter dependency
   const handleReconnect = useCallback(() => {
     setConnectionStatus('connecting');
     setError(null);
     setReconnectCounter(prev => prev + 1);
   }, []);
 
-  // Clear the terminal output
   const handleClear = useCallback(() => {
     if (xtermRef.current) {
       xtermRef.current.clear();
     }
   }, []);
 
-  // Trigger a fit when visibility changes to true (switched from another tab)
   useEffect(() => {
     if (isVisible && fitAddonRef.current) {
       const timer = setTimeout(() => {
@@ -61,37 +60,37 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
 
     const terminal = new XTerm({
       cursorBlink: true,
-      fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace",
       rows: 30,
       cols: 80,
       theme: {
-        background: '#0a0915',       // Deep matte obsidian
-        foreground: '#a9b1d6',      // Tokyo Night storm fg
-        cursor: '#f7768e',          // Soft hot pink
+        background: '#1a1b26',       // Tokyo Night Background
+        foreground: '#a9b1d6',       // Tokyo Night Foreground
+        cursor: '#f7768e',           // Tokyo Night Pink Cursor
         cursorAccent: '#1a1b26',
-        selectionBackground: 'rgba(122, 162, 247, 0.25)', // Translucent light blue
-        black: '#1a1b26',
-        red: '#f7768e',
+        selectionBackground: 'rgba(187, 154, 247, 0.3)', // Soft purple selection
+        black: '#32344a',
+        red: '#f7768e',              // Pinkish Red
         green: '#9ece6a',
         yellow: '#e0af68',
         blue: '#7aa2f7',
-        magenta: '#bb9af7',
+        magenta: '#bb9af7',          // Soft Purple
         cyan: '#7dcfff',
         white: '#a9b1d6',
-        brightBlack: '#414868',
-        brightRed: '#ff757f',
-        brightGreen: '#73daca',
+        brightBlack: '#444b6a',
+        brightRed: '#ff7a93',
+        brightGreen: '#b9f27c',
         brightYellow: '#ff9e64',
-        brightBlue: '#b4f9f8',
+        brightBlue: '#7da6ff',
         brightMagenta: '#bb9af7',
         brightCyan: '#0db9d7',
         brightWhite: '#c0caf5',
       },
-      scrollback: 10000,            // Doubled scrollback capacity
+      scrollback: 10000,
       convertEol: true,
-      lineHeight: 1.25,             // Breathing room between lines
-      letterSpacing: 0.5,           // Slightly spaced monospace chars
+      lineHeight: 1.3,
+      letterSpacing: 0.5,
     });
 
     terminal.loadAddon(fitAddon);
@@ -148,7 +147,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
       } else if (event.code === 4500) {
         setError('Docker is unavailable on the host system. Please ensure Docker Desktop is running.');
       } else if (event.code === 1000) {
-        terminal.write('\r\n\x1b[38;2;168;85;247m[Terminal session ended cleanly]\x1b[0m\r\n');
+        terminal.write('\r\n\x1b[38;2;187;154;247m[Terminal session ended cleanly]\x1b[0m\r\n');
       } else {
         setError('Connection closed unexpectedly');
       }
@@ -174,85 +173,97 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
       fitAddonRef.current = null;
       wsRef.current = null;
     };
-  }, [workspaceId, reconnectCounter]); // Re-run effect on manual reconnect
+  }, [workspaceId, reconnectCounter]); 
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#08070d] text-zinc-300 ring-1 ring-white/5">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#1a1b26] text-[#a9b1d6] font-sans border-t border-[#292e42]">
       
-      {/* Terminal Toolbar */}
-      <div className="flex shrink-0 items-center justify-between border-b border-white/10 bg-[#0c0a14] px-4 py-2">
-        <div className="flex items-center gap-3">
-          <TerminalIcon size={16} className="text-violet-400" />
-          <span className="font-mono text-xs font-semibold tracking-wider text-zinc-300">
-            BASH {userRole === 'viewer' && <span className="text-violet-400/80 font-sans text-[10px] tracking-normal font-medium ml-1.5 uppercase">(Restricted)</span>}
-          </span>
-          
-          {/* Status Dot */}
-          <div className="flex items-center gap-1.5 ml-2 rounded-full bg-black/40 px-2 py-0.5 border border-white/5">
-            <span className={`h-2 w-2 rounded-full ${
-              connectionStatus === 'connected' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' :
-              connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 
-              'bg-red-500'
-            }`} />
-            <span className="text-[10px] uppercase tracking-widest text-zinc-400">
-              {connectionStatus}
-            </span>
+      {/* Panel Header */}
+      <div className="flex h-9 shrink-0 items-center justify-between px-4 select-none bg-[#1a1b26]">
+        {/* Tabs */}
+        <div className="flex h-full items-center gap-6 text-[11px] font-medium tracking-wide">
+          <div className="flex h-full items-center text-[#565f89] hover:text-[#a9b1d6] cursor-pointer transition-colors">PROBLEMS</div>
+          <div className="flex h-full items-center text-[#565f89] hover:text-[#a9b1d6] cursor-pointer transition-colors">OUTPUT</div>
+          <div className="flex h-full items-center text-[#565f89] hover:text-[#a9b1d6] cursor-pointer transition-colors">DEBUG CONSOLE</div>
+          <div className="flex h-full items-center text-[#f7768e] border-b-[1.5px] border-[#f7768e] cursor-default">
+            TERMINAL
           </div>
         </div>
 
-        {/* Toolbar Actions */}
-        <div className="flex items-center gap-1">
+        {/* Right Toolbar Actions */}
+        <div className="flex items-center gap-1 text-[#a9b1d6]">
+          {userRole === 'viewer' && (
+            <span className="flex items-center gap-1.5 mr-3 text-[11px] text-[#e0af68]" title="Read-only mode">
+              <Info size={14} />
+              Read-only
+            </span>
+          )}
+          
+          <button className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-[#292e42] transition-colors" title="New Terminal">
+            <Plus size={14} />
+          </button>
+          <button className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-[#292e42] transition-colors" title="Split Terminal">
+            <SplitSquareHorizontal size={14} />
+          </button>
           <button 
             onClick={handleClear}
-            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
+            className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-[#292e42] transition-colors" 
             title="Clear Terminal"
           >
-            <Trash2 size={16} />
+            <Trash2 size={14} />
+          </button>
+          
+          <div className="w-[1px] h-4 bg-[#292e42] mx-1" />
+          
+          <button className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-[#292e42] transition-colors">
+            <ChevronUp size={16} />
+          </button>
+          <button className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-[#292e42] transition-colors">
+            <X size={16} />
           </button>
         </div>
       </div>
 
-      {/* Connection Status Overlay */}
-      {connectionStatus !== 'connected' && (
-        <div className="absolute inset-x-0 bottom-0 top-10 z-10 flex flex-col items-center justify-center gap-4 bg-[#08070d]/80 backdrop-blur-sm transition-all duration-300">
-          {connectionStatus === 'connecting' && (
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 size={32} className="animate-spin text-violet-500" />
-              <span className="font-sans text-sm font-medium tracking-wide text-violet-200/80">
-                Initializing container...
-              </span>
-            </div>
-          )}
-          {connectionStatus === 'disconnected' && (
-            <div className="flex flex-col items-center gap-4 p-6 rounded-xl border border-white/5 bg-black/40 shadow-2xl">
-              <div className="rounded-full bg-red-500/10 p-3">
-                {error ? <WifiOff size={28} className="text-red-400" /> : <TerminalSquare size={28} className="text-zinc-500" />}
+      {/* Terminal View area */}
+      <div className="flex-1 relative">
+        {/* Modal Overlay for Connection Issues */}
+        {connectionStatus !== 'connected' && (
+          <div className="absolute inset-0 z-10 flex items-start justify-center pt-10 bg-[#1a1b26]/60 backdrop-blur-sm">
+            {connectionStatus === 'connecting' ? (
+              <div className="flex items-center gap-3 px-4 py-2.5 text-[13px] bg-[#1f2335] text-[#a9b1d6] border border-[#292e42] shadow-lg shadow-black/20 rounded-md">
+                <RefreshCw size={14} className="animate-spin text-[#bb9af7]" />
+                Starting terminal session...
               </div>
-              <div className="text-center space-y-1">
-                <h3 className="font-sans text-base font-semibold text-zinc-200">
-                  {error ? 'Connection Failed' : 'Session Terminated'}
-                </h3>
-                <p className="font-sans text-sm text-zinc-400 max-w-xs">
-                  {error || 'Your terminal session has safely concluded.'}
-                </p>
+            ) : (
+              <div className="flex flex-col min-w-[300px] bg-[#1f2335] text-[#a9b1d6] border border-[#292e42] shadow-xl shadow-black/20 rounded-md overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#292e42] bg-[#1a1b26]">
+                  <AlertTriangle size={14} className="text-[#f7768e]" />
+                  <span className="text-[12px] font-medium uppercase tracking-wide text-[#a9b1d6]">
+                    {error ? 'Process Exited with Error' : 'Process Exited'}
+                  </span>
+                </div>
+                <div className="px-4 py-5 text-[13px] text-[#9aa5ce]">
+                  <p>{error || 'The terminal process has terminated.'}</p>
+                </div>
+                <div className="flex justify-end gap-2 px-4 py-3 bg-[#1a1b26] border-t border-[#292e42]">
+                  <button 
+                    onClick={handleReconnect}
+                    className="px-3 py-1.5 text-[12px] font-medium text-[#1a1b26] bg-[#7aa2f7] hover:bg-[#8db4ff] transition-colors focus:outline-none focus:ring-2 focus:ring-[#bb9af7] rounded"
+                  >
+                    Relaunch Terminal
+                  </button>
+                </div>
               </div>
-              <button 
-                onClick={handleReconnect}
-                className="mt-2 flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-violet-500 active:scale-95"
-              >
-                <RefreshCw size={14} />
-                Reconnect Now
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
 
-      {/* Terminal Container - added custom scrollbar styling class */}
-      <div 
-        ref={terminalRef} 
-        className="flex-1 overflow-hidden p-3 pb-0 [&_.xterm-viewport::-webkit-scrollbar]:w-1.5 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar-thumb]:rounded-full [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-violet-500/20 [&_.xterm-viewport:hover::-webkit-scrollbar-thumb]:bg-violet-500/40 [&_.xterm-viewport::-webkit-scrollbar-thumb:hover]:bg-violet-500/60 [&_.xterm-viewport]:scrollbar-thin [&_.xterm-viewport]:scrollbar-track-transparent [&_.xterm-viewport]:scrollbar-thumb-violet-500/20 [&_.xterm-viewport:hover]:scrollbar-thumb-violet-500/40" 
-      />
+        {/* Terminal Container */}
+        <div 
+          ref={terminalRef} 
+          className="absolute inset-0 p-3 pt-2 [&_.xterm-viewport::-webkit-scrollbar]:w-3 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-[#292e42] [&_.xterm-viewport:hover::-webkit-scrollbar-thumb]:bg-[#3b4261] [&_.xterm-viewport::-webkit-scrollbar-thumb:hover]:bg-[#565f89] [&_.xterm-viewport]:scrollbar-thin [&_.xterm-viewport]:scrollbar-track-transparent" 
+        />
+      </div>
     </div>
   );
 }
