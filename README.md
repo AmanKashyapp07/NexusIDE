@@ -252,9 +252,9 @@ Follow these steps to set up your local development environment.
 - [x] Gemini-powered AI inline code completions with client-side caching & FIM prompts
 - [x] Terminal file structure reactive syncing with manual refresh UI override
 - [x] Global terminal run utility with multi-language detection
-- [ ] Terminal-based Git integration (Plan B)
-- [ ] Workspace collaborator invite UI
-- [ ] Sandbox pre-warm pool expansion
+- [x] Terminal-based Git integration (Plan B)
+- [x] Workspace collaborator invite UI
+- [x] Sandbox pre-warm pool optimization (Static pool selected for efficiency)
 
 ---
 

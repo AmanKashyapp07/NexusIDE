@@ -751,3 +751,4 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 export { app, server };
+// Restart trigger to populate warm container pools with Alpine 3.20 + dynamic oxide build.

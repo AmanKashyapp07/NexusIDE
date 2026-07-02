@@ -7,6 +7,7 @@ export interface WorkspaceContainerRef {
   container: Docker.Container;
   id: string;
   refCount: number;
+  hostPort?: number | undefined;
 }
 
 // Map key: `${userId}-${workspaceId}`
@@ -14,11 +15,11 @@ const activeWorkspaceContainers = new Map<string, WorkspaceContainerRef>();
 
 export async function getOrCreateWorkspaceContainer(userId: string, workspaceId: string): Promise<Docker.Container> {
   const key = `${userId}-${workspaceId}`;
-  let ref = activeWorkspaceContainers.get(key);
-  if (ref) {
-    ref.refCount++;
-    console.log(`[WorkspaceContainer] Reusing container for session ${key}. refCount=${ref.refCount}`);
-    return ref.container;
+  const existingRef = activeWorkspaceContainers.get(key);
+  if (existingRef) {
+    existingRef.refCount++;
+    console.log(`[WorkspaceContainer] Reusing container for session ${key}. refCount=${existingRef.refCount}`);
+    return existingRef.container;
   }
 
   console.log(`[WorkspaceContainer] Creating new container for session ${key}...`);
@@ -49,34 +50,42 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
   // The Docker daemon's archive API writes directly to the overlayfs layers on the host,
   // which bypasses the container's tmpfs namespace, causing silent failures.
   const pack = tar.pack();
+
   for (const file of workspaceFiles) {
-    if (file.type === 'directory') {
-      pack.entry({ name: file.path, type: 'directory' });
-    } else {
+    if (file.type === 'file') {
       pack.entry({ name: file.path }, file.content || '');
+    } else {
+      pack.entry({ name: file.path, type: 'directory' });
     }
   }
 
-  // Inject user-requested 'run' command helper for py, js, and cpp files
-  const runScriptContent = `#!/bin/bash
+  const runScriptContent = `#!/bin/sh
 if [ -z "$1" ]; then
   echo "Usage: run <filename>"
   exit 1
 fi
 
-filename="$1"
-ext="\${filename##*.}"
+file="$1"
+ext="\${file##*.}"
 
 case "$ext" in
   py)
-    python3 "$filename"
+    python3 "$file"
     ;;
   js)
-    node "$filename"
+    node "$file"
+    ;;
+  c)
+    gcc "$file" -o /tmp/a.out && /tmp/a.out
     ;;
   cpp)
-    out_name="\${filename%.*}"
-    g++ "$filename" -o "$out_name" && ./"$out_name"
+    g++ "$file" -o /tmp/a.out && /tmp/a.out
+    ;;
+  java)
+    javac "$file" -d /tmp && java -cp /tmp "\${file%.*}"
+    ;;
+  sh)
+    sh "$file"
     ;;
   *)
     echo "Unsupported file extension: .$ext"
@@ -112,12 +121,13 @@ esac
     console.error('[WorkspaceContainer] Failed to set up run utility:', err.message);
   }
 
-  ref = {
+  const newRef: WorkspaceContainerRef = {
     container,
     id: container.id,
-    refCount: 1
+    refCount: 1,
+    hostPort: warm.hostPort
   };
-  activeWorkspaceContainers.set(key, ref);
+  activeWorkspaceContainers.set(key, newRef);
   return container;
 }
 
@@ -145,4 +155,9 @@ export function getRunningContainer(userId: string, workspaceId: string): Docker
   const key = `${userId}-${workspaceId}`;
   const ref = activeWorkspaceContainers.get(key);
   return ref ? ref.container : null;
+}
+
+export function getRunningContainerRef(userId: string, workspaceId: string): WorkspaceContainerRef | null {
+  const key = `${userId}-${workspaceId}`;
+  return activeWorkspaceContainers.get(key) || null;
 }

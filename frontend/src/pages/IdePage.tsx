@@ -600,19 +600,29 @@ function IdePage() {
                         Terminal
                       </button>
                     </div>
-                    {userRole !== 'viewer' && (
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => {
-                          sessionStorage.setItem('resetTerminal', 'true');
-                          setTerminalKey(prev => prev + 1);
-                        }}
-                        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
-                        title="Reset Sandbox: Re-hydrates workspace files and starts a fresh container (loses unsaved container state)"
+                        onClick={() => window.open(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${localStorage.getItem('token')}`, '_blank')}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-colors hover:bg-emerald-500/20"
+                        title="Open Live Web Preview in a new tab"
                       >
-                        <RotateCcw size={10} />
-                        Reset Sandbox
+                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg>
+                        Live Preview
                       </button>
-                    )}
+                      {userRole !== 'viewer' && (
+                        <button
+                          onClick={() => {
+                            sessionStorage.setItem('resetTerminal', 'true');
+                            setTerminalKey(prev => prev + 1);
+                          }}
+                          className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
+                          title="Reset Sandbox: Re-hydrates workspace files and starts a fresh container (loses unsaved container state)"
+                        >
+                          <RotateCcw size={10} />
+                          Reset Sandbox
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="min-h-0 flex-1 flex flex-col">

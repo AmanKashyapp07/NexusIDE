@@ -5,6 +5,8 @@ import { ZipArchive } from 'archiver';
 import { executeCode } from '../sandbox/docker';
 import { getPool } from '../db';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import { getRunningContainerRef } from '../sandbox/workspaceContainer';
 
 const router = Router();
 
@@ -1001,5 +1003,67 @@ CRITICAL RULES:
     res.status(500).json({ error: 'Failed to generate completion' });
   }
 });
+// =============================================================================
+// LIVE WEB PREVIEW PROXY
+// =============================================================================
+// Reverse proxy requests to the mapped hostPort of the running sandbox container.
+const previewProxy = createProxyMiddleware({
+  target: 'http://localhost', // Fallback, will be overridden by router
+  changeOrigin: true,
+  ws: false, // Disabled to prevent hijacking global upgrade events
+  router: (req: any) => {
+    const match = req.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/);
+    const workspaceId = match ? match[1] : null;
+    const userId = req.user?.id;
+    if (userId && workspaceId) {
+      const ref = getRunningContainerRef(userId, workspaceId);
+      if (ref && ref.hostPort) {
+        return `http://localhost:${ref.hostPort}`;
+      }
+    }
+    // If not found, return undefined to trigger proxy error
+    return 'http://localhost:1'; 
+  },
+  pathRewrite: (path, req: any) => {
+    const match = req.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/);
+    const workspaceId = match ? match[1] : null;
+    if (workspaceId) {
+      return path.replace(new RegExp(`^/api/workspace/${workspaceId}/preview`), '');
+    }
+    return path;
+  },
+  on: {
+    error: (err: any, req: any, res: any) => {
+      console.error('[WebPreview] Proxy Error:', err.message);
+      if (res && !res.headersSent && typeof res.writeHead === 'function') {
+        res.writeHead(502, { 'Content-Type': 'text/plain' });
+        res.end('Web server inside sandbox is not running or crashed. Please run `node index.js` (or similar) first.');
+      }
+    }
+  }
+});
+
+router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
+  let url = new URL(req.originalUrl, `http://${req.headers.host}`);
+  let shouldRedirect = false;
+
+  if (req.query.token) {
+    res.cookie('preview_token', req.query.token, { path: '/', httpOnly: true, sameSite: 'lax' });
+    url.searchParams.delete('token');
+    shouldRedirect = true;
+  }
+
+  // Enforce trailing slash on the base path so relative links (like ./dist/output.css) resolve correctly
+  if (url.pathname === `/api/workspace/${req.params.id}/preview`) {
+    url.pathname = url.pathname + '/';
+    shouldRedirect = true;
+  }
+
+  if (shouldRedirect) {
+    return res.redirect(url.pathname + url.search);
+  }
+
+  next();
+}, previewProxy);
 
 export default router;

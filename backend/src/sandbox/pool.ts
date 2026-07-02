@@ -87,6 +87,20 @@ export const docker = new Docker({ socketPath: finalSocketPath });
 export interface WarmContainer {
   container: Docker.Container;  // Dockerode container handle (wraps container ID)
   id: string;                   // Docker container ID (64-char hex SHA-256 prefix)
+  hostPort?: number;            // Bound host port for web previews (Terminal containers only)
+}
+
+import * as net from 'net';
+
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, () => {
+      const port = (srv.address() as net.AddressInfo).port;
+      srv.close(() => resolve(port));
+    });
+    srv.on('error', reject);
+  });
 }
 
 // =============================================================================
@@ -230,7 +244,7 @@ class WarmPoolManager {
       console.log('[WarmPool] Terminal developer sandbox image is already built and ready.');
     } catch (err) {
       console.log('[WarmPool] sandbox-dev-env:latest does not exist, building image now...');
-      const dockerfileContent = `FROM alpine:3.18
+      const dockerfileContent = `FROM alpine:3.20
 RUN apk add --no-cache \
     nodejs \
     npm \
@@ -243,6 +257,11 @@ RUN apk add --no-cache \
     git \
     curl \
     bash \
+    tree \
+    jq \
+    zip \
+    unzip \
+    sqlite \
     py3-numpy \
     py3-pandas \
     py3-requests \
@@ -250,7 +269,13 @@ RUN apk add --no-cache \
     py3-scikit-learn \
     py3-matplotlib \
     py3-beautifulsoup4
-RUN npm install -g typescript typescript-language-server pyright lodash axios express moment uuid chalk
+RUN npm install -g typescript typescript-language-server pyright lodash axios express moment uuid chalk tailwindcss @tailwindcss/cli ts-node nodemon dotenv cors
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+      npm install -g @tailwindcss/oxide-linux-x64-musl; \
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+      npm install -g @tailwindcss/oxide-linux-arm64-musl; \
+    fi
 ENV NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules
 RUN mkdir -p /viewer_bin && \
     ln -s /bin/busybox /viewer_bin/ls && \
@@ -574,10 +599,18 @@ WORKDIR /app
       }
     }
 
+    const hostPort = await getFreePort();
+
     const container = await docker.createContainer({
       Image: TERMINAL_IMAGE,
       Cmd: ['sh', '-c', 'sleep infinity'],
+      ExposedPorts: {
+        '3000/tcp': {}
+      },
       HostConfig: {
+        PortBindings: {
+          '3000/tcp': [{ HostPort: String(hostPort) }]
+        },
         Memory: 300 * 1024 * 1024,      // 300 MB RAM for LSP servers
         MemorySwap: 300 * 1024 * 1024,  // Disabled swap
         NanoCpus: 1_000_000_000,        // 1.0 CPU Core
@@ -606,7 +639,8 @@ WORKDIR /app
     await container.start();
     return {
       container,
-      id: container.id
+      id: container.id,
+      hostPort
     };
   }
 

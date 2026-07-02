@@ -9,9 +9,23 @@ export interface AuthRequest extends Request {
     username: string;
   };
 }
-
 export const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  let token = req.headers.authorization?.split(' ')[1];
+
+  if (!token && req.query.token) {
+    token = req.query.token as string;
+  }
+
+  if (!token && req.headers.cookie) {
+    const cookies: Record<string, string> = {};
+    req.headers.cookie.split(';').forEach(cookie => {
+      const parts = cookie.trim().split('=');
+      if (parts[0]) {
+        cookies[parts[0]] = parts[1] || '';
+      }
+    });
+    token = cookies['preview_token'];
+  }
 
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });
