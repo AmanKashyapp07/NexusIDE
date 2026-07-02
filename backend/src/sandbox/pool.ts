@@ -581,8 +581,7 @@ WORKDIR /app
         Memory: 300 * 1024 * 1024,      // 300 MB RAM for LSP servers
         MemorySwap: 300 * 1024 * 1024,  // Disabled swap
         NanoCpus: 1_000_000_000,        // 1.0 CPU Core
-        PidsLimit: 100,                 // Up PidsLimit for multi-threaded LSP servers
-        NetworkMode: 'none',
+        PidsLimit: 300,                 // Up PidsLimit for multi-threaded LSP servers and git operations
         ReadonlyRootfs: false,           // Terminal containers need writable fs for PTY allocation
         Tmpfs: {
           '/app': 'rw,exec,size=10m',

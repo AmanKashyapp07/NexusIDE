@@ -87,12 +87,25 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
       return;
     }
 
+    let githubToken = '';
+    let githubUsername = '';
+    let githubEmail = '';
+
+    if (userRole === 'admin') {
+      const userRes = await getPool().query('SELECT github_token, username, email FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length > 0) {
+        githubToken = userRes.rows[0].github_token || '';
+        githubUsername = userRes.rows[0].username || '';
+        githubEmail = userRes.rows[0].email || '';
+      }
+    }
+
     // --- Get container (creates + hydrates workspace files) ---
     container = await getOrCreateWorkspaceContainer(userId, workspaceId);
 
     // --- Spawn bash shell ---
     const isViewer = userRole === 'viewer';
-    const shellCmd = isViewer ? ['/bin/bash', '--restricted'] : ['/bin/bash'];
+    let shellCmd = isViewer ? ['/bin/bash', '--restricted'] : ['/bin/bash'];
 
     // PS1 uses bash prompt escapes. In TS, each \\ becomes one \ at runtime.
     // Bash interprets: \u=username, \w=workdir, \$=$ or #
@@ -103,9 +116,63 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
       'PS1=' + ps1,
       'TERM=xterm-256color',   // Tells programs the terminal supports 256 colors
       'LANG=C.UTF-8',         // UTF-8 support
+      'HOME=/tmp',            // Fix for read-only rootfs: redirect ~ to tmpfs
     ];
     if (isViewer) {
       envVars.push('PATH=/viewer_bin');
+    }
+
+    if (userRole === 'admin' && githubToken) {
+      envVars.push(
+        `GITHUB_TOKEN=${githubToken}`,
+        `GIT_AUTHOR_NAME=${githubUsername}`,
+        `GIT_AUTHOR_EMAIL=${githubEmail}`,
+        `GIT_COMMITTER_NAME=${githubUsername}`,
+        `GIT_COMMITTER_EMAIL=${githubEmail}`,
+        `GIT_ASKPASS=/tmp/git-askpass`,
+      );
+
+      // Write two tiny helper scripts to /tmp using base64 to avoid all shell-escaping issues.
+      // 1) /tmp/git-askpass — prints the token for HTTPS auth (used by GIT_ASKPASS env)
+      // 2) /tmp/git — wrapper that allows clone, commit, push, add, status, log, and diff
+      const askpass = [
+        '#!/bin/sh',
+        'case "$1" in',
+        '  *Username*|*username*) echo "git" ;;',
+        '  *) echo "$GITHUB_TOKEN" ;;',
+        'esac',
+      ].join('\n');
+      const wrapper = [
+        '#!/bin/sh',
+        'case "$1" in',
+        '  clone) ',
+        '    /usr/bin/git "$@" ;;',
+        '  commit|push|add|status|log|diff)',
+        '    if [ ! -d .git ]; then echo "Error: Not a git repository."; exit 1; fi',
+        '    /usr/bin/git "$@" ;;',
+        '  *) ',
+        '    echo "Only git clone, commit, push, add, status, log, and diff are allowed." ; exit 1 ;;',
+        'esac',
+      ].join('\n');
+
+      const askpassB64 = Buffer.from(askpass).toString('base64');
+      const wrapperB64 = Buffer.from(wrapper).toString('base64');
+
+      try {
+        const setupExec = await container.exec({
+          Cmd: ['sh', '-c',
+            `echo "${askpassB64}" | base64 -d > /tmp/git-askpass && chmod +x /tmp/git-askpass && ` +
+            `echo "${wrapperB64}" | base64 -d > /tmp/git && chmod +x /tmp/git`
+          ],
+        });
+        await setupExec.start({ hijack: true, stdin: false });
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Prepend /tmp to PATH so our "git" wrapper shadows /usr/bin/git
+        envVars.push('PATH=/tmp:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
+      } catch (err: any) {
+        console.error('[Terminal] Git wrapper setup failed (non-fatal):', err.message);
+      }
     }
 
     const exec = await container.exec({
@@ -178,7 +245,13 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
   } catch (err: any) {
     console.error('[Terminal] Setup error:', err.message || err);
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-      ws.close(1011, 'Internal server error');
+      const errMsg = (err.message || '').toLowerCase();
+      const isDockerError = errMsg.includes('docker') || errMsg.includes('connect') || errMsg.includes('enoent') || errMsg.includes('econnrefused');
+      if (isDockerError) {
+        ws.close(4500, 'Docker daemon is not running on the host system.');
+      } else {
+        ws.close(1011, 'Internal server error');
+      }
     }
   }
 }

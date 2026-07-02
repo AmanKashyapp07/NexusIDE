@@ -135,6 +135,8 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
         setError('Access denied: Insufficient permission');
       } else if (event.code === 4404) {
         setError('Workspace not found');
+      } else if (event.code === 4500) {
+        setError('Docker is unavailable on the host system. Please ensure Docker Desktop is running.');
       } else if (event.code === 1000) {
         terminal.write('\r\n\x1b[38;2;168;85;247m[Terminal session ended cleanly]\x1b[0m\r\n');
       } else {

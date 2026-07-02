@@ -8,7 +8,7 @@ const router = Router();
 // Redirect to GitHub OAuth
 router.get('/github', (req, res) => {
   const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
-  const redirectUri = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=user:email`;
+  const redirectUri = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=user:email,repo`;
   res.redirect(redirectUri);
 });
 
