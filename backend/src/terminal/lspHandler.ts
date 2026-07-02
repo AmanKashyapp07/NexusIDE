@@ -4,216 +4,118 @@ import jwt from 'jsonwebtoken';
 import { getPool } from '../db';
 import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer } from '../sandbox/workspaceContainer';
 
-// NOTE: Do NOT read JWT_SECRET at module level — ESM static imports are hoisted
-// and evaluated before dotenv.config() runs in server.ts. Read it lazily inside
-// the handler so process.env is fully populated at call time.
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
-type TerminalRole = 'viewer' | 'editor' | 'admin';
-
+// =============================================================================
+// [I/O MULTIPLEXING] Language Server Protocol (LSP) WebSocket Handler
+// =============================================================================
+// INTERVIEW KEY: This bridges standard JSON-RPC messages between the browser's Monaco Editor 
+// and a language server (Pyright/TSServer) running inside an isolated Docker container.
 export async function handleLspConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
-  let containerReleased = false;
-  let execStream: any = null;
-  let userId = '';
-  let workspaceId = '';
-  let execStreamReady = false;
+  let containerReleased = false, execStream: any = null, execStreamReady = false;
+  let userId = '', workspaceId = '';
   const messageQueue: Buffer[] = [];
 
-  // Set up idle timeout timer
-  let idleTimeout = setTimeout(() => {
-    console.log(`[LSP] Session idle for 15m. Closing socket.`);
-    ws.close(1000, 'LSP Session Idle Timeout');
-  }, IDLE_TIMEOUT_MS);
+  // [RESOURCE LIFECYCLE] Idle Timeout
+  // Language servers are heavy (often 100MB+ RAM). We strictly terminate idle sessions 
+  // after 15 minutes to allow `releaseWorkspaceContainer` to scale down the Docker pool.
+  let idleTimeout = setTimeout(() => ws.close(1000, 'Idle Timeout'), IDLE_TIMEOUT_MS);
+  const resetIdleTimeout = () => { clearTimeout(idleTimeout); idleTimeout = setTimeout(() => ws.close(1000, 'Idle'), IDLE_TIMEOUT_MS); };
 
-  const resetIdleTimeout = () => {
-    clearTimeout(idleTimeout);
-    idleTimeout = setTimeout(() => {
-      console.log(`[LSP] Session idle for 15m. Closing socket.`);
-      ws.close(1000, 'LSP Session Idle Timeout');
-    }, IDLE_TIMEOUT_MS);
-  };
-
-  // Immediately register message listener to avoid race conditions and lost messages
-  // while container setup and exec startup are running asynchronously.
-  ws.on('message', (messageData: any) => {
+  // [CONCURRENCY] Early Message Buffering
+  // INTERVIEW KEY: The WebSocket handshakes instantly, but Docker `exec.start()` takes ~100ms. 
+  // If the client sends the LSP "initialize" packet immediately, it drops. 
+  // We synchronously queue incoming packets in memory and flush them once the bash stream connects.
+  ws.on('message', (msg: any) => {
     resetIdleTimeout();
-    const data = Buffer.isBuffer(messageData) ? messageData : Buffer.from(messageData);
-    if (execStreamReady && execStream && !execStream.destroyed && execStream.writable) {
-      execStream.write(data);
-    } else {
-      messageQueue.push(data);
-    }
+    const data = Buffer.isBuffer(msg) ? msg : Buffer.from(msg);
+    (execStreamReady && execStream && !execStream.destroyed && execStream.writable) 
+      ? execStream.write(data) 
+      : messageQueue.push(data);
   });
 
   const cleanup = async () => {
     if (containerReleased) return;
     containerReleased = true;
-
-    console.log(`[LSP] Tearing down connection for user ${userId} in workspace ${workspaceId}`);
-    if (execStream) {
-      try {
-        execStream.end();
-        execStream.destroy?.();
-      } catch (err) {
-        // ignore
-      }
-    }
-    if (userId && workspaceId) {
-      await releaseWorkspaceContainer(userId, workspaceId);
-    }
+    if (execStream) { try { execStream.end(); execStream.destroy?.(); } catch {} }
+    if (userId && workspaceId) await releaseWorkspaceContainer(userId, workspaceId).catch(() => {});
   };
 
   try {
-    // 1. Parse URL parameters
-    const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
-    
-    // Path shape: /ws/lsp/:workspaceId/:language
-    if (pathParts.length < 4 || pathParts[0] !== 'ws' || pathParts[1] !== 'lsp') {
-      ws.close(4000, 'Bad Request: Expected /ws/lsp/<workspaceId>/<language>');
-      return;
-    }
+    const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+    const [_, __, wsId, lang] = url.pathname.split('/').filter(Boolean);
+    workspaceId = wsId || '';
+    const token = url.searchParams.get('token');
 
-    workspaceId = pathParts[2] as string;
-    const language = pathParts[3] as string;
-    const token = parsedUrl.searchParams.get('token');
+    if (!workspaceId || !lang || !token) return ws.close(4000, 'Bad Request');
 
-    if (!token) {
-      ws.close(4401, 'Unauthorized: Token required');
-      return;
-    }
-
-    // 2. Verify Token
-    // Read JWT_SECRET lazily here (not at module level) so dotenv.config() in
-    // server.ts has already populated process.env before this line runs.
-    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+    // [SECURITY] Lazy Environment Evaluation
+    // `JWT_SECRET` is read lazily here. If read at the module scope, ESM static imports hoist it 
+    // before `server.ts` calls `dotenv.config()`, resulting in undefined secrets and broken auth.
     let decodedUser: any;
-    try {
-      decodedUser = jwt.verify(token, JWT_SECRET);
-    } catch (e: any) {
-      console.error('[LSP] JWT verify failed:', (e as Error).message, '| secret prefix:', JWT_SECRET.slice(0, 4));
-      ws.close(4401, 'Unauthorized: Invalid token');
-      return;
+    try { decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback'); } 
+    catch { return ws.close(4401, 'Invalid token'); }
+    
+    userId = String(decodedUser?.id || '');
+    if (!userId) return ws.close(4401, 'Invalid payload');
+
+    const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
+    if (!wsResult.rows.length) return ws.close(4404, 'Not found');
+    
+    let userRole = wsResult.rows[0].owner_id === userId ? 'admin' : null;
+    if (!userRole) {
+      const collabRes = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, userId]);
+      userRole = collabRes.rows.length ? collabRes.rows[0].role : (wsResult.rows[0].is_public ? 'viewer' : null);
     }
 
-    userId = typeof decodedUser.id === 'string' ? decodedUser.id : String(decodedUser.id || '');
-    if (!userId) {
-      ws.close(4401, 'Unauthorized: Invalid token payload');
-      return;
-    }
+    // [SECURITY] RBAC Resource Protection
+    // Only Editors/Admins can spawn Language Servers. Viewers are blocked to prevent 
+    // read-only visitors from consuming heavy CPU/RAM resources on the host server.
+    if (!userRole || userRole === 'viewer') return ws.close(4403, 'Editor required for LSP');
 
-    // 3. Verify access permissions
-    const wsResult = await getPool().query(
-      'SELECT owner_id, is_public FROM workspaces WHERE id = $1',
-      [workspaceId]
-    );
+    const cmd = lang === 'python' ? ['pyright-langserver', '--stdio'] 
+              : ['javascript', 'typescript'].includes(lang) ? ['typescript-language-server', '--stdio'] : null;
+    if (!cmd) return ws.close(4000, `Unsupported LSP: ${lang}`);
 
-    if (wsResult.rows.length === 0) {
-      ws.close(4404, 'Workspace not found');
-      return;
-    }
-
-    const workspace = wsResult.rows[0];
-    let userRole: TerminalRole | null = null;
-
-    if (workspace.owner_id === userId) {
-      userRole = 'admin';
-    } else {
-      const collabResult = await getPool().query(
-        'SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2',
-        [workspaceId, userId]
-      );
-      if (collabResult.rows.length > 0) {
-        userRole = collabResult.rows[0].role as TerminalRole;
-      } else if (workspace.is_public) {
-        userRole = 'viewer';
-      }
-    }
-
-    if (!userRole || userRole === 'viewer') {
-      ws.close(4403, 'Forbidden: Editor role required for LSP access');
-      return;
-    }
-
-    // Determine target LSP command
-    let cmd: string[] = [];
-    if (language === 'python') {
-      cmd = ['pyright-langserver', '--stdio'];
-    } else if (language === 'javascript' || language === 'typescript') {
-      cmd = ['typescript-language-server', '--stdio'];
-    } else {
-      ws.close(4000, `Bad Request: Unsupported LSP language "${language}"`);
-      return;
-    }
-
-    // 4. Retrieve or create unified container
     const container = await getOrCreateWorkspaceContainer(userId, workspaceId);
-
-    // 5. Spawn language server inside the container
-    console.log(`[LSP] Spawning server "${cmd.join(' ')}" inside container...`);
-    const exec = await container.exec({
-      Cmd: cmd,
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-      Tty: false, // multiplexed stdout/stderr streams
-      WorkingDir: '/app'
-    });
-
+    const exec = await container.exec({ Cmd: cmd, AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: false, WorkingDir: '/app' });
     execStream = await exec.start({ hijack: true, stdin: true });
 
-    // 6. Flush early buffered messages to the language server
+    // Flush buffered messages
     execStreamReady = true;
     while (messageQueue.length > 0) {
       const data = messageQueue.shift();
-      if (data && execStream && !execStream.destroyed && execStream.writable) {
-        execStream.write(data);
-      }
+      if (data && execStream && !execStream.destroyed && execStream.writable) execStream.write(data);
     }
 
+    // [MEMORY MANAGEMENT] Docker Protocol Demultiplexing
+    // INTERVIEW KEY: Because `Tty: false` is set, Docker wraps stdout/stderr in 8-byte headers.
+    // We buffer raw chunks, slice out the 8-byte header to determine the stream type (1=stdout, 2=stderr),
+    // and extract exactly `payloadSize` bytes. This prevents JSON-RPC packets from being corrupted by Docker metadata.
     let frameBuffer = Buffer.alloc(0);
     execStream.on('data', (chunk: Buffer) => {
       frameBuffer = Buffer.concat([frameBuffer, chunk]);
       while (frameBuffer.length >= 8) {
         const streamType = frameBuffer[0];
         const payloadSize = frameBuffer.readUInt32BE(4);
-        if (frameBuffer.length < 8 + payloadSize) {
-          break;
-        }
+        if (frameBuffer.length < 8 + payloadSize) break; // Wait for full packet to arrive
+        
         const payload = frameBuffer.slice(8, 8 + payloadSize);
-        if (streamType === 1) { // stdout
-          ws.send(payload);
-        } else if (streamType === 2) { // stderr
-          console.warn('[LSP Stderr]:', payload.toString('utf8').trim());
-        }
+        if (streamType === 1) ws.readyState === WebSocket.OPEN && ws.send(payload);
+        else if (streamType === 2) console.warn('[LSP Stderr]:', payload.toString('utf8').trim());
+        
         frameBuffer = frameBuffer.slice(8 + payloadSize);
       }
     });
 
-    execStream.on('end', () => {
-      console.log('[LSP] Exec stream ended');
-      ws.close(1000, 'LSP Stream Closed');
-    });
+    execStream.on('end', () => ws.readyState === WebSocket.OPEN && ws.close(1000, 'LSP Stream Closed'));
+    execStream.on('error', () => ws.readyState === WebSocket.OPEN && ws.close(1011, 'LSP Internal Error'));
 
-    execStream.on('error', (err: any) => {
-      console.error('[LSP] Exec stream error:', err);
-      ws.close(1011, 'LSP Internal Exec Error');
-    });
-
-    ws.on('close', async () => {
-      clearTimeout(idleTimeout);
-      await cleanup();
-    });
-
-    ws.on('error', async (err) => {
-      console.error('[LSP] WS Connection error:', err);
-      clearTimeout(idleTimeout);
-      await cleanup();
-    });
+    ws.on('close', async () => { clearTimeout(idleTimeout); await cleanup(); });
+    ws.on('error', async () => { clearTimeout(idleTimeout); await cleanup(); });
 
   } catch (err: any) {
-    console.error('[LSP] Connection initialization failed:', err);
-    ws.close(1011, 'Internal Server Error');
+    if (ws.readyState === WebSocket.OPEN) ws.close(1011, 'Server Error');
     await cleanup();
   }
 }

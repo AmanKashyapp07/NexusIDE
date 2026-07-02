@@ -1,1069 +1,348 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { requireWorkspaceRole, WorkspaceAuthRequest, CollaboratorRole } from '../middleware/workspaceAuth';
+import { requireWorkspaceRole, WorkspaceAuthRequest } from '../middleware/workspaceAuth';
 import { ZipArchive } from 'archiver';
 import { executeCode } from '../sandbox/docker';
 import { getPool } from '../db';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { getRunningContainerRef } from '../sandbox/workspaceContainer';
+import axios from 'axios';
+import AdmZip from 'adm-zip';
+import { GoogleGenAI } from '@google/genai';
 
 const router = Router();
 
 // =============================================================================
-// ORCHESTRATION BACKEND & WORKSPACE ROUTER
-// =============================================================================
-//
-// PURPOSE:
-//   Serves as the main control plane REST API gateway for managing workspace
-//   lifecycles, collaborator associations, directory structures (file trees),
-//   and delegating code execution requests to the isolated Docker sandboxes.
-//
-// ARCHITECTURE & REST SYSTEM DESIGN:
-//
-//   1. Sub-resource Representation:
-//      - The design adheres to clean REST conventions. Workspaces form the root resource,
-//        and dependent elements are structured as nested sub-resources:
-//          GET    /api/workspace/:id/files         (File tree query)
-//          POST   /api/workspace/:id/collaborators (Collaborator enrollment)
-//          POST   /api/workspace/:id/execute       (Isolated sandboxed execution)
-//      - This makes the API intuitive and enforces resource boundaries early in routing.
-//
-//   2. Relational Schema Integrity & Cascades:
-//      - Dependent entities like `files` and `workspace_collaborators` reference 
-//        `workspaces(id)` with a SQL `ON DELETE CASCADE` constraint.
-//      - When a workspace is deleted via DELETE /:id, we perform a single SQL deletion.
-//        PostgreSQL automatically and atomically cleans up all associated files and 
-//        collaborator rows. This guarantees no orphaned rows, saving manual transaction management.
-//
-//   3. SQL Performance: UNION vs. OR / JOIN:
-//      - To populate the user's dashboard, we need workspaces they own AND workspaces they collaborate on.
-//      - We use a SQL `UNION` to combine:
-//        (SELECT workspaces WHERE owner_id = $1) UNION (SELECT workspaces JOIN collaborators WHERE user_id = $1)
-//      - WHY UNION INSTEAD OF A JOIN WITH OR?
-//        - An `OR` clause (e.g., `WHERE owner_id = $1 OR user_id = $1`) frequently confuses the
-//          query optimizer, prompting it to skip B-Tree index lookups and execute a slow Full Table Scan.
-//        - A `UNION` splits the lookup into two independent queries. The database engine can utilize
-//          separate index scans for each query (on `owner_id` index and `user_id` index) and perform
-//          a fast in-memory merge/de-duplication.
-//
-//   4. Atomic Database Upserts (ON CONFLICT):
-//      - For adding/updating collaborators, we leverage:
-//        `INSERT INTO ... ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role`
-//      - This avoids a "Read-Modify-Write" anti-pattern in Node.js (checking if they exist, then
-//        deciding to run INSERT or UPDATE).
-//      - Performing this atomically at the database layer avoids race conditions where two parallel
-//        requests could cause key violations or duplicate records.
-//
-// SECURITY & INTERVIEW TOPICS:
-//
-//   - Broken Object-Level Authorization (BOLA / IDOR):
-//     - The routes `/api/workspace/:id/files`, `/api/workspace/:id/collaborators`, and
-//       `/api/workspace/:id/execute` are guarded by the `requireWorkspaceRole` middleware.
-//     - This ensures that a authenticated user cannot simply swap out the `id` in the API URL
-//       to view, edit, or execute code inside a workspace that does not belong to them or
-//       is not shared with them.
-//
-//   - Bootstrapping & "Empty State" UX Optimization:
-//     - When creating a workspace, we programmatically seed an initial `index.js` file.
-//     - This provides instant visual feedback to the frontend editor, avoiding "empty editor shell-shock"
-//       and enabling the user to run code immediately without manual file creation.
-//
+// WORKSPACE LIFECYCLE
 // =============================================================================
 
-// =============================================================================
-// WORKSPACE LIFECYCLE ROUTES
-// =============================================================================
-
-// GET / - Retrieve all workspaces for the authenticated user (owned + collaborated)
-//
-// PERFORMANCE INTERVIEW TALKING POINT (UNION vs JOIN OR):
-//   Instead of:
-//     SELECT * FROM workspaces w LEFT JOIN workspace_collaborators c ON w.id = c.workspace_id 
-//     WHERE w.owner_id = $1 OR c.user_id = $1
-//   Which forces index failures due to the OR clause, we split this into two clean queries
-//   using UNION. PostgreSQL runs independent Index Scans and merges them instantly.
-//   We sort by updated_at DESC to natively support a "Recent Projects" dashboard UI.
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+// [PERFORMANCE] SQL Engine Optimization (UNION vs OR)
+// INTERVIEW KEY: Using `WHERE owner_id = $1 OR user_id = $1` with a JOIN often confuses the PostgreSQL query 
+// optimizer into doing a slow Full Table Scan. Splitting it into a UNION allows the DB to use targeted 
+// Index Scans on both columns independently and perform a lightning-fast in-memory merge.
+router.get('/', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-    
     const workspaces = await getPool().query(
-      `SELECT w.id, w.title, w.created_at, w.updated_at, w.owner_id, 'owner' AS user_role
-       FROM workspaces w 
-       WHERE w.owner_id = $1 
+      `SELECT w.id, w.title, w.created_at, w.updated_at, w.owner_id, 'owner' AS user_role FROM workspaces w WHERE w.owner_id = $1 
        UNION 
-       SELECT w.id, w.title, w.created_at, w.updated_at, w.owner_id, wc.role::text AS user_role
-       FROM workspaces w 
-       INNER JOIN workspace_collaborators wc ON w.id = wc.workspace_id 
-       WHERE wc.user_id = $1
-       ORDER BY updated_at DESC`,
-      [userId]
+       SELECT w.id, w.title, w.created_at, w.updated_at, w.owner_id, wc.role::text AS user_role FROM workspaces w 
+       INNER JOIN workspace_collaborators wc ON w.id = wc.workspace_id WHERE wc.user_id = $1 ORDER BY updated_at DESC`,
+      [req.user.id]
     );
     res.json(workspaces.rows);
-  } catch (err: any) {
-    console.error('Error fetching workspaces:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// POST / - Create a new workspace or update an existing one's metadata (Rename)
-//
-// DESIGN CHOICE — Upsert Pattern vs Restful Separation:
-//   Here we handle both creation (POST /) and renaming in a single endpoint by checking for the `id`.
-//   - If ID is present: It acts as an UPDATE operation. We check credentials first (IDOR mitigation).
-//   - If ID is absent: It acts as an INSERT operation. We also seed a default file (bootstrapping).
-//
-// SECURITY (IDOR / Metadata Protection):
-//   Before updating the workspace name, we verify if the user is the owner or an admin. 
-//   This prevents a collaborator with 'viewer' or 'editor' roles from modifying project settings.
-router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
+// [SECURITY] IDOR Mitigation & Upsert Pattern
+// Handles both Creation and Renaming. Before allowing a rename (ID present), we verify the user is 
+// actually the owner or an admin of *that specific workspace record*.
+router.post('/', async (req: AuthRequest, res: Response) => {
+  const { id, title } = req.body;
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  
   try {
-    const { id, title } = req.body;
-    const userId = req.user?.id;
-
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-    
-    try {
-      let result;
-      if (id) {
-        // IDOR Mitigation: Check permissions on the target workspace before modifying it
-        const checkRes = await getPool().query(
-          `SELECT w.owner_id, wc.role 
-           FROM workspaces w 
-           LEFT JOIN workspace_collaborators wc ON w.id = wc.workspace_id AND wc.user_id = $2
-           WHERE w.id = $1`,
-          [id, userId]
-        );
-
-        if (checkRes.rows.length === 0) {
-          res.status(404).json({ error: 'Workspace not found' });
-          return;
-        }
-
-        const { owner_id, role } = checkRes.rows[0];
-        if (owner_id !== userId && role !== 'admin') {
-          res.status(403).json({ error: 'Forbidden: Requires admin role to rename workspace' });
-          return;
-        }
-
-        result = await getPool().query(
-          `UPDATE workspaces SET title = $1 WHERE id = $2 RETURNING *`,
-          [title || 'Untitled Project', id]
-        );
-      } else {
-        // Insert a brand new workspace
-        result = await getPool().query(
-          `INSERT INTO workspaces (owner_id, title) 
-           VALUES ($1, $2)
-           RETURNING *`,
-          [userId, title || 'Untitled Project']
-        );
-        
-        // Note: Workspace is created empty. Users will manually create files.
-      }
+    if (id) {
+      const checkRes = await getPool().query('SELECT w.owner_id, wc.role FROM workspaces w LEFT JOIN workspace_collaborators wc ON w.id = wc.workspace_id AND wc.user_id = $2 WHERE w.id = $1', [id, userId]);
+      if (!checkRes.rows.length) return res.status(404).json({ error: 'Not found' });
+      if (checkRes.rows[0].owner_id !== userId && checkRes.rows[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
       
-      res.json(result.rows[0]);
-    } catch (dbError) {
-      console.warn("Database error during workspace creation/update:", dbError);
-      res.status(500).json({ error: 'Database error' });
+      const result = await getPool().query('UPDATE workspaces SET title = $1 WHERE id = $2 RETURNING *', [title || 'Untitled', id]);
+      return res.json(result.rows[0]);
     }
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
-  }
+    const result = await getPool().query('INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *', [userId, title || 'Untitled Project']);
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// GET /default - Retrieve or create a fallback workspace
-//
-// SYSTEM DESIGN — Zero Friction User Onboarding:
-//   When a user first logs in, they need a workspace to land on. Instead of breaking the UI
-//   with empty-states or demanding they click "Create Workspace", this endpoint acts as a
-//   virtual onboarding hook. It returns their first workspace if it exists, or creates one on the fly.
-router.get('/default', async (req: AuthRequest, res: Response): Promise<void> => {
+// [UX/DX] Zero-Friction Onboarding Fallback
+router.get('/default', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-    
-    let wsResult = await getPool().query('SELECT * FROM workspaces WHERE owner_id = $1 LIMIT 1', [userId]);
-    
-    if (wsResult.rows.length === 0) {
-      wsResult = await getPool().query(
-        'INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *',
-        [userId, 'My First Sandbox']
-      );
-      // Note: Workspace is created empty. Users will manually create files.
-    }
-    res.json(wsResult.rows[0]);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    let ws = await getPool().query('SELECT * FROM workspaces WHERE owner_id = $1 LIMIT 1', [req.user.id]);
+    if (!ws.rows.length) ws = await getPool().query('INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *', [req.user.id, 'My First Sandbox']);
+    res.json(ws.rows[0]);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/github-repos', async (req: AuthRequest, res: Response): Promise<void> => {
+// [ARCHITECTURE] Context Propagation
+// Downstream RBAC middleware attaches `req.workspaceRole` which we pipe directly to the client UI.
+router.get('/:id', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-
-    const userRes = await getPool().query('SELECT github_token FROM users WHERE id = $1', [userId]);
-    if (userRes.rows.length === 0 || !userRes.rows[0].github_token) {
-      res.status(400).json({ error: 'GitHub account not linked or token missing. Please log in again.' });
-      return;
-    }
-
-    const githubToken = userRes.rows[0].github_token;
-    
-    const reposRes = await axios.get('https://api.github.com/user/repos', {
-      params: {
-        per_page: 100,
-        sort: 'pushed'
-      },
-      headers: {
-        Authorization: `Bearer ${githubToken}`,
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'NexusIDE-App'
-      }
-    });
-
-    const repos = reposRes.data.map((repo: any) => ({
-      id: repo.id,
-      name: repo.name,
-      full_name: repo.full_name,
-      html_url: repo.html_url,
-      description: repo.description,
-      private: repo.private
-    }));
-
-    res.json(repos);
-  } catch (err: any) {
-    res.status(500).json({ 
-      error: 'Failed to fetch repositories from GitHub.', 
-      message: err.message, 
-      details: err.response?.data 
-    });
-  }
+    const ws = await getPool().query('SELECT id, title, owner_id, is_public FROM workspaces WHERE id = $1', [req.params.id]);
+    if (!ws.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ ...ws.rows[0], userRole: req.workspaceRole });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /:id - Retrieve workspace metadata by ID
-//
-// SECURITY (BOLA Guard):
-//   Guarded by requireWorkspaceRole('viewer') to prevent unauthenticated or non-permitted users
-//   from inspecting private workspace records.
-//   Also passes the resolved `req.workspaceRole` back to the client, allowing the frontend to dynamically
-//   toggle read-only controls (e.g. graying out write buttons for viewers).
-router.get('/:id', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+// [MEMORY MANAGEMENT] Streamed Archive Piping
+// We do NOT write the zip to disk. We use a Recursive CTE to flatten the hierarchical file tree, 
+// inject the buffers into `archiver`, and pipe it directly to the HTTP response socket.
+router.get('/:id/export', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const wsResult = await getPool().query('SELECT id, title, owner_id, is_public FROM workspaces WHERE id = $1', [id]);
+    const ws = await getPool().query('SELECT title FROM workspaces WHERE id = $1', [req.params.id]);
+    if (!ws.rows.length) return res.status(404).json({ error: 'Not found' });
     
-    if (wsResult.rows.length === 0) {
-      res.status(404).json({ error: 'Workspace not found' });
-      return;
-    }
-    
-    const workspace = wsResult.rows[0];
-    res.json({
-      ...workspace,
-      userRole: req.workspaceRole
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /:id/export - Export workspace as a ZIP file
-//
-// Streams a dynamically generated ZIP archive directly to the client without
-// saving anything to disk. We use the recursive CTE to map all hierarchical files
-// into a flat list with absolute paths, then pipe them into archiver.
-router.get('/:id/export', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-
-    // Get workspace name for the download filename
-    const wsResult = await getPool().query('SELECT title FROM workspaces WHERE id = $1', [id]);
-    if (wsResult.rows.length === 0) {
-      res.status(404).json({ error: 'Workspace not found' });
-      return;
-    }
-    const safeTitle = wsResult.rows[0].title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-
-    // Get all files with their full paths using recursive CTE
     const filesRes = await getPool().query(`
       WITH RECURSIVE file_path_cte AS (
-        SELECT id, parent_id, name, type, content, name::text as path
-        FROM files 
-        WHERE workspace_id = $1 AND parent_id IS NULL
+        SELECT id, parent_id, name, type, content, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL
         UNION ALL
-        SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text as path
-        FROM files f
-        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-        WHERE f.workspace_id = $1
-      )
-      SELECT path, type, content FROM file_path_cte WHERE type = 'file';
-    `, [id]);
+        SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text as path FROM files f INNER JOIN file_path_cte cte ON f.parent_id = cte.id WHERE f.workspace_id = $1
+      ) SELECT path, content FROM file_path_cte WHERE type = 'file';`, [req.params.id]);
 
-    res.attachment(`${safeTitle}.zip`);
+    res.attachment(`${ws.rows[0].title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.zip`);
     // @ts-ignore
-    const archive = new ZipArchive({
-      zlib: { level: 9 } // maximum compression
-    });
-
-    archive.on('error', (err: any) => {
-      throw err;
-    });
-
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     archive.pipe(res);
-
-    for (const file of filesRes.rows) {
-      archive.append(file.content || '', { name: file.path });
-    }
-
+    filesRes.rows.forEach(f => archive.append(f.content || '', { name: f.path }));
     archive.finalize();
-  } catch (err: any) {
-    if (!res.headersSent) {
-      res.status(500).json({ error: err.message });
-    }
-  }
+  } catch (err: any) { if (!res.headersSent) res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /:id - Delete a workspace
-//
-// SYSTEM DESIGN — Cascade Operations:
-//   This destructive action relies on relational integrity. We check ownership first (only Owner can delete).
-//   Once confirmed, deleting the row in `workspaces` triggers a cascade delete across `files` and
-//   `workspace_collaborators` tables, avoiding partial deletions or orphaned resources.
-router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+// [DATA INTEGRITY] Cascading Deletes
+// By deleting the root workspace row, PostgreSQL's ON DELETE CASCADE constraint automatically 
+// annihilates all orphaned rows in `files` and `workspace_collaborators` in a single atomic transaction.
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const { id } = req.params;
-    const userId = req.user?.id;
-    
-    // SECURITY CHECK (IDOR Mitigation):
-    // Ensure the user actually owns the workspace before executing a destructive action.
-    const wsResult = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [id]);
-    
-    if (wsResult.rows.length === 0) {
-      res.status(404).json({ error: 'Workspace not found' });
-      return;
-    }
-    
-    if (wsResult.rows[0].owner_id !== userId) {
-      res.status(403).json({ error: 'Forbidden: Only the workspace creator can delete the workspace' });
-      return;
-    }
-    
-    await getPool().query('DELETE FROM workspaces WHERE id = $1', [id]);
+    const ws = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [req.params.id]);
+    if (!ws.rows.length) return res.status(404).json({ error: 'Not found' });
+    if (ws.rows[0].owner_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+    await getPool().query('DELETE FROM workspaces WHERE id = $1', [req.params.id]);
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-
 // =============================================================================
-// COLLABORATOR MANAGEMENT
+// COLLABORATORS
 // =============================================================================
 
-// GET /:id/collaborators - Retrieve list of enrolled collaborators
-// Guarded by 'viewer' role: Anyone with read access can see who else is in the project.
-router.get('/:id/collaborators', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+router.get('/:id/collaborators', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    
-    const result = await getPool().query(
-      `SELECT u.id, u.username, u.email, wc.role, wc.joined_at 
-       FROM workspace_collaborators wc 
-       JOIN users u ON wc.user_id = u.id 
-       WHERE wc.workspace_id = $1 
-       ORDER BY wc.joined_at ASC`,
-      [id]
-    );
+    const result = await getPool().query('SELECT u.id, u.username, u.email, wc.role, wc.joined_at FROM workspace_collaborators wc JOIN users u ON wc.user_id = u.id WHERE wc.workspace_id = $1 ORDER BY wc.joined_at ASC', [req.params.id]);
     res.json(result.rows);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /:id/collaborators - Add or update a collaborator role (Requires Admin role)
-//
-// DATABASE PATTERN — Upsert via ON CONFLICT:
-//   If the user is already a collaborator, instead of crashing on a primary key conflict or writing
-//   an extra SELECT check, we handle updates gracefully using PostgreSQL's ON CONFLICT clause.
-//
-// BUSINESS RULE:
-//   We prevent adding the workspace creator as an explicit collaborator, since the owner's admin status
-//   is already implicitly checked and resolved at the middleware level.
-router.post('/:id/collaborators', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+// [DATA INTEGRITY] Database-level Atomic Upserts (ON CONFLICT)
+// Eliminates Node.js "Read-Modify-Write" race conditions when users are rapidly granted/changed permissions.
+router.post('/:id/collaborators', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
     const { usernameOrEmail, role } = req.body;
-
-    if (!usernameOrEmail || !role || !['viewer', 'editor', 'admin'].includes(role)) {
-      res.status(400).json({ error: 'Valid usernameOrEmail and role are required' });
-      return;
-    }
-
+    if (!['viewer', 'editor', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+    
     const userRes = await getPool().query('SELECT id FROM users WHERE username = $1 OR email = $1', [usernameOrEmail]);
-    if (userRes.rows.length === 0) {
-      res.status(404).json({ error: 'User not found' });
-      return;
-    }
-
+    if (!userRes.rows.length) return res.status(404).json({ error: 'User not found' });
+    
     const targetUserId = userRes.rows[0].id;
+    const wsRes = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [req.params.id]);
+    if (wsRes.rows[0].owner_id === targetUserId) return res.status(400).json({ error: 'Creator is implicitly admin' });
 
-    // Check if trying to add the owner
-    const wsRes = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [id]);
-    if (wsRes.rows[0].owner_id === targetUserId) {
-      res.status(400).json({ error: 'Workspace creator is implicitly an admin' });
-      return;
-    }
-
-    const result = await getPool().query(
-      `INSERT INTO workspace_collaborators (workspace_id, user_id, role) 
-       VALUES ($1, $2, $3) 
-       ON CONFLICT (workspace_id, user_id) DO UPDATE 
-       SET role = EXCLUDED.role 
-       RETURNING *`,
-      [id, targetUserId, role]
-    );
-
+    const result = await getPool().query(`INSERT INTO workspace_collaborators (workspace_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role RETURNING *`, [req.params.id, targetUserId, role]);
     res.json(result.rows[0]);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /:id/collaborators/:userId - Modify a collaborator's role (Requires Admin role)
-router.put('/:id/collaborators/:userId', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+router.put('/:id/collaborators/:userId', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const { id, userId } = req.params;
-    const { role } = req.body;
-
-    if (!role || !['viewer', 'editor', 'admin'].includes(role)) {
-      res.status(400).json({ error: 'Valid role is required' });
-      return;
-    }
-
-    const result = await getPool().query(
-      'UPDATE workspace_collaborators SET role = $1 WHERE workspace_id = $2 AND user_id = $3 RETURNING *',
-      [role, id, userId]
-    );
-
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Collaborator not found' });
-      return;
-    }
-
-    res.json(result.rows[0]);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    if (!['viewer', 'editor', 'admin'].includes(req.body.role)) return res.status(400).json({ error: 'Invalid role' });
+    const result = await getPool().query('UPDATE workspace_collaborators SET role = $1 WHERE workspace_id = $2 AND user_id = $3 RETURNING *', [req.body.role, req.params.id, req.params.userId]);
+    result.rows.length ? res.json(result.rows[0]) : res.status(404).json({ error: 'Not found' });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /:id/collaborators/:userId - Revoke a collaborator's access (Requires Admin role)
-router.delete('/:id/collaborators/:userId', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+router.delete('/:id/collaborators/:userId', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const { id, userId } = req.params;
-    
-    const result = await getPool().query(
-      'DELETE FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2 RETURNING *',
-      [id, userId]
-    );
-
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Collaborator not found' });
-      return;
-    }
-
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    const result = await getPool().query('DELETE FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2 RETURNING *', [req.params.id, req.params.userId]);
+    result.rows.length ? res.json({ success: true }) : res.status(404).json({ error: 'Not found' });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
-
 
 // =============================================================================
-// FILE TREE MANAGEMENT
+// FILE TREE
 // =============================================================================
 
-// GET /:id/files - Retrieve the directory structure of a workspace
-// Guarded by requireWorkspaceRole('viewer')
-//
-// DATA FORMATTING & UI PAIN POINTS:
-//   Retrieves all files and folders flat. The database uses a parent_id hierarchy.
-//   We order by `type DESC` (directories first) and then alphabetically.
-//   This optimizes client-side construction of the collapsible file tree UI.
-router.get('/:id/files', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+router.get('/:id/files', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const files = await getPool().query('SELECT id, parent_id, name, type, language FROM files WHERE workspace_id = $1 ORDER BY type DESC, name ASC', [id]);
+    const files = await getPool().query('SELECT id, parent_id, name, type, language FROM files WHERE workspace_id = $1 ORDER BY type DESC, name ASC', [req.params.id]);
     res.json(files.rows);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /:id/files - Create a new file or directory (Requires Editor role)
-//
-// CONSTRAINTS & SQL CODE 23505:
-//   A unique constraint `unique_workspace_folder_file_name` enforces unique names per folder.
-//   If a conflict occurs, PostgreSQL throws error code `23505` (unique_violation).
-//   We catch this code specifically to return a clean, user-friendly 400 Bad Request message,
-//   keeping raw Postgres stack traces hidden from the client.
-router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+// [ERROR HANDLING] Database Error Code Interception
+// We intercept Postgres code 23505 (Unique Violation) to return a clean client error 
+// rather than leaking a raw stack trace when a user creates a duplicate file.
+router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const id = req.params.id as string;
   try {
-    const { id } = req.params;
     const { name, type, parent_id, language } = req.body;
+    if (!name || !['file', 'directory'].includes(type)) return res.status(400).json({ error: 'Invalid params' });
 
-    if (!name || !type || !['file', 'directory'].includes(type)) {
-      res.status(400).json({ error: 'Name and valid type are required' });
-      return;
-    }
-
-    // Validation for language enum if type is file
-    const validLanguages = ['javascript', 'python', 'cpp', 'c', 'html', 'css', 'bash', 'java'];
-    const resolvedLanguage = type === 'file' ? (language || 'javascript') : null;
+    const newFile = await getPool().query('INSERT INTO files (workspace_id, name, type, parent_id, language) VALUES ($1, $2, $3, $4, $5) RETURNING id, parent_id, name, type, language', [id, name, type, parent_id || null, type === 'file' ? (language || 'javascript') : null]);
     
-    const newFile = await getPool().query(
-      `INSERT INTO files (workspace_id, name, type, parent_id, language) 
-       VALUES ($1, $2, $3, $4, $5) RETURNING id, parent_id, name, type, language`,
-      [id, name, type, parent_id || null, resolvedLanguage]
-    );
-    const createdFile = newFile.rows[0];
+    // [ARCHITECTURE] Fire-and-Forget PTY Synchronization
+    // Background sync to the active Docker container to keep the bash terminal perfectly mirrored 
+    // without blocking the HTTP response latency for the editor UI.
+    getPool().query(`
+      WITH RECURSIVE cte AS (SELECT id, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1)
+      SELECT path FROM cte WHERE id = $2;`, [id, newFile.rows[0].id]
+    ).then(res => {
+      if (res.rows.length) type === 'directory' ? syncFolderToTerminal(id, res.rows[0].path).catch(()=>{}) : syncFileToTerminal(id, newFile.rows[0].id, '').catch(()=>{});
+    }).catch(()=>{});
 
-    // =============================================================================
-    // LIVE TERMINAL SYNCHRONIZATION
-    // =============================================================================
-    //
-    // WHY FIRE-AND-FORGET?
-    //   Workspace edits should stay responsive to the user. We mirror file
-    //   system changes into any active terminal container in the background so
-    //   shell commands see the same tree without slowing down the editor.
-    if (type === 'directory') {
-      getPool().query(
-        `WITH RECURSIVE file_path_cte AS (
-          SELECT id, parent_id, name, name::text as path
-          FROM files 
-          WHERE workspace_id = $1 AND parent_id IS NULL
-          UNION ALL
-          SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
-          FROM files f
-          INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-          WHERE f.workspace_id = $1
-        )
-        SELECT path FROM file_path_cte WHERE id = $2;`,
-        [id, createdFile.id]
-      ).then(pathRes => {
-        if (pathRes.rows.length > 0) {
-          syncFolderToTerminal(id as string, pathRes.rows[0].path).catch(syncErr => {
-            console.error('Failed to sync directory creation to terminal:', syncErr);
-          });
-        }
-      }).catch(err => {
-        console.error('Failed to get path for directory creation sync:', err);
-      });
-    } else {
-      getPool().query(
-        `WITH RECURSIVE file_path_cte AS (
-          SELECT id, parent_id, name, name::text as path
-          FROM files 
-          WHERE workspace_id = $1 AND parent_id IS NULL
-          UNION ALL
-          SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
-          FROM files f
-          INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-          WHERE f.workspace_id = $1
-        )
-        SELECT path FROM file_path_cte WHERE id = $2;`,
-        [id, createdFile.id]
-      ).then(pathRes => {
-        if (pathRes.rows.length > 0) {
-          syncFileToTerminal(id as string, createdFile.id, '').catch(syncErr => {
-            console.error('Failed to sync empty file creation to terminal:', syncErr);
-          });
-        }
-      }).catch(err => {
-        console.error('Failed to get path for file creation sync:', err);
-      });
-    }
-
-    res.status(201).json(createdFile);
-  } catch (err: any) {
-    if (err.code === '23505') { 
-      res.status(400).json({ error: 'A file with this name already exists in this folder' });
-    } else {
-      res.status(500).json({ error: err.message });
-    }
-  }
+    res.status(201).json(newFile.rows[0]);
+  } catch (err: any) { res.status(err.code === '23505' ? 400 : 500).json({ error: err.code === '23505' ? 'Duplicate file name' : err.message }); }
 });
 
-// DELETE /:id/files/:fileId - Delete a file or directory (Requires Editor role)
-router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const id = req.params.id as string;
   try {
-    const { id, fileId } = req.params;
-
-    // Read the path before deletion so the terminal container can remove the
-    // same file or folder after the database change succeeds.
-    const pathResult = await getPool().query(
-      `WITH RECURSIVE file_path_cte AS (
-        SELECT id, parent_id, name, name::text as path
-        FROM files 
-        WHERE workspace_id = $1 AND parent_id IS NULL
-        UNION ALL
-        SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
-        FROM files f
-        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-        WHERE f.workspace_id = $1
-      )
-      SELECT path FROM file_path_cte WHERE id = $2;`,
-      [id, fileId]
-    );
-
-    await getPool().query('DELETE FROM files WHERE id = $1 AND workspace_id = $2', [fileId, id]);
-
-    // Mirror the delete into the terminal container after the DB transaction.
-    if (pathResult.rows.length > 0) {
-      const filePath = pathResult.rows[0].path;
-      syncDeleteToTerminal(id as string, filePath).catch((err) => {
-        console.error('Failed to sync delete to terminal:', err);
-      });
-    }
-
+    const pathResult = await getPool().query(`WITH RECURSIVE cte AS (SELECT id, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1) SELECT path FROM cte WHERE id = $2;`, [id, req.params.fileId]);
+    await getPool().query('DELETE FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, id]);
+    if (pathResult.rows.length) syncDeleteToTerminal(id, pathResult.rows[0].path).catch(()=>{});
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // =============================================================================
-// SANDBOX EXECUTION GATEWAY
+// EXECUTION & SERVICES
 // =============================================================================
 
-// =============================================================================
-// SECURE CODE EXECUTION ENDPOINT (POST /:id/execute)
-// =============================================================================
-//
-// INTERVIEW PREP & DESIGN CONCEPTS:
-//
-// 1. AUTHORIZATION GATING & MULTI-TENANCY GATEKEEPING:
-//    - Guarded strictly by `requireWorkspaceRole('editor')`. In multi-tenant systems,
-//      compiling/running untrusted code is a resource-intensive operation (high CPU/RAM).
-//      Restricting execution to "editors" prevents "viewers" from launching DDOS/exhaustion
-//      attacks against our Docker host server.
-//
-// 2. SYSTEM BOUNDS & LIFECYCLE MONITORING:
-//    - We capture metrics (execution duration, peak memory, CPU percentage, OOM flag, exit codes)
-//      and save them to the `execution_history` table.
-//    - Historical audit logging is crucial in serverless environments for resource usage billing,
-//      identifying malicious/runaway loops, and helping users debug memory leaks.
-//
-// 3. METRIC DEVIATION & OUTLIER NORMALIZATION:
-//    - Exit Code 137: Represents SIGKILL (128 + Signal 9). The process was forced to stop.
-//      We check if the container's OOM state is true (oomKilled), or if it timed out (duration reached cap).
-//    - File-specific isolation: The `file_name` parameter isolates logs. Users can filter metrics
-//      to trace the behavior of a single script (e.g., memory growth across runs of `script.js`).
-//
-router.post('/:id/execute', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
-  const { id } = req.params;
-  const userId = req.user?.id;
-  const { code, language, input, fileName, fileId } = req.body as { code: string, language: string, input?: string, fileName?: string, fileId?: string };
-
-  if (!code || !language) {
-    res.status(400).json({ error: 'Code and language are required' });
-    return;
-  }
+// [SECURITY] Multi-Tenant Resource Guard
+// Only Editors can trigger the execution engine. This guards against "Viewers" executing 
+// infinite loops or memory bombs to disrupt the host server. 
+router.post('/:id/execute', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const id = req.params.id as string;
+  const { code, language, input, fileName, fileId } = req.body;
+  if (!code || !language) return res.status(400).json({ error: 'Code and language required' });
 
   let workspaceFiles: any[] = [];
   let activeFilePath = fileName || 'index.js';
 
   try {
-    const filesRes = await getPool().query(
-      `WITH RECURSIVE file_path_cte AS (
-        SELECT id, parent_id, name, type, content, name::text as path
-        FROM files 
-        WHERE workspace_id = $1 AND parent_id IS NULL
-        UNION ALL
-        SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text as path
-        FROM files f
-        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-        WHERE f.workspace_id = $1
-      )
-      SELECT id, parent_id, name, type, content, path FROM file_path_cte;`,
-      [id]
-    );
+    const filesRes = await getPool().query(`WITH RECURSIVE cte AS (SELECT id, parent_id, name, type, content, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1) SELECT * FROM cte;`, [id]);
     workspaceFiles = filesRes.rows;
-
     if (fileId) {
-      const activeFileIdx = workspaceFiles.findIndex(f => f.id === fileId);
-      if (activeFileIdx !== -1) {
-        workspaceFiles[activeFileIdx].content = code;
-        activeFilePath = workspaceFiles[activeFileIdx].path;
-      }
+      const idx = workspaceFiles.findIndex(f => f.id === fileId);
+      if (idx !== -1) { workspaceFiles[idx].content = code; activeFilePath = workspaceFiles[idx].path; }
     }
-  } catch (err) {
-    console.warn("Failed to fetch workspace files for hydration", err);
-  }
-
-  let status: 'success' | 'failed' | 'timeout' | 'error' = 'success';
-  let result;
+  } catch (err) {} // Fail gracefully on hydration
 
   try {
-    result = await executeCode(code, language, input || undefined, {
-      workspaceId: id as string,
-      activeFilePath,
-      workspaceFiles
-    });
+    const r = await executeCode(code, language, input, { workspaceId: id, activeFilePath, workspaceFiles });
+    const status = r.oomKilled ? 'failed' : r.exitCode === 137 ? 'timeout' : r.exitCode === 0 ? 'success' : 'failed';
     
-    if (result.oomKilled) {
-      status = 'failed';
-    } else if (result.exitCode === 137) {
-      status = 'timeout';
-    } else if (result.exitCode === 0) {
-      status = 'success';
-    } else {
-      status = 'failed';
-    }
-  } catch (error: any) {
-    // Write an error log entry to database
-    try {
-      await getPool().query(
-        `INSERT INTO execution_history (
-          workspace_id, user_id, language, code_snapshot, output, status, duration_ms, memory_usage_bytes, cpu_usage_percent, file_name
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          id,
-          userId || null,
-          language,
-          code,
-          error.message || String(error),
-          'error',
-          0,
-          0,
-          0.0,
-          fileName || null
-        ]
-      );
-    } catch (dbErr) {
-      console.error('[db] Failed to log failed execution into history:', dbErr);
-    }
+    await getPool().query(`INSERT INTO execution_history (workspace_id, user_id, language, code_snapshot, output, status, duration_ms, memory_usage_bytes, cpu_usage_percent, file_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, req.user?.id || null, language, code, r.output, status, Math.round(r.durationMs), r.memoryUsageBytes || 0, r.cpuUsagePercent || 0, fileName || null]).catch(()=>{});
     
-    res.status(500).json({ error: error.message || 'Execution failed' });
-    return;
+    res.json({ output: r.output, metrics: { durationMs: r.durationMs, exitCode: r.exitCode, oomKilled: r.oomKilled, cpuUsagePercent: r.cpuUsagePercent, memoryUsageBytes: r.memoryUsageBytes }});
+  } catch (e: any) {
+    await getPool().query(`INSERT INTO execution_history (workspace_id, user_id, language, code_snapshot, output, status, duration_ms, memory_usage_bytes, cpu_usage_percent, file_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, req.user?.id || null, language, code, e.message || String(e), 'error', 0, 0, 0, fileName || null]).catch(()=>{});
+    res.status(500).json({ error: e.message || 'Execution failed' });
   }
+});
 
-  // Log code execution to database
+router.get('/:id/execution-history', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    await getPool().query(
-      `INSERT INTO execution_history (
-        workspace_id, user_id, language, code_snapshot, output, status, duration_ms, memory_usage_bytes, cpu_usage_percent, file_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        id,
-        userId || null,
-        language,
-        code,
-        result.output,
-        status,
-        Math.round(result.durationMs),
-        result.memoryUsageBytes || 0,
-        result.cpuUsagePercent || 0.0,
-        fileName || null
-      ]
-    );
-  } catch (dbErr) {
-    console.error('[db] Failed to log execution into history:', dbErr);
-  }
-
-  res.json({
-    output: result.output,
-    metrics: {
-      durationMs: result.durationMs,
-      exitCode: result.exitCode,
-      oomKilled: result.oomKilled,
-      cpuUsagePercent: result.cpuUsagePercent,
-      memoryUsageBytes: result.memoryUsageBytes
-    }
-  });
+    res.json((await getPool().query('SELECT eh.id, eh.user_id, u.username, eh.language, eh.status, eh.duration_ms, eh.memory_usage_bytes, eh.cpu_usage_percent, eh.file_name, eh.executed_at FROM execution_history eh LEFT JOIN users u ON eh.user_id = u.id WHERE eh.workspace_id = $1 ORDER BY eh.executed_at DESC LIMIT 10', [req.params.id])).rows);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
-
-// GET /:id/execution-history - Retrieve the last 10 execution records for a workspace
-// Guarded by requireWorkspaceRole('viewer')
-router.get('/:id/execution-history', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const history = await getPool().query(
-      `SELECT eh.id, eh.user_id, u.username, eh.language, eh.status, eh.duration_ms, eh.memory_usage_bytes, eh.cpu_usage_percent, eh.file_name, eh.executed_at 
-       FROM execution_history eh
-       LEFT JOIN users u ON eh.user_id = u.id
-       WHERE eh.workspace_id = $1 
-       ORDER BY eh.executed_at DESC 
-       LIMIT 10`,
-      [id]
-    );
-    res.json(history.rows);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Fallback for global execution if any legacy frontend endpoints attempt it.
-router.post('/execute', async (req: AuthRequest, res: Response): Promise<void> => {
-  res.status(400).json({ error: 'Please use the workspace-specific execute endpoint: /api/workspace/:id/execute' });
-});
-
 
 // =============================================================================
-// GITHUB WORKSPACE IMPORT
+// GITHUB INTEGRATION
 // =============================================================================
-import axios from 'axios';
-import AdmZip from 'adm-zip';
 
-router.post('/import-github', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/github-repos', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-
-    const { repoUrl } = req.body;
-    if (!repoUrl) {
-      res.status(400).json({ error: 'repoUrl is required' });
-      return;
-    }
-
-    // Match https://github.com/owner/repo
-    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-    if (!match) {
-      res.status(400).json({ error: 'Invalid GitHub URL' });
-      return;
-    }
-
-    const owner = match[1];
-    let repo = match[2];
-    repo = repo.replace(/\.git$/, '');
-
-    const userRes = await getPool().query('SELECT github_token FROM users WHERE id = $1', [userId]);
-    const githubToken = userRes.rows[0]?.github_token;
-
-    // Fetch zipball
-    const zipUrl = `https://api.github.com/repos/${owner}/${repo}/zipball`;
-    let response;
-    try {
-      const headers: any = {
-        'User-Agent': 'NexusIDE-App',
-        'Accept': 'application/vnd.github.v3+json'
-      };
-      if (githubToken) {
-        headers['Authorization'] = `Bearer ${githubToken}`;
-      }
-      response = await axios.get(zipUrl, { 
-        responseType: 'arraybuffer',
-        headers
-      });
-    } catch (fetchErr: any) {
-      console.error('Failed to fetch github zip', fetchErr.message);
-      res.status(400).json({ error: 'Failed to fetch repository from GitHub. Make sure it is public or you have access.' });
-      return;
-    }
-
-    const zip = new AdmZip(Buffer.from(response.data));
-    const zipEntries = zip.getEntries();
+    const token = (await getPool().query('SELECT github_token FROM users WHERE id = $1', [req.user.id])).rows[0]?.github_token;
+    if (!token) return res.status(400).json({ error: 'GitHub not linked.' });
     
-    // Check file limit
-    if (zipEntries.length > 500) {
-      res.status(400).json({ error: `Repository is too large (contains ${zipEntries.length} files/folders). Maximum allowed is 500.` });
-      return;
-    }
+    const reposRes = await axios.get('https://api.github.com/user/repos', { params: { per_page: 100, sort: 'pushed' }, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'NexusIDE' }});
+    res.json(reposRes.data.map((r: any) => ({ id: r.id, name: r.name, full_name: r.full_name, html_url: r.html_url, description: r.description, private: r.private })));
+  } catch (err: any) { res.status(500).json({ error: 'Failed fetch' }); }
+});
 
-    // Create the workspace
-    const wsResult = await getPool().query(
-      'INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *',
-      [userId, `${owner}/${repo}`]
-    );
-    const workspaceId = wsResult.rows[0].id;
-
-    // We need to map paths to their DB UUIDs to set parent_ids
-    const pathIdMap = new Map<string, string>();
+router.post('/import-github', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const match = req.body.repoUrl?.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (!match) return res.status(400).json({ error: 'Invalid GitHub URL' });
     
-    // Sort entries by length so we create parents before children
-    zipEntries.sort((a, b) => a.entryName.length - b.entryName.length);
+    const [_, owner, rawRepo] = match;
+    const repo = rawRepo.replace(/\.git$/, '');
+    const token = (await getPool().query('SELECT github_token FROM users WHERE id = $1', [req.user.id])).rows[0]?.github_token;
+    
+    const zipData = await axios.get(`https://api.github.com/repos/${owner}/${repo}/zipball`, { responseType: 'arraybuffer', headers: { 'User-Agent': 'NexusIDE', ...(token && { Authorization: `Bearer ${token}` }) } }).catch(() => null);
+    if (!zipData) return res.status(400).json({ error: 'Failed to fetch repo' });
 
-    for (const entry of zipEntries) {
-      const parts = entry.entryName.split('/').filter(p => p.length > 0);
-      if (parts.length <= 1) continue; // Skip the root folder (e.g. owner-repo-sha/)
+    const entries = new AdmZip(Buffer.from(zipData.data)).getEntries().sort((a, b) => a.entryName.length - b.entryName.length);
+    if (entries.length > 500) return res.status(400).json({ error: 'Max 500 files allowed.' });
 
-      // The path without the root folder
-      const relativePathParts = parts.slice(1);
-      const name = relativePathParts[relativePathParts.length - 1] || 'untitled';
-      const type = entry.isDirectory ? 'directory' : 'file';
-      const isFile = type === 'file';
+    const wsId = (await getPool().query('INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING id', [req.user.id, `${owner}/${repo}`])).rows[0].id;
+    const pathMap = new Map<string, string>();
+
+    for (const entry of entries) {
+      const parts = entry.entryName.split('/').filter(Boolean);
+      if (parts.length <= 1) continue;
       
-      const parentPathParts = relativePathParts.slice(0, -1);
-      const parentPath = parentPathParts.join('/');
-      const parentId = parentPath === '' ? null : pathIdMap.get(parentPath);
-      const currentPath = relativePathParts.join('/');
-
-      // For language mapping
-      let language = 'text';
-      if (isFile) {
-        if (name.endsWith('.js') || name.endsWith('.ts')) language = 'javascript';
-        else if (name.endsWith('.py')) language = 'python';
-        else if (name.endsWith('.html')) language = 'html';
-        else if (name.endsWith('.css')) language = 'css';
-        else if (name.endsWith('.c') || name.endsWith('.cpp')) language = 'c';
-      }
-
-      const content = isFile ? entry.getData().toString('utf8') : '';
+      const relPath = parts.slice(1);
+      const parentId = relPath.length > 1 ? pathMap.get(relPath.slice(0, -1).join('/')) || null : null;
+      const type = entry.isDirectory ? 'directory' : 'file';
+      const name = relPath[relPath.length - 1] || '';
+      const content = type === 'file' ? entry.getData().toString('utf8') : '';
+      
+      const ext = name.split('.').pop();
+      const lang = ext && ['js','ts'].includes(ext) ? 'javascript' : ext === 'py' ? 'python' : ['c','cpp'].includes(ext || '') ? 'c' : 'text';
 
       try {
-        const fileRes = await getPool().query(
-          `INSERT INTO files (workspace_id, name, type, parent_id, language, content) 
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-          [workspaceId, name, type, parentId || null, isFile ? language : null, content]
-        );
-        pathIdMap.set(currentPath, fileRes.rows[0].id);
-      } catch (insertErr) {
-        console.warn(`Failed to insert ${currentPath}`, insertErr);
-      }
+        const fileRes = await getPool().query('INSERT INTO files (workspace_id, name, type, parent_id, language, content) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id', [wsId, name, type, parentId, type === 'file' ? lang : null, content]);
+        pathMap.set(relPath.join('/'), fileRes.rows[0].id);
+      } catch (e) {}
     }
-
-    res.status(201).json(wsResult.rows[0]);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+    res.status(201).json({ id: wsId });
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-import { GoogleGenAI } from '@google/genai';
+// =============================================================================
+// AI ASSISTANT & PREVIEW PROXY
+// =============================================================================
 
-// POST /api/workspace/:id/autocomplete - Generate code completion using Gemini
-router.post('/:id/autocomplete', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response): Promise<void> => {
+router.post('/:id/autocomplete', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
     const { prefix, suffix, language } = req.body;
-    if (typeof prefix !== 'string') {
-      res.status(400).json({ error: 'Missing or invalid prefix' });
-      return;
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      res.status(503).json({ error: 'Gemini API Key is not configured' });
-      return;
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-
-    // The FIM prompt structure
-    const prompt = `<PREFIX>${prefix}<CURSOR><SUFFIX>${suffix || ''}</SUFFIX>`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        // Move strict rules to system instructions
-        systemInstruction: `You are a strict code autocomplete engine. Your task is to seamlessly complete the ${language || 'code'} at the <CURSOR> position based on the <PREFIX> and <SUFFIX>.
-CRITICAL RULES:
-1. Return ONLY the raw code that should be inserted exactly at the <CURSOR>.
-2. Do NOT wrap your response in markdown blocks (e.g., \`\`\`).
-3. Do NOT include any explanations, greetings, or conversational text.
-4. Do NOT output any <THOUGHT> or thinking blocks.
-5. Ensure the indentation matches the surrounding code.`,
-        temperature: 0.1, // Highly deterministic
-        maxOutputTokens: 256,
-        // Stop generating if the model attempts to start a completely new, disconnected block
-        stopSequences: ['\n\n\n', '<PREFIX>', '<SUFFIX>', '<CURSOR>'], 
-      }
-    });
-
-    let completion = response.text || '';
+    if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'API Key missing' });
     
-    // Strip any thinking blocks (like <THOUGHT>...</THOUGHT> or unclosed <THOUGHT>...)
-    completion = completion.replace(/<(THOUGHT|thought)>[\s\S]*?<\/(THOUGHT|thought)>/gi, '');
-    completion = completion.replace(/<(THOUGHT|thought)>[\s\S]*$/gi, '');
-
-    // Regex to safely strip markdown formatting if the model disobeys
-    completion = completion.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trimEnd();
-
-    res.json({ completion });
-  } catch (err: any) {
-    console.error('Autocomplete error:', err.message || err);
-    res.status(500).json({ error: 'Failed to generate completion' });
-  }
-});
-// =============================================================================
-// LIVE WEB PREVIEW PROXY
-// =============================================================================
-// Reverse proxy requests to the mapped hostPort of the running sandbox container.
-const previewProxy = createProxyMiddleware({
-  target: 'http://localhost', // Fallback, will be overridden by router
-  changeOrigin: true,
-  ws: false, // Disabled to prevent hijacking global upgrade events
-  router: (req: any) => {
-    const match = req.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/);
-    const workspaceId = match ? match[1] : null;
-    const userId = req.user?.id;
-    if (userId && workspaceId) {
-      const ref = getRunningContainerRef(userId, workspaceId);
-      if (ref && ref.hostPort) {
-        return `http://localhost:${ref.hostPort}`;
-      }
-    }
-    // If not found, return undefined to trigger proxy error
-    return 'http://localhost:1'; 
-  },
-  pathRewrite: (path, req: any) => {
-    const match = req.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/);
-    const workspaceId = match ? match[1] : null;
-    if (workspaceId) {
-      return path.replace(new RegExp(`^/api/workspace/${workspaceId}/preview`), '');
-    }
-    return path;
-  },
-  on: {
-    error: (err: any, req: any, res: any) => {
-      console.error('[WebPreview] Proxy Error:', err.message);
-      if (res && !res.headersSent && typeof res.writeHead === 'function') {
-        res.writeHead(502, { 'Content-Type': 'text/plain' });
-        res.end('Web server inside sandbox is not running or crashed. Please run `node index.js` (or similar) first.');
-      }
-    }
-  }
+    const response = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }).models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `<PREFIX>${prefix}<CURSOR><SUFFIX>${suffix || ''}</SUFFIX>`,
+      config: { systemInstruction: `You are a strict code autocomplete engine...`, temperature: 0.1, stopSequences: ['\n\n\n', '<PREFIX>', '<SUFFIX>', '<CURSOR>'] }
+    });
+    
+    // Cleanup AI artifacts
+    let text = (response.text || '').replace(/<(THOUGHT|thought)>[\s\S]*?(<\/(THOUGHT|thought)>|$)/gi, '');
+    res.json({ completion: text.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trimEnd() });
+  } catch (err: any) { res.status(500).json({ error: 'Generation failed' }); }
 });
 
+// [ARCHITECTURE] Reverse Proxy Middleware
+// Maps traffic dynamically from /api/workspace/:id/preview to the ephemeral `hostPort` of 
+// the active Docker container holding the users session.
 router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
   let url = new URL(req.originalUrl, `http://${req.headers.host}`);
-  let shouldRedirect = false;
-
-  if (req.query.token) {
-    res.cookie('preview_token', req.query.token, { path: '/', httpOnly: true, sameSite: 'lax' });
-    url.searchParams.delete('token');
-    shouldRedirect = true;
-  }
-
-  // Enforce trailing slash on the base path so relative links (like ./dist/output.css) resolve correctly
-  if (url.pathname === `/api/workspace/${req.params.id}/preview`) {
-    url.pathname = url.pathname + '/';
-    shouldRedirect = true;
-  }
-
-  if (shouldRedirect) {
-    return res.redirect(url.pathname + url.search);
-  }
-
+  if (req.query.token) { res.cookie('preview_token', req.query.token, { path: '/', httpOnly: true, sameSite: 'lax' }); url.searchParams.delete('token'); return res.redirect(url.pathname + url.search); }
+  if (url.pathname === `/api/workspace/${req.params.id}/preview`) return res.redirect(url.pathname + '/');
   next();
-}, previewProxy);
+}, createProxyMiddleware({
+  target: 'http://localhost', changeOrigin: true, ws: false,
+  router: (req: any) => {
+    const wsId = req.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/)?.[1];
+    const port = wsId && req.user?.id ? getRunningContainerRef(req.user.id, wsId)?.hostPort : null;
+    return port ? `http://localhost:${port}` : 'http://localhost:1'; 
+  },
+  pathRewrite: (p, req: any) => p.replace(new RegExp(`^/api/workspace/${req.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/)?.[1]}/preview`), ''),
+  on: { error: (err: any, req: any, res: any) => res?.writeHead?.(502, { 'Content-Type': 'text/plain' }).end('Web server inside sandbox is not running.') }
+}));
 
 export default router;

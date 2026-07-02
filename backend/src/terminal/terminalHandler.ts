@@ -10,267 +10,114 @@ import { getIO } from '../server';
 import { docs } from 'y-websocket/bin/utils';
 import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer } from '../sandbox/workspaceContainer';
 
-// ---------------------------------------------------------------------------
-// TERMINAL WEBSOCKET HANDLER (Stateless, KISS)
-// ---------------------------------------------------------------------------
-
 type TerminalRole = 'viewer' | 'editor' | 'admin';
 
+// =============================================================================
+// [I/O MULTIPLEXING] TERMINAL WEBSOCKET HANDLER
+// =============================================================================
+// INTERVIEW KEY: This function bridges a full-duplex TCP WebSocket from the browser 
+// directly to the stdin/stdout of a running bash process inside a Docker container.
 export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
-  let stream: any = null;
-  let container: Docker.Container | null = null;
-  let userId = '';
-  let workspaceId = '';
+  let stream: any = null, container: Docker.Container | null = null;
+  let userId = '', workspaceId = '';
 
   try {
-    // --- Parse URL ---
-    const parsedUrl = new URL(req.url || '', 'http://' + (req.headers.host || 'localhost'));
-    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+    const url = new URL(req.url || '', 'http://' + (req.headers.host || 'localhost'));
+    workspaceId = url.pathname.split('/').filter(Boolean)[1] as string;
+    const token = url.searchParams.get('token');
 
-    if (pathParts.length < 2 || pathParts[0] !== 'terminal') {
-      ws.close(4000, 'Bad Request');
-      return;
-    }
+    if (!workspaceId || !token) return ws.close(4401, 'Unauthorized');
 
-    workspaceId = pathParts[1] as string;
-    const token = parsedUrl.searchParams.get('token');
-
-    if (!token) {
-      ws.close(4401, 'Unauthorized: Token required');
-      return;
-    }
-
-    // --- Verify JWT ---
     let decodedUser: any;
-    try {
-      decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
-    } catch {
-      ws.close(4401, 'Unauthorized: Invalid token');
-      return;
-    }
+    try { decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret'); } 
+    catch { return ws.close(4401, 'Invalid token'); }
+    
+    userId = String(decodedUser?.id || '');
+    if (!userId) return ws.close(4401, 'Invalid payload');
 
-    userId = typeof decodedUser.id === 'string' ? decodedUser.id : String(decodedUser.id || '');
-    if (!userId) {
-      ws.close(4401, 'Unauthorized: Invalid token payload');
-      return;
-    }
-
-    // --- Check workspace access ---
-    const wsResult = await getPool().query(
-      'SELECT owner_id, is_public FROM workspaces WHERE id = $1',
-      [workspaceId]
-    );
-    if (wsResult.rows.length === 0) {
-      ws.close(4404, 'Workspace not found');
-      return;
-    }
-
+    const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
+    if (!wsResult.rows.length) return ws.close(4404, 'Not found');
+    
     const workspace = wsResult.rows[0];
-    let userRole: TerminalRole | null = null;
-
-    if (workspace.owner_id === userId) {
-      userRole = 'admin';
-    } else {
-      const collabResult = await getPool().query(
-        'SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2',
-        [workspaceId, userId]
-      );
-      if (collabResult.rows.length > 0) {
-        userRole = collabResult.rows[0].role;
-      } else if (workspace.is_public) {
-        userRole = 'viewer';
-      }
-    }
-
+    let userRole: TerminalRole | null = workspace.owner_id === userId ? 'admin' : null;
+    
     if (!userRole) {
-      ws.close(4403, 'Forbidden: No access');
-      return;
+      const collabRes = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, userId]);
+      userRole = collabRes.rows.length ? collabRes.rows[0].role : (workspace.is_public ? 'viewer' : null);
     }
+    if (!userRole) return ws.close(4403, 'Forbidden');
 
-    let githubToken = '';
-    let githubUsername = '';
-    let githubEmail = '';
-
+    let githubToken = '', githubUsername = '', githubEmail = '';
     if (userRole === 'admin') {
       const userRes = await getPool().query('SELECT github_token, username, email FROM users WHERE id = $1', [userId]);
-      if (userRes.rows.length > 0) {
-        githubToken = userRes.rows[0].github_token || '';
-        githubUsername = userRes.rows[0].username || '';
-        githubEmail = userRes.rows[0].email || '';
-      }
+      if (userRes.rows.length) { githubToken = userRes.rows[0].github_token || ''; githubUsername = userRes.rows[0].username || ''; githubEmail = userRes.rows[0].email || ''; }
     }
 
-    // --- Get container (creates + hydrates workspace files) ---
     container = await getOrCreateWorkspaceContainer(userId, workspaceId);
 
-    // --- Spawn bash shell ---
+    // [SECURITY] RBAC Shell Degradation
+    // Viewers get restricted bash (rbash) preventing them from changing directories or running unauthorized scripts.
     const isViewer = userRole === 'viewer';
-    let shellCmd = isViewer ? ['/bin/bash', '--restricted'] : ['/bin/bash'];
-
-    // PS1 uses bash prompt escapes. In TS, each \\ becomes one \ at runtime.
-    // Bash interprets: \u=username, \w=workdir, \$=$ or #
-    // \[\033[...m\] wraps ANSI color codes so readline counts line length correctly.
-    const ps1 = '\\[\\033[1;35m\\]\\u@sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[1;32m\\]\\$\\[\\033[0m\\] ';
-
     const envVars = [
-      'PS1=' + ps1,
-      'TERM=xterm-256color',   // Tells programs the terminal supports 256 colors
-      'LANG=C.UTF-8',         // UTF-8 support
-      'HOME=/tmp',            // Fix for read-only rootfs: redirect ~ to tmpfs
+      'PS1=\\[\\033[1;35m\\]\\u@sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[1;32m\\]\\$\\[\\033[0m\\] ',
+      'TERM=xterm-256color', 'LANG=C.UTF-8', 'HOME=/tmp' // Fix for read-only rootfs
     ];
-    if (isViewer) {
-      envVars.push('PATH=/viewer_bin');
-    }
+    if (isViewer) envVars.push('PATH=/viewer_bin');
 
+    // [ARCHITECTURE] In-Memory Ephemeral Git Wrapper
+    // INTERVIEW KEY: To support Git cloning in a container with a read-only root filesystem and no persistent disk, 
+    // we inject credentials via env vars and base64-encode custom shell scripts into `/tmp`.
+    // This shadows the system `git` binary to enforce strict security guardrails (blocking destructive commands).
     if (userRole === 'admin' && githubToken) {
-      envVars.push(
-        `GITHUB_TOKEN=${githubToken}`,
-        `GIT_AUTHOR_NAME=${githubUsername}`,
-        `GIT_AUTHOR_EMAIL=${githubEmail}`,
-        `GIT_COMMITTER_NAME=${githubUsername}`,
-        `GIT_COMMITTER_EMAIL=${githubEmail}`,
-        `GIT_ASKPASS=/tmp/git-askpass`,
-      );
-
-      // Write two tiny helper scripts to /tmp using base64 to avoid all shell-escaping issues.
-      // 1) /tmp/git-askpass — prints the token for HTTPS auth (used by GIT_ASKPASS env)
-      // 2) /tmp/git — wrapper that allows clone, commit, push, add, status, log, and diff
-      const askpass = [
-        '#!/bin/sh',
-        'case "$1" in',
-        '  *Username*|*username*) echo "git" ;;',
-        '  *) echo "$GITHUB_TOKEN" ;;',
-        'esac',
-      ].join('\n');
-      const wrapper = [
-        '#!/bin/sh',
-        'case "$1" in',
-        '  clone) ',
-        '    /usr/bin/git "$@" ;;',
-        '  commit|push|add|status|log|diff)',
-        '    if [ ! -d .git ]; then echo "Error: Not a git repository."; exit 1; fi',
-        '    /usr/bin/git "$@" ;;',
-        '  *) ',
-        '    echo "Only git clone, commit, push, add, status, log, and diff are allowed." ; exit 1 ;;',
-        'esac',
-      ].join('\n');
-
-      const askpassB64 = Buffer.from(askpass).toString('base64');
-      const wrapperB64 = Buffer.from(wrapper).toString('base64');
-
+      envVars.push(`GITHUB_TOKEN=${githubToken}`, `GIT_AUTHOR_NAME=${githubUsername}`, `GIT_AUTHOR_EMAIL=${githubEmail}`, `GIT_COMMITTER_NAME=${githubUsername}`, `GIT_COMMITTER_EMAIL=${githubEmail}`, `GIT_ASKPASS=/tmp/git-askpass`);
+      const askpass = `#!/bin/sh\ncase "$1" in\n  *Username*|*username*) echo "git" ;;\n  *) echo "$GITHUB_TOKEN" ;;\nesac`;
+      const wrapper = `#!/bin/sh\ncase "$1" in\n  clone) /usr/bin/git "$@" ;;\n  commit|push|add|status|log|diff) if [ ! -d .git ]; then echo "Error: Not a git repository."; exit 1; fi; /usr/bin/git "$@" ;;\n  *) echo "Only clone, commit, push, add, status, log, diff allowed." ; exit 1 ;;\nesac`;
+      
       try {
-        const setupExec = await container.exec({
-          Cmd: ['sh', '-c',
-            `echo "${askpassB64}" | base64 -d > /tmp/git-askpass && chmod +x /tmp/git-askpass && ` +
-            `echo "${wrapperB64}" | base64 -d > /tmp/git && chmod +x /tmp/git`
-          ],
-        });
+        const setupExec = await container.exec({ Cmd: ['sh', '-c', `echo "${Buffer.from(askpass).toString('base64')}" | base64 -d > /tmp/git-askpass && chmod +x /tmp/git-askpass && echo "${Buffer.from(wrapper).toString('base64')}" | base64 -d > /tmp/git && chmod +x /tmp/git`] });
         await setupExec.start({ hijack: true, stdin: false });
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        // Prepend /tmp to PATH so our "git" wrapper shadows /usr/bin/git
-        envVars.push('PATH=/tmp:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
-      } catch (err: any) {
-        console.error('[Terminal] Git wrapper setup failed (non-fatal):', err.message);
-      }
+        await new Promise(res => setTimeout(res, 200));
+        envVars.push('PATH=/tmp:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'); // Prepend /tmp to shadow real git
+      } catch (err: any) { console.error('[Terminal] Git setup failed:', err.message); }
     }
 
-    const exec = await container.exec({
-      Cmd: shellCmd,
-      Tty: true,
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-      WorkingDir: '/app',
-      Env: envVars,
-    });
-
+    const exec = await container.exec({ Cmd: isViewer ? ['/bin/bash', '--restricted'] : ['/bin/bash'], Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true, WorkingDir: '/app', Env: envVars });
     stream = await exec.start({ hijack: true, stdin: true, Tty: true });
 
-    // --- Start file watcher ---
+    // Start background file synchronization watcher
     const watcherTimeout = { current: null as NodeJS.Timeout | null };
     startTerminalWatcher(ws, container, workspaceId, watcherTimeout);
 
-    // --- Pipe: Docker -> Browser ---
-    stream.on('data', (chunk: Buffer) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(chunk);
-      }
-    });
+    // [STREAMING] Raw Byte Piping
+    stream.on('data', (chunk: Buffer) => ws.readyState === WebSocket.OPEN && ws.send(chunk));
+    ws.on('message', (data: any) => stream && !stream.destroyed && stream.writable && stream.write(Buffer.isBuffer(data) ? data : Buffer.from(data)));
 
-    // --- Pipe: Browser -> Docker ---
-    ws.on('message', (data: any) => {
-      if (stream && !stream.destroyed && stream.writable) {
-        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
-        stream.write(buf);
-      }
-    });
+    stream.on('end', () => ws.readyState === WebSocket.OPEN && ws.close(1000, 'Shell ended'));
+    stream.on('error', () => ws.readyState === WebSocket.OPEN && ws.close(1011, 'Stream error'));
 
-    // --- Stream ended (shell exited) ---
-    stream.on('end', () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close(1000, 'Shell ended');
-      }
-    });
-
-    stream.on('error', (err: Error) => {
-      console.error('[Terminal] Stream error:', err.message);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close(1011, 'Stream error');
-      }
-    });
-
-    // --- WebSocket closed (user left) ---
     ws.on('close', async () => {
-      if (watcherTimeout.current) {
-        clearTimeout(watcherTimeout.current);
-      }
-      if (stream && !stream.destroyed) {
-        try { stream.end(); } catch {}
-        try { stream.destroy(); } catch {}
-      }
-      if (container) {
-        await releaseWorkspaceContainer(userId, workspaceId).catch(() => {});
-      }
+      if (watcherTimeout.current) clearTimeout(watcherTimeout.current);
+      if (stream && !stream.destroyed) { try { stream.end(); stream.destroy(); } catch {} }
+      if (container) await releaseWorkspaceContainer(userId, workspaceId).catch(() => {});
     });
-
-    ws.on('error', () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
-    });
-
-    console.log('[Terminal] Connected for workspace:', workspaceId);
+    ws.on('error', () => (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) && ws.close());
 
   } catch (err: any) {
-    console.error('[Terminal] Setup error:', err.message || err);
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-      const errMsg = (err.message || '').toLowerCase();
-      const isDockerError = errMsg.includes('docker') || errMsg.includes('connect') || errMsg.includes('enoent') || errMsg.includes('econnrefused');
-      if (isDockerError) {
-        ws.close(4500, 'Docker daemon is not running on the host system.');
-      } else {
-        ws.close(1011, 'Internal server error');
-      }
+      ws.close(/docker|connect|enoent|econnrefused/i.test(err.message || '') ? 4500 : 1011, 'Connection error');
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// FILE SYNC HELPERS (editor -> container)
-// ---------------------------------------------------------------------------
+// =============================================================================
+// [FILE SYNC] FORWARD (DB/Editor -> Container)
+// =============================================================================
 
 async function getContainerForSync(workspaceId: string): Promise<Docker.Container | null> {
   try {
-    const wsResult = await getPool().query(
-      'SELECT owner_id FROM workspaces WHERE id = $1',
-      [workspaceId]
-    );
-    if (wsResult.rows.length === 0) return null;
-    return await getOrCreateWorkspaceContainer(wsResult.rows[0].owner_id, workspaceId);
-  } catch {
-    return null;
-  }
+    const res = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [workspaceId]);
+    return res.rows.length ? await getOrCreateWorkspaceContainer(res.rows[0].owner_id, workspaceId) : null;
+  } catch { return null; }
 }
 
 const npmInstallTimeouts = new Map<string, NodeJS.Timeout>();
@@ -280,357 +127,148 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     const container = await getContainerForSync(workspaceId);
     if (!container) return;
 
-    const pathResult = await getPool().query(
-      `WITH RECURSIVE file_path_cte AS (
-        SELECT id, parent_id, name, name::text as path
-        FROM files 
-        WHERE workspace_id = $1 AND parent_id IS NULL
-        UNION ALL
-        SELECT f.id, f.parent_id, f.name, (cte.path || '/' || f.name)::text as path
-        FROM files f
-        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-        WHERE f.workspace_id = $1
-      )
-      SELECT path FROM file_path_cte WHERE id = $2;`,
-      [workspaceId, fileId]
-    );
+    const pathRes = await getPool().query(`WITH RECURSIVE cte AS (SELECT id, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1) SELECT path FROM cte WHERE id = $2;`, [workspaceId, fileId]);
+    if (!pathRes.rows.length) return;
 
-    if (pathResult.rows.length === 0) return;
-
-    const filePath = pathResult.rows[0].path;
-    const exec = await container.exec({
-      Cmd: ['sh', '-c', `mkdir -p "$(dirname "/app/${filePath}")" && cat > "/app/${filePath}"`],
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-    });
-
-    const writeStream = await exec.start({ hijack: true, stdin: true });
+    const filePath = pathRes.rows[0].path;
+    const writeStream = await (await container.exec({ Cmd: ['sh', '-c', `mkdir -p "$(dirname "/app/${filePath}")" && cat > "/app/${filePath}"`], AttachStdin: true, AttachStdout: true, AttachStderr: true })).start({ hijack: true, stdin: true });
     writeStream.end(content);
 
-    // Auto-install node_modules on package.json save (debounced)
+    // [PERFORMANCE] Debounced NPM Installs
+    // If a user is rapidly editing package.json, we don't want to run `npm install` 100 times.
+    // We clear previous timeouts and wait for a 2-second typing pause before spawning the detached install.
     if (filePath === 'package.json') {
-      if (npmInstallTimeouts.has(workspaceId)) {
-        clearTimeout(npmInstallTimeouts.get(workspaceId)!);
-      }
-      const timeout = setTimeout(async () => {
-        try {
-          const installExec = await container.exec({
-            Cmd: ['sh', '-c', 'cd /app && npm install'],
-            AttachStdin: false, AttachStdout: false, AttachStderr: false
-          });
-          installExec.start({ Detach: true, hijack: false }).catch(err => 
-            console.error('[TerminalSync] Auto-install detached start failed:', err)
-          );
-        } catch (err: any) {
-          console.error('[TerminalSync] Failed to auto npm install:', err.message);
-        }
-      }, 2000);
-      npmInstallTimeouts.set(workspaceId, timeout);
+      if (npmInstallTimeouts.has(workspaceId)) clearTimeout(npmInstallTimeouts.get(workspaceId)!);
+      npmInstallTimeouts.set(workspaceId, setTimeout(async () => {
+        try { (await container.exec({ Cmd: ['sh', '-c', 'cd /app && npm install'] })).start({ Detach: true, hijack: false }).catch(()=>{}); } catch {}
+      }, 2000));
     }
-  } catch (err: any) {
-    console.error('[TerminalSync] Failed to sync file:', err.message);
-  }
+  } catch (err: any) { console.error('[TerminalSync] Sync failed:', err.message); }
 }
 
-export async function syncDeleteToTerminal(workspaceId: string, filePath: string): Promise<void> {
-  try {
-    const container = await getContainerForSync(workspaceId);
-    if (!container) return;
-
-    const exec = await container.exec({ Cmd: ['rm', '-rf', `/app/${filePath}`] });
-    await exec.start({ hijack: true, stdin: false });
-  } catch (err: any) {
-    console.error('[TerminalSync] Failed to sync delete:', err.message);
-  }
+export async function syncDeleteToTerminal(wsId: string, path: string): Promise<void> {
+  const c = await getContainerForSync(wsId);
+  if (c) (await c.exec({ Cmd: ['rm', '-rf', `/app/${path}`] })).start({ hijack: true, stdin: false }).catch(()=>{});
 }
 
-export async function syncFolderToTerminal(workspaceId: string, folderPath: string): Promise<void> {
-  try {
-    const container = await getContainerForSync(workspaceId);
-    if (!container) return;
-
-    const exec = await container.exec({ Cmd: ['mkdir', '-p', `/app/${folderPath}`] });
-    await exec.start({ hijack: true, stdin: false });
-  } catch (err: any) {
-    console.error('[TerminalSync] Failed to sync folder:', err.message);
-  }
+export async function syncFolderToTerminal(wsId: string, path: string): Promise<void> {
+  const c = await getContainerForSync(wsId);
+  if (c) (await c.exec({ Cmd: ['mkdir', '-p', `/app/${path}`] })).start({ hijack: true, stdin: false }).catch(()=>{});
 }
 
-// ---------------------------------------------------------------------------
-// REVERSE SYNC: container -> database & Yjs
-// ---------------------------------------------------------------------------
+// =============================================================================
+// [STATE MANAGEMENT] REVERSE SYNC & POLLING (Container -> DB/Yjs)
+// =============================================================================
 
 async function getWorkspaceFilesMap(workspaceId: string) {
-  const res = await getPool().query(
-    `WITH RECURSIVE file_path_cte AS (
-      SELECT id, parent_id, name, type, content, name::text as path
-      FROM files 
-      WHERE workspace_id = $1 AND parent_id IS NULL
-      UNION ALL
-      SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text as path
-      FROM files f
-      INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-      WHERE f.workspace_id = $1
-    )
-    SELECT id, parent_id, name, type, content, path FROM file_path_cte;`,
-    [workspaceId]
-  );
-
-  const pathToId = new Map<string, string>();
-  const idToPath = new Map<string, string>();
-  const fileDetails = new Map<string, { id: string; type: 'file' | 'directory'; content: string | null }>();
-
-  for (const row of res.rows) {
-    pathToId.set(row.path, row.id);
-    idToPath.set(row.id, row.path);
-    fileDetails.set(row.path, { id: row.id, type: row.type, content: row.content });
-  }
-
+  const res = await getPool().query(`WITH RECURSIVE cte AS (SELECT id, parent_id, name, type, content, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1) SELECT * FROM cte;`, [workspaceId]);
+  const pathToId = new Map<string, string>(), idToPath = new Map<string, string>(), fileDetails = new Map<string, any>();
+  res.rows.forEach(r => { pathToId.set(r.path, r.id); idToPath.set(r.id, r.path); fileDetails.set(r.path, { id: r.id, type: r.type, content: r.content }); });
   return { pathToId, idToPath, fileDetails };
 }
 
-async function dbCreateFile(workspaceId: string, relativePath: string, type: 'file' | 'directory', content: string = '') {
-  const parts = relativePath.split('/');
-  const name = parts[parts.length - 1] || '';
-  const parentPath = parts.slice(0, -1).join('/');
-
-  let parentId: string | null = null;
-  if (parentPath) {
-    const { pathToId } = await getWorkspaceFilesMap(workspaceId);
-    parentId = pathToId.get(parentPath) || null;
+async function dbCreateFile(workspaceId: string, relativePath: string, type: 'file' | 'directory', content = '') {
+  const parts = relativePath.split('/'), name = parts.pop() || '', parentPath = parts.join('/');
+  const parentId = parentPath ? (await getWorkspaceFilesMap(workspaceId)).pathToId.get(parentPath) || null : null;
+  const lang = type === 'file' ? (name.match(/\.(js|ts|mjs)$/) ? 'javascript' : name.match(/\.py$/) ? 'python' : name.match(/\.cpp$/) ? 'cpp' : name.match(/\.c$/) ? 'c' : name.match(/\.html$/) ? 'html' : name.match(/\.css$/) ? 'css' : name.match(/\.java$/) ? 'java' : 'text') : null;
+  
+  const res = await getPool().query(`INSERT INTO files (workspace_id, name, type, parent_id, language, content) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, [workspaceId, name, type, parentId, lang, content]);
+  
+  // Propagate to Yjs CRDT instance
+  if (res.rows[0]?.id && type === 'file') {
+    const ydoc = new Y.Doc(); ydoc.getText('monaco').insert(0, content);
+    await getPool().query('UPDATE files SET yjs_state = $1 WHERE id = $2', [Buffer.from(Y.encodeStateAsUpdate(ydoc)), res.rows[0].id]);
   }
-
-  let language = null;
-  if (type === 'file') {
-    if (name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.mjs')) language = 'javascript';
-    else if (name.endsWith('.py')) language = 'python';
-    else if (name.endsWith('.cpp')) language = 'cpp';
-    else if (name.endsWith('.c')) language = 'c';
-    else if (name.endsWith('.html')) language = 'html';
-    else if (name.endsWith('.css')) language = 'css';
-    else if (name.endsWith('.java')) language = 'java';
-    else language = 'text';
-  }
-
-  const res = await getPool().query(
-    `INSERT INTO files (workspace_id, name, type, parent_id, language, content) 
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [workspaceId, name, type, parentId, language, content]
-  );
-  const fileId = res.rows[0]?.id;
-
-  if (fileId && type === 'file') {
-    const ydoc = new Y.Doc();
-    ydoc.getText('monaco').insert(0, content);
-    const state = Y.encodeStateAsUpdate(ydoc);
-    await getPool().query(
-      'UPDATE files SET yjs_state = $1 WHERE id = $2',
-      [Buffer.from(state), fileId]
-    );
-  }
-
-  return fileId;
+  return res.rows[0]?.id;
 }
 
 async function dbUpdateFile(workspaceId: string, fileId: string, content: string) {
-  const ydoc = new Y.Doc();
-  ydoc.getText('monaco').insert(0, content);
-  const state = Y.encodeStateAsUpdate(ydoc);
-
-  await getPool().query(
-    'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
-    [Buffer.from(state), content, fileId]
-  );
-
-  const docName = `${workspaceId}-${fileId}`;
-  const sharedDoc = docs.get(docName);
+  const ydoc = new Y.Doc(); ydoc.getText('monaco').insert(0, content);
+  await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [Buffer.from(Y.encodeStateAsUpdate(ydoc)), content, fileId]);
+  
+  // Force hot-reload open browser tabs via active Yjs instance
+  const sharedDoc = docs.get(`${workspaceId}-${fileId}`);
   if (sharedDoc) {
     const text = sharedDoc.getText('monaco');
-    if (text.toString() !== content) {
-      sharedDoc.transact(() => {
-        text.delete(0, text.length);
-        text.insert(0, content);
-      });
-    }
+    if (text.toString() !== content) sharedDoc.transact(() => { text.delete(0, text.length); text.insert(0, content); });
   }
 }
 
-async function dbDeleteFile(fileId: string) {
-  await getPool().query('DELETE FROM files WHERE id = $1', [fileId]);
-}
+async function dbDeleteFile(fileId: string) { await getPool().query('DELETE FROM files WHERE id = $1', [fileId]); }
 
 async function readContainerFileContent(container: Docker.Container, relativePath: string): Promise<string> {
   try {
-    const exec = await container.exec({
-      Cmd: ['cat', `/app/${relativePath}`],
-      AttachStdout: true,
-      AttachStderr: false,
-    });
-    const stream = await exec.start({ hijack: true });
-
-    return new Promise<string>((resolve, reject) => {
+    const stream = await (await container.exec({ Cmd: ['cat', `/app/${relativePath}`], AttachStdout: true })).start({ hijack: true });
+    return new Promise((resolve, reject) => {
       let output = '';
-      const writable = new Writable({
-        write(chunk, _encoding, callback) {
-          output += chunk.toString('utf8');
-          callback();
-        },
-      });
-
-      container.modem.demuxStream(stream, writable, writable);
-      stream.on('end', () => resolve(output));
-      stream.on('error', (err: Error) => reject(err));
+      const w = new Writable({ write(c, _, cb) { output += c.toString('utf8'); cb(); } });
+      container.modem.demuxStream(stream, w, w);
+      stream.on('end', () => resolve(output)); stream.on('error', reject);
     });
-  } catch {
-    return '';
-  }
+  } catch { return ''; }
 }
 
-interface ContainerFileState {
-  path: string;
-  mtime: number;
-  size: number;
-  isDir: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// TERMINAL FILE WATCHER
-// ---------------------------------------------------------------------------
-function startTerminalWatcher(
-  ws: WebSocket,
-  container: Docker.Container,
-  workspaceId: string,
-  watcherTimeout: { current: NodeJS.Timeout | null }
-) {
-  let lastState = new Map<string, ContainerFileState>();
-  let isFirstScan = true;
-  const SCAN_INTERVAL = 1500;
+// [ARCHITECTURE] FS Polling Loop
+// INTERVIEW KEY: Why use polling instead of `inotifywait` inside the container?
+// Inotify relies on kernel events which are notoriously unreliable across certain Docker volume 
+// mounts and virtualized hosts (like macOS). By executing a lightweight `find | stat` polling loop 
+// every 1.5s, we guarantee a source-of-truth delta check between the ephemeral container and the persistent database.
+function startTerminalWatcher(ws: WebSocket, container: Docker.Container, workspaceId: string, watcherTimeout: { current: NodeJS.Timeout | null }) {
+  let lastState = new Map<string, { path: string; mtime: number; size: number; isDir: boolean }>(), isFirstScan = true;
 
   const runScan = async () => {
     if (ws.readyState !== WebSocket.OPEN) return;
-
     try {
-      const exec = await container.exec({
-        Cmd: ['find', '/app', '-mindepth', '1', '-maxdepth', '5', '-name', 'node_modules', '-prune', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';', '-o', '-name', '.git', '-prune', '-o', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';'],
-        AttachStdout: true,
-        AttachStderr: false,
-      });
-      const stream = await exec.start({ hijack: true });
-
-      const rawOutput = await new Promise<string>((resolve) => {
-        let output = '';
-        const writable = new Writable({
-          write(chunk, _encoding, callback) {
-            output += chunk.toString('utf8');
-            callback();
-          },
-        });
-        container.modem.demuxStream(stream, writable, writable);
-        stream.on('end', () => resolve(output));
-        stream.on('error', () => resolve(''));
-      });
-
-      const rawOutputClean = rawOutput.replace(/\r/g, '');
-      const currentFiles = new Map<string, ContainerFileState>();
-      const lines = rawOutputClean.split('\n');
-      for (const line of lines) {
+      // 1. Snapshot the current FS state
+      const stream = await (await container.exec({ Cmd: ['find', '/app', '-mindepth', '1', '-maxdepth', '5', '-name', 'node_modules', '-prune', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';', '-o', '-name', '.git', '-prune', '-o', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';'], AttachStdout: true })).start({ hijack: true });
+      const rawOutput = await new Promise<string>((res) => { let out = ''; const w = new Writable({ write(c, _, cb) { out += c.toString(); cb(); }}); container.modem.demuxStream(stream, w, w); stream.on('end', () => res(out)); stream.on('error', () => res('')); });
+      
+      const currentFiles = new Map<string, any>();
+      rawOutput.replace(/\r/g, '').split('\n').forEach(line => {
         const match = line.match(/^(\d+)\s+(\d+)\s+(.*?)\s+\/app\/(.*)$/);
-        if (!match) continue;
-        const mtime = parseInt(match[1] as string, 10);
-        const size = parseInt(match[2] as string, 10);
-        const typeStr = match[3] as string;
-        const relPath = (match[4] as string).trim();
-        if (!relPath) continue;
-        // Ignore hidden files and directories (dotfiles) from syncing to the database
-        if (relPath.startsWith('.') || relPath.includes('/.')) continue;
-        const isDir = typeStr.includes('directory');
-        currentFiles.set(relPath, { path: relPath, mtime, size, isDir });
-      }
+        if (match && match[1] && match[2] && match[3] && match[4]) {
+          const relPath = match[4].trim();
+          if (!relPath.startsWith('.') && !relPath.includes('/.')) { // Ignore dotfiles
+            currentFiles.set(relPath, { path: relPath, mtime: parseInt(match[1], 10), size: parseInt(match[2], 10), isDir: match[3].includes('directory') });
+          }
+        }
+      });
 
       if (isFirstScan) {
         const { fileDetails } = await getWorkspaceFilesMap(workspaceId);
-        for (const [path, detail] of fileDetails.entries()) {
-          const current = currentFiles.get(path);
-          lastState.set(path, {
-            path,
-            mtime: current ? current.mtime : 0,
-            size: current ? current.size : 0,
-            isDir: detail.type === 'directory',
-          });
-        }
+        fileDetails.forEach((detail, path) => lastState.set(path, { path, mtime: currentFiles.get(path)?.mtime || 0, size: currentFiles.get(path)?.size || 0, isDir: detail.type === 'directory' }));
         isFirstScan = false;
       }
 
       let changed = false;
       const { pathToId, fileDetails } = await getWorkspaceFilesMap(workspaceId);
 
-      // Deletions
+      // 2. Process Deletions
       for (const [path] of lastState.entries()) {
         if (!currentFiles.has(path)) {
-          const fileId = pathToId.get(path);
-          if (fileId) {
-            await dbDeleteFile(fileId);
-            changed = true;
-          }
+          if (pathToId.get(path)) { await dbDeleteFile(pathToId.get(path)!); changed = true; }
           lastState.delete(path);
         }
       }
 
-      // Additions / Modifications
+      // 3. Process Additions & Modifications
       for (const [path, current] of currentFiles.entries()) {
-        try {
-          const last = lastState.get(path);
-
-          if (!last) {
-            const dbDetail = fileDetails.get(path);
-            if (dbDetail) {
-              lastState.set(path, current);
-              continue;
-            }
-
-            let content = '';
-            if (!current.isDir && current.size > 0) {
-              content = await readContainerFileContent(container, path);
-            }
-            const newId = await dbCreateFile(workspaceId, path, current.isDir ? 'directory' : 'file', content);
-            if (newId) {
-              lastState.set(path, current);
-              changed = true;
-            }
-          } else {
-            if (!current.isDir && (current.mtime !== last.mtime || current.size !== last.size)) {
-              let content = '';
-              if (current.size > 0) {
-                content = await readContainerFileContent(container, path);
-              }
-              const dbDetail = fileDetails.get(path);
-              if (dbDetail && dbDetail.content !== content) {
-                await dbUpdateFile(workspaceId, dbDetail.id, content);
-                changed = true;
-              }
-              lastState.set(path, current);
-            }
-          }
-        } catch (fileErr: any) {
-          console.error(`[TerminalSync] Error syncing file ${path}:`, fileErr.message);
+        const last = lastState.get(path);
+        if (!last) {
+          if (fileDetails.has(path)) { lastState.set(path, current); continue; }
+          const content = (!current.isDir && current.size > 0) ? await readContainerFileContent(container, path) : '';
+          if (await dbCreateFile(workspaceId, path, current.isDir ? 'directory' : 'file', content)) { lastState.set(path, current); changed = true; }
+        } else if (!current.isDir && (current.mtime !== last.mtime || current.size !== last.size)) {
+          const content = current.size > 0 ? await readContainerFileContent(container, path) : '';
+          if (fileDetails.get(path)?.content !== content) { await dbUpdateFile(workspaceId, fileDetails.get(path)!.id, content); changed = true; }
+          lastState.set(path, current);
         }
       }
 
-      if (changed) {
-        const io = getIO();
-        if (io) {
-          io.to(`presence-${workspaceId}`).emit('file-tree-update');
-        }
-      }
-    } catch (err: any) {
-      console.error('[TerminalSync] Watcher global error:', err.message);
-    }
-
-    if (ws.readyState === WebSocket.OPEN) {
-      watcherTimeout.current = setTimeout(runScan, SCAN_INTERVAL);
-    }
+      if (changed) getIO()?.to(`presence-${workspaceId}`).emit('file-tree-update');
+    } catch {}
+    
+    if (ws.readyState === WebSocket.OPEN) watcherTimeout.current = setTimeout(runScan, 1500);
   };
-
-  watcherTimeout.current = setTimeout(runScan, SCAN_INTERVAL);
+  watcherTimeout.current = setTimeout(runScan, 1500);
 }
