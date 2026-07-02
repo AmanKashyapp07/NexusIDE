@@ -8,7 +8,7 @@ import * as Y from 'yjs';
 import { getIO } from '../socket';
 // @ts-ignore
 import { docs } from 'y-websocket/bin/utils';
-import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer } from '../sandbox/workspaceContainer';
+import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer, getRunningContainer } from '../sandbox/workspaceContainer';
 
 type TerminalRole = 'viewer' | 'editor' | 'admin';
 
@@ -116,7 +116,8 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 async function getContainerForSync(workspaceId: string): Promise<Docker.Container | null> {
   try {
     const res = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [workspaceId]);
-    return res.rows.length ? await getOrCreateWorkspaceContainer(res.rows[0].owner_id, workspaceId) : null;
+    if (!res.rows.length) return null;
+    return getRunningContainer(res.rows[0].owner_id, workspaceId);
   } catch { return null; }
 }
 

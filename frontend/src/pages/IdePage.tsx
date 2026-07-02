@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
 import TerminalPanel from '../components/Terminal/TerminalPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
+import { useToast } from '../components/Toast/Toast';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder } from 'lucide-react';
@@ -60,6 +61,20 @@ function IdePage() {
   const [isActiveMembersOpen, setIsActiveMembersOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [terminalKey, setTerminalKey] = useState(0);
+  const { addToast } = useToast();
+
+  const handleConnectionStatusChange = (status: ConnectionStatus) => {
+    setConnectionStatus((prevStatus) => {
+      if (prevStatus !== status) {
+        if (status === 'connected') {
+          addToast('Editor synchronized with workspace.', 'success');
+        } else if (status === 'disconnected') {
+          addToast('Connection lost. Retrying...', 'error');
+        }
+      }
+      return status;
+    });
+  };
 
   const sidebarWidth = 256;
   const editorWidth = 60;
@@ -257,7 +272,7 @@ function IdePage() {
         navigate(`/ide/${urlWorkspaceId}/${newFile.id}`);
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create file');
+      addToast(err instanceof Error ? err.message : 'Failed to create file', 'error');
     }
   };
 
@@ -306,7 +321,7 @@ function IdePage() {
     } catch (err) {
       console.error('[Export Workspace Error]', err);
       const message = err instanceof Error ? err.message : 'Unknown export error';
-      alert(`Failed to export: ${message}`);
+      addToast(`Failed to export: ${message}`, 'error');
     }
   };
 
@@ -563,6 +578,7 @@ function IdePage() {
                   currentUser={user}
                   readOnly={userRole === 'viewer'}
                   onEditorReady={(editor) => { editorRef.current = editor; }}
+                  onConnectionStatusChange={handleConnectionStatusChange}
                 />
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-zinc-600">

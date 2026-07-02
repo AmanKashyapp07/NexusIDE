@@ -23,6 +23,7 @@ import { getPool } from './db';
 import { warmPoolManager } from './sandbox/pool';
 import { handleTerminalConnection, syncFileToTerminal } from './terminal/terminalHandler';
 import { handleLspConnection } from './terminal/lspHandler';
+import { cleanupAllWorkspaceContainers } from './sandbox/workspaceContainer';
 
 const app = express();
 app.use(cors());
@@ -246,7 +247,10 @@ if (process.env.NODE_ENV !== 'test') {
 // we synchronously tear down all active Docker execution containers to prevent zombie resource leaks.
 const gracefulShutdown = async (signal: string) => {
   if (process.env.NODE_ENV !== 'test') {
-    await warmPoolManager.cleanup().catch(() => {});
+    await Promise.all([
+      warmPoolManager.cleanup().catch(() => {}),
+      cleanupAllWorkspaceContainers().catch(() => {})
+    ]);
     process.exit(0);
   }
 };

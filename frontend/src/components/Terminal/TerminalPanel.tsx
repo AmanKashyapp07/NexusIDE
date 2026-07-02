@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Info
 } from 'lucide-react';
+import { useToast } from '../Toast/Toast';
 
 interface TerminalPanelProps {
   workspaceId: string;
@@ -20,6 +21,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const { addToast } = useToast();
   
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +121,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     ws.onopen = () => {
       setConnectionStatus('connected');
       setError(null);
+      addToast('Terminal session connected', 'success');
     };
 
     ws.onmessage = (event) => {
@@ -130,22 +133,33 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     ws.onerror = () => {
       setError('Connection error');
       setConnectionStatus('disconnected');
+      addToast('Terminal connection error', 'error');
     };
 
     ws.onclose = (event) => {
       setConnectionStatus('disconnected');
       if (event.code === 4401) {
-        setError('Session expired. Please log out and log back in.');
+        const msg = 'Session expired. Please log out and log back in.';
+        setError(msg);
+        addToast(msg, 'error');
       } else if (event.code === 4403) {
-        setError('Access denied: Insufficient permission');
+        const msg = 'Access denied: Insufficient permission';
+        setError(msg);
+        addToast(msg, 'error');
       } else if (event.code === 4404) {
-        setError('Workspace not found');
+        const msg = 'Workspace not found';
+        setError(msg);
+        addToast(msg, 'error');
       } else if (event.code === 4500) {
-        setError('Docker is unavailable on the host system. Please ensure Docker Desktop is running.');
+        const msg = 'Docker is unavailable on the host system. Please ensure Docker Desktop is running.';
+        setError(msg);
+        addToast(msg, 'error');
       } else if (event.code === 1000) {
         terminal.write('\r\n\x1b[38;2;187;154;247m[Terminal session ended cleanly]\x1b[0m\r\n');
       } else {
-        setError('Connection closed unexpectedly');
+        const msg = 'Connection closed unexpectedly';
+        setError(msg);
+        addToast(msg, 'error');
       }
     };
 

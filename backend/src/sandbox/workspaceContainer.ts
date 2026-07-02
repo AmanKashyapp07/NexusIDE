@@ -24,6 +24,7 @@ export interface WorkspaceContainerRef {
   id: string;
   refCount: number;
   hostPort?: number | undefined;
+  cleanupTimeout?: NodeJS.Timeout | null;
 }
 
 // [STATE MANAGEMENT] Active Session Registry
@@ -39,6 +40,10 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
   // [ARCHITECTURE] Reference Counting
   // If the container is already running for this user's workspace, increment the refCount and return it instantly.
   if (existingRef) {
+    if (existingRef.cleanupTimeout) {
+      clearTimeout(existingRef.cleanupTimeout);
+      existingRef.cleanupTimeout = null;
+    }
     existingRef.refCount++;
     return existingRef.container;
   }
@@ -95,7 +100,7 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
     console.error(`[WorkspaceContainer] Setup failed for ${key}:`, err);
   }
 
-  activeWorkspaceContainers.set(key, { container, id, refCount: 1, hostPort });
+  activeWorkspaceContainers.set(key, { container, id, refCount: 1, hostPort, cleanupTimeout: null });
   return container;
 }
 
@@ -110,10 +115,28 @@ export async function releaseWorkspaceContainer(userId: string, workspaceId: str
   ref.refCount--;
 
   if (ref.refCount <= 0) {
-    activeWorkspaceContainers.delete(key);
-    await ref.container.remove({ force: true }).catch(() => {});
-    warmPoolManager.releaseTerminalContainer(); // Notify the pool manager to scale down if needed
+    if (ref.cleanupTimeout) {
+      clearTimeout(ref.cleanupTimeout);
+    }
+    ref.cleanupTimeout = setTimeout(async () => {
+      const currentRef = activeWorkspaceContainers.get(key);
+      if (currentRef && currentRef.refCount <= 0) {
+        activeWorkspaceContainers.delete(key);
+        await currentRef.container.remove({ force: true }).catch(() => {});
+        warmPoolManager.releaseTerminalContainer(); // Notify the pool manager to scale down if needed
+      }
+    }, 300000); // 5 minutes grace period
   }
+}
+
+export async function cleanupAllWorkspaceContainers(): Promise<void> {
+  for (const [key, ref] of activeWorkspaceContainers.entries()) {
+    if (ref.cleanupTimeout) {
+      clearTimeout(ref.cleanupTimeout);
+    }
+    await ref.container.remove({ force: true }).catch(() => {});
+  }
+  activeWorkspaceContainers.clear();
 }
 
 // Accessor methods condensed to implicit returns
