@@ -977,7 +977,8 @@ CRITICAL RULES:
 1. Return ONLY the raw code that should be inserted exactly at the <CURSOR>.
 2. Do NOT wrap your response in markdown blocks (e.g., \`\`\`).
 3. Do NOT include any explanations, greetings, or conversational text.
-4. Ensure the indentation matches the surrounding code.`,
+4. Do NOT output any <THOUGHT> or thinking blocks.
+5. Ensure the indentation matches the surrounding code.`,
         temperature: 0.1, // Highly deterministic
         maxOutputTokens: 256,
         // Stop generating if the model attempts to start a completely new, disconnected block
@@ -987,6 +988,10 @@ CRITICAL RULES:
 
     let completion = response.text || '';
     
+    // Strip any thinking blocks (like <THOUGHT>...</THOUGHT> or unclosed <THOUGHT>...)
+    completion = completion.replace(/<(THOUGHT|thought)>[\s\S]*?<\/(THOUGHT|thought)>/gi, '');
+    completion = completion.replace(/<(THOUGHT|thought)>[\s\S]*$/gi, '');
+
     // Regex to safely strip markdown formatting if the model disobeys
     completion = completion.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trimEnd();
 

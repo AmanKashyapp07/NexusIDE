@@ -62,26 +62,36 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     const terminal = new XTerm({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
       rows: 30,
       cols: 80,
       theme: {
-        background: 'transparent',  // Let the container background show through
-        foreground: '#d4d4d8',      // zinc-300
-        cursor: '#a855f7',          // violet-500
-        cursorAccent: '#08070d',
-        selectionBackground: 'rgba(168, 85, 247, 0.3)', // Violet with opacity
-        black: '#18181b',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#d4d4d8',
+        background: '#0a0915',       // Deep matte obsidian
+        foreground: '#a9b1d6',      // Tokyo Night storm fg
+        cursor: '#f7768e',          // Soft hot pink
+        cursorAccent: '#1a1b26',
+        selectionBackground: 'rgba(122, 162, 247, 0.25)', // Translucent light blue
+        black: '#1a1b26',
+        red: '#f7768e',
+        green: '#9ece6a',
+        yellow: '#e0af68',
+        blue: '#7aa2f7',
+        magenta: '#bb9af7',
+        cyan: '#7dcfff',
+        white: '#a9b1d6',
+        brightBlack: '#414868',
+        brightRed: '#ff757f',
+        brightGreen: '#73daca',
+        brightYellow: '#ff9e64',
+        brightBlue: '#b4f9f8',
+        brightMagenta: '#bb9af7',
+        brightCyan: '#0db9d7',
+        brightWhite: '#c0caf5',
       },
-      scrollback: 5000, // Increased for better history retention
-      convertEol: true
+      scrollback: 10000,            // Doubled scrollback capacity
+      convertEol: true,
+      lineHeight: 1.25,             // Breathing room between lines
+      letterSpacing: 0.5,           // Slightly spaced monospace chars
     });
 
     terminal.loadAddon(fitAddon);
@@ -241,7 +251,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
       {/* Terminal Container - added custom scrollbar styling class */}
       <div 
         ref={terminalRef} 
-        className="flex-1 overflow-hidden p-3 pb-0 [&_.xterm-viewport]:scrollbar-thin [&_.xterm-viewport]:scrollbar-track-transparent [&_.xterm-viewport]:scrollbar-thumb-white/10 [&_.xterm-viewport]:hover:scrollbar-thumb-white/20" 
+        className="flex-1 overflow-hidden p-3 pb-0 [&_.xterm-viewport::-webkit-scrollbar]:w-1.5 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent [&_.xterm-viewport::-webkit-scrollbar-thumb]:rounded-full [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-violet-500/20 [&_.xterm-viewport:hover::-webkit-scrollbar-thumb]:bg-violet-500/40 [&_.xterm-viewport::-webkit-scrollbar-thumb:hover]:bg-violet-500/60 [&_.xterm-viewport]:scrollbar-thin [&_.xterm-viewport]:scrollbar-track-transparent [&_.xterm-viewport]:scrollbar-thumb-violet-500/20 [&_.xterm-viewport:hover]:scrollbar-thumb-violet-500/40" 
       />
     </div>
   );

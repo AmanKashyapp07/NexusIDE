@@ -316,7 +316,7 @@ export default function DashboardPage() {
                         <>
                           <h3 className="text-lg font-medium text-zinc-100 group-hover:text-violet-100 transition-colors pr-16">{ws.title}</h3>
 
-                          <div className="absolute right-4 top-4 flex opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                          <div className="absolute right-4 top-4 z-10 flex opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                             <button
                               onClick={(e) => handleEditStart(e, ws)}
                               className="cursor-pointer rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-violet-300"
@@ -332,7 +332,7 @@ export default function DashboardPage() {
                               <Trash2 size={16} />
                             </button>
                           </div>
-                          <ArrowUpRight size={18} className="absolute right-4 top-5 text-zinc-500 opacity-0 group-hover:opacity-0 transition-opacity -translate-x-2 translate-y-2 group-hover:translate-x-0 group-hover:translate-y-0 duration-300" />
+                          <ArrowUpRight size={18} className="pointer-events-none absolute right-4 top-5 text-zinc-500 opacity-0 group-hover:opacity-0 transition-opacity -translate-x-2 translate-y-2 group-hover:translate-x-0 group-hover:translate-y-0 duration-300" />
                         </>
                       )}
                     </div>
