@@ -121,6 +121,19 @@ esac
     console.error('[WorkspaceContainer] Failed to set up run utility:', err.message);
   }
 
+  // Auto-install node_modules if package.json exists
+  try {
+    const installExec = await container.exec({
+      Cmd: ['sh', '-c', 'cd /app && if [ -f package.json ] && [ ! -d node_modules ]; then npm install; fi'],
+      AttachStdin: false,
+      AttachStdout: false,
+      AttachStderr: false
+    });
+    installExec.start({ Detach: true, hijack: false }).catch(err => console.error('[WorkspaceContainer] Auto-install detached start failed:', err));
+  } catch (err: any) {
+    console.error('[WorkspaceContainer] Failed to start auto-install:', err.message);
+  }
+
   const newRef: WorkspaceContainerRef = {
     container,
     id: container.id,

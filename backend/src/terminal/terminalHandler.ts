@@ -273,6 +273,8 @@ async function getContainerForSync(workspaceId: string): Promise<Docker.Containe
   }
 }
 
+const npmInstallTimeouts = new Map<string, NodeJS.Timeout>();
+
 export async function syncFileToTerminal(workspaceId: string, fileId: string, content: string): Promise<void> {
   try {
     const container = await getContainerForSync(workspaceId);
@@ -305,6 +307,27 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
 
     const writeStream = await exec.start({ hijack: true, stdin: true });
     writeStream.end(content);
+
+    // Auto-install node_modules on package.json save (debounced)
+    if (filePath === 'package.json') {
+      if (npmInstallTimeouts.has(workspaceId)) {
+        clearTimeout(npmInstallTimeouts.get(workspaceId)!);
+      }
+      const timeout = setTimeout(async () => {
+        try {
+          const installExec = await container.exec({
+            Cmd: ['sh', '-c', 'cd /app && npm install'],
+            AttachStdin: false, AttachStdout: false, AttachStderr: false
+          });
+          installExec.start({ Detach: true, hijack: false }).catch(err => 
+            console.error('[TerminalSync] Auto-install detached start failed:', err)
+          );
+        } catch (err: any) {
+          console.error('[TerminalSync] Failed to auto npm install:', err.message);
+        }
+      }, 2000);
+      npmInstallTimeouts.set(workspaceId, timeout);
+    }
   } catch (err: any) {
     console.error('[TerminalSync] Failed to sync file:', err.message);
   }
@@ -489,7 +512,7 @@ function startTerminalWatcher(
 
     try {
       const exec = await container.exec({
-        Cmd: ['find', '/app', '-mindepth', '1', '-maxdepth', '5', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';'],
+        Cmd: ['find', '/app', '-mindepth', '1', '-maxdepth', '5', '-name', 'node_modules', '-prune', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';', '-o', '-name', '.git', '-prune', '-o', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';'],
         AttachStdout: true,
         AttachStderr: false,
       });

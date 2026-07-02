@@ -611,14 +611,14 @@ WORKDIR /app
         PortBindings: {
           '3000/tcp': [{ HostPort: String(hostPort) }]
         },
-        Memory: 300 * 1024 * 1024,      // 300 MB RAM for LSP servers
-        MemorySwap: 300 * 1024 * 1024,  // Disabled swap
-        NanoCpus: 1_000_000_000,        // 1.0 CPU Core
-        PidsLimit: 300,                 // Up PidsLimit for multi-threaded LSP servers and git operations
-        ReadonlyRootfs: false,           // Terminal containers need writable fs for PTY allocation
+        Memory: 1024 * 1024 * 1024,     // 1 GB RAM for npm installs and build tools
+        MemorySwap: 1024 * 1024 * 1024, // Disabled swap (set same as memory)
+        NanoCpus: 1_500_000_000,        // 1.5 CPU Cores
+        PidsLimit: 500,                 // Increased for Node child processes and build systems
+        ReadonlyRootfs: false,          // Terminal containers need writable fs for PTY allocation
         Tmpfs: {
-          '/app': 'rw,exec,size=10m',
-          '/tmp': 'rw,exec,size=10m'
+          '/app': 'rw,exec,size=512m',  // 512MB for node_modules and user code
+          '/tmp': 'rw,exec,size=256m'   // 256MB for compiler/bundler caches
         },
         Binds: [
           `${HISTORY_DIR}:/history`
