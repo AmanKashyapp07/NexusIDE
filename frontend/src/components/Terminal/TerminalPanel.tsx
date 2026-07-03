@@ -185,6 +185,36 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     };
   }, [workspaceId, reconnectCounter]); 
 
+  // [AFK MANAGEMENT] Heartbeat Ping
+  // Tracks user activity to prevent container hibernation.
+  useEffect(() => {
+    let isActive = true; // Assume active on mount
+
+    const activityHandler = () => { isActive = true; };
+    window.addEventListener('keydown', activityHandler, { passive: true });
+    window.addEventListener('mousemove', activityHandler, { passive: true });
+
+    const interval = setInterval(() => {
+      if (isActive) {
+        isActive = false; // reset for next cycle
+        const token = localStorage.getItem('token');
+        fetch(`http://localhost:4000/api/workspace/${workspaceId}/heartbeat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(() => {}); // Fire and forget
+      }
+    }, 2 * 60 * 1000); // 2 minutes
+
+    return () => {
+      window.removeEventListener('keydown', activityHandler);
+      window.removeEventListener('mousemove', activityHandler);
+      clearInterval(interval);
+    };
+  }, [workspaceId]);
+
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#0d0c14] text-[#a9b1d6] font-sans">
 

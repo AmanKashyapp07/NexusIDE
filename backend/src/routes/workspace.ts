@@ -5,7 +5,7 @@ import { ZipArchive } from 'archiver';
 import { getPool } from '../db';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { getRunningContainerRef } from '../sandbox/workspaceContainer';
+import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/workspaceContainer';
 import { GoogleGenAI } from '@google/genai';
 
 const router = Router();
@@ -206,6 +206,13 @@ router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: 
 // =============================================================================
 // AI ASSISTANT & PREVIEW PROXY
 // =============================================================================
+
+// [AFK MANAGEMENT] Idle Ping Tracker
+// Called every 2 minutes by the frontend to keep the terminal container alive.
+router.post('/:id/heartbeat', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+  if (req.user) touchWorkspaceActivity(req.user.id, req.params.id as string);
+  res.json({ success: true });
+});
 
 router.post('/:id/autocomplete', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {

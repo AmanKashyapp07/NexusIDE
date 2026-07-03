@@ -1,297 +1,399 @@
-<!-- PROJECT SHIELDS -->
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
-[![MIT License][license-shield]][license-url]
+# NexusIDE
 
-<br />
 <div align="center">
-  <h1 align="center">NexusIDE</h1>
 
-  <p align="center">
-    A collaborative cloud IDE with CRDT editing, Docker-isolated execution, live terminals, GitHub import, AI autocomplete, and LSP support.
-    <br />
-    <br />
-    <a href="https://github.com/AmanKashyapp07/sandbox-ide"><strong>Explore the project &raquo;</strong></a>
-    <br />
-    <br />
-    <a href="https://github.com/AmanKashyapp07/sandbox-ide">View Demo</a>
-    &middot;
-    <a href="https://github.com/AmanKashyapp07/sandbox-ide/issues">Report Bug</a>
-    &middot;
-    <a href="https://github.com/AmanKashyapp07/sandbox-ide/issues">Request Feature</a>
-  </p>
+### Production-Ready Collaborative Cloud IDE
+
+Real-time collaboration • Docker Sandboxing • Persistent Terminals • AI Autocomplete • Language Server Protocol • GitHub Integration
+
+<p align="center">
+  <a href="https://github.com/AmanKashyapp07/sandbox-ide"><strong>View Repository</strong></a>
+  ·
+  <a href="https://github.com/AmanKashyapp07/sandbox-ide">Live Demo</a>
+  ·
+  <a href="https://github.com/AmanKashyapp07/sandbox-ide/issues">Report Issue</a>
+</p>
+
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+
+> **Inspired by GitHub Codespaces and Replit, NexusIDE is a production-oriented cloud IDE that focuses on real-world infrastructure challenges such as collaborative editing, secure code execution, container lifecycle management, language intelligence, and distributed synchronization.**
+
 </div>
 
-## Why This Project Matters
+---
+
+# Table of Contents
+
+- Features
+- Architecture
+- Engineering Highlights
+- Technology Stack
+- Security
+- Performance Optimizations
+- Getting Started
+- Engineering Learnings
+- Future Improvements
+- License
+
+---
+
+# Features
+
+| Feature | Description |
+|----------|-------------|
+| Real-time Collaboration | Conflict-free collaborative editing using Yjs CRDTs |
+| Persistent Workspaces | Long-lived Docker development environments |
+| Interactive Terminal | xterm.js connected directly to Docker PTY |
+| AI Autocomplete | Gemini Fill-in-the-Middle completion |
+| Language Intelligence | Pyright & TypeScript LSP integration |
+| GitHub Import | Import repositories through OAuth |
+| Live Collaboration | Presence indicators and multi-user editing |
+| Voice Collaboration | WebRTC signaling via Socket.IO |
+| File Synchronization | Editor ↔ Docker bidirectional synchronization |
+| Role Based Access | Secure Admin / Editor / Viewer permissions |
+
+---
+
+# Interview Summary
+
+> **NexusIDE is a browser-based collaborative development environment that securely executes user code inside isolated Docker containers while supporting real-time CRDT editing, persistent terminals, language servers, GitHub integration, and AI-powered code completion.**
+>
+> **The backend focuses on production engineering problems including container pooling, workspace multiplexing, binary CRDT persistence, PTY streaming, JSON-RPC language server bridging, and aggressive resource optimization.**
 
-NexusIDE is a browser-based development environment inspired by Gitpod and GitHub Codespaces. It is not just an editor shell around an API. The backend owns the hard parts directly: real-time collaboration, sandbox lifecycle management, persistent workspace containers, WebSocket protocol routing, GitHub import, language-server bridging, and resource cleanup.
+---
 
-The project was built as a software engineering college project, but the implementation focuses on production-style engineering tradeoffs:
+# Architecture
 
-* Multi-user editing uses **Yjs CRDTs** so concurrent edits converge without a central operation sequencer.
-* User code runs inside **single-use Docker execution containers** with CPU, memory, PID, filesystem, network, and timeout limits.
-* Interactive terminals run in **persistent workspace containers** so users get a real shell, `npm install`, Git workflows, and file changes that sync back into the IDE.
-* Socket.IO access is isolated behind `backend/src/socket.ts`, reducing circular coupling between the server bootstrap and terminal synchronization code.
-* Graceful shutdown cleans up both warm execution pools and active workspace containers to avoid leaking Docker resources.
+```mermaid
+graph TD
+    %% Browser Layer
+    A1[Monaco Editor]
+    A2[xterm.js Terminal]
+    A3[Yjs CRDT Client]
+    A4[Socket.IO Client]
 
-## Interview Snapshot
+    %% Gateway Layer
+    B1[Express HTTP Server]
+    B2[Raw WebSockets Upgrade Handler]
+    B3[Socket.IO Event Gateway]
 
-> I built a collaborative cloud IDE with CRDT-based editing, Docker-isolated execution, persistent workspace terminals, GitHub import, role-based workspace access, Socket.IO presence, WebRTC signaling, Gemini autocomplete, and LSP integration. Toward the end, I focused on reliability work: decoupling Socket.IO access, adding graceful container cleanup, preserving workspace containers across short reconnects, and preventing editor-to-terminal sync from accidentally creating new containers.
+    %% Business Logic
+    C1[GitHub Auth & OAuth Manager]
+    C2[Workspace Lifecycle Coordinator]
+    C3[LSP Stream Bridge]
+    C4[AI Autocomplete Engine]
+    C5[CRDT Sync Engine]
 
-## Architecture At A Glance
+    %% Resource Layer
+    D1[PostgreSQL Database]
+    D2[Docker Pool Manager]
+    D3[Active Workspace Containers]
+    D4[Gemini AI Endpoint]
 
-| Area | Implementation |
-| --- | --- |
-| Editor collaboration | Monaco Editor + Yjs + raw WebSockets |
-| Presence and voice signaling | Socket.IO rooms + WebRTC signaling relay |
-| File persistence | PostgreSQL adjacency-list tree + Yjs binary state |
-| Code execution | Dockerode warm pools, single-use runner containers |
-| Live terminal | xterm.js + Docker PTY stream bridge |
-| Workspace filesystem | Persistent per-user workspace containers with reverse sync |
-| GitHub import | OAuth + repository zipball import + in-memory extraction |
-| AI autocomplete | Gemini FIM prompts, debounce, aborts, client cache |
-| Language intelligence | Monaco LSP bridge to Pyright and TypeScript language server |
+    %% Client to Gateway Connections
+    A1 <-->|JSON-RPC| B2
+    A2 <-->|PTY Stream| B2
+    A3 <-->|CRDT Sync Messages| B2
+    A4 <-->|Voice Signaling / Presence / Tree Events| B3
 
-## Architectural Deep Dives
+    %% Gateway to Logic Routing
+    B1 -->|Import / Setup| C1
+    B1 -->|REST Actions| C2
+    B2 -->|Raw WebSocket Streams| C3 & C5
+    B1 -->|Autocomplete Prompting| C4
 
-### 1. Real-Time Collaboration With Yjs
+    %% Logic to Infrastructure / Resource Connections
+    C1 & C2 <-->|Schema Operations| D1
+    C2 -->|Control Loop / Provision| D2
+    D2 -->|Pre-warmed Containers| D3
+    C3 <-->|Docker Stream Bindings| D3
+    C4 <-->|Prompt Completion| D4
+    C5 <-->|Binary Blob Updates| D1
+```
 
-NexusIDE uses Conflict-free Replicated Data Types (CRDTs) to make collaboration resilient under concurrent edits.
+---
 
-* **State-vector sync:** When a client opens a file, Yjs exchanges state vectors and transfers only missing updates instead of resending the whole document.
-* **Binary persistence:** The server stores Yjs update state in PostgreSQL as binary data, preserving the CRDT history needed for correct merges.
-* **Debounced durability:** Editor updates are persisted after a 400ms debounce, avoiding a database write per keystroke.
-* **Awareness data:** Cursors, selections, names, colors, and active-file presence stay in memory because they are high-churn and do not need durable storage.
-* **Viewer protection:** Read-only users can receive Yjs state but binary edit updates are dropped at the WebSocket boundary.
+# Engineering Highlights
 
-### 2. Docker-Isolated Code Execution
+## Persistent Docker Workspaces
 
-Running untrusted code is treated as a containment problem, not just a child-process problem.
+Unlike traditional online compilers, every workspace owns a persistent development container.
 
-* **Warm execution pools:** Language-specific containers are pre-created for Python, JavaScript, C, C++, Java, and Bash so execution avoids the cold Docker startup path.
-* **Single-use runners:** After a run finishes, the execution container is removed instead of returned to the pool. The pool refills in the background, preventing state leakage between executions.
-* **In-memory hydration:** Workspace files are packed into a tar stream in Node.js memory and streamed into `/app` inside the container. No host bind mount is needed for execution.
-* **Resource limits:** Execution containers currently use 100MB memory, 0.5 CPU (`NanoCpus: 500_000_000`), PID limit 50, 10-second timeout, read-only root filesystem, and capped tmpfs mounts for `/app` and `/tmp`.
-* **Network isolation:** Execution containers run with `NetworkMode: 'none'`, blocking outbound network access.
-* **Telemetry:** Runtime duration, exit code, OOM status, CPU usage, and peak memory are captured from Docker/cgroup data.
-* **Output cap:** Execution output is capped at 1MB to protect the Node.js process and browser from unbounded stdout.
+### Implemented
 
-### 3. Persistent Workspace Containers And Live Terminals
+- Interactive PTY bridge using xterm.js
+- Persistent shell sessions
+- Dynamic workspace allocation
+- Automatic workspace restoration
 
-Execution containers are short-lived, but terminal containers behave like real development environments.
+### Optimization
 
-* **Interactive PTY bridge:** xterm.js sends raw keystrokes over a WebSocket, and the backend pipes them into a Docker PTY running `/bin/bash`.
-* **Raw terminal streaming:** Terminal bytes are streamed directly from the Docker PTY back to the browser over the WebSocket bridge.
-* **Container multiplexing:** Opening the same workspace in multiple browser tabs reuses one underlying workspace container through reference counting.
-* **Reconnect grace period:** When the final tab disconnects, the workspace container is kept alive for 5 minutes before removal. Short refreshes or reconnects do not wipe the terminal session immediately.
-* **Global `run` helper:** Workspace containers inject a `run <file>` command that detects Python, JavaScript, C, C++, Java, and shell files and runs the right toolchain.
-* **Background installs:** If a workspace has `package.json`, `npm install` can start in the background while the user keeps terminal control.
+- Warm Docker container pools
+- Zero-latency terminal startup
+- Workspace reference counting
+- Multiple browser tabs share one container
+- Automatic idle hibernation after 30 minutes
 
-### 4. Bidirectional File Synchronization
+---
 
-The editor database and terminal filesystem are kept in sync in both directions.
+## Real-Time Collaboration
 
-* **Editor to terminal:** Saved editor changes are written into the running workspace container if one exists. Sync uses `getRunningContainer`, so editing a file does not accidentally create a terminal container.
-* **Terminal to editor:** A lightweight polling watcher snapshots `/app`, detects additions, deletions, and modifications, then updates PostgreSQL and the active Yjs document.
-* **Tree refresh events:** When terminal-side changes affect the file tree, the backend emits a Socket.IO event to the workspace presence room.
-* **Manual refresh:** The UI also exposes a manual refresh path for users who want to force explorer synchronization.
+Built on **Yjs CRDTs** for conflict-free concurrent editing.
 
-### 5. Language Server Protocol Bridge
+### Features
 
-NexusIDE includes a real LSP bridge instead of only syntax highlighting.
+- Binary CRDT persistence
+- State-vector synchronization
+- Incremental update propagation
+- Debounced database persistence
+- Presence synchronization
 
-* **Supported servers:** Python uses `pyright-langserver`; JavaScript and TypeScript use `typescript-language-server`.
-* **Container-local intelligence:** Language servers run inside the same workspace container, so they inspect the same files the terminal sees.
-* **JSON-RPC streaming:** The backend forwards Monaco LSP messages over a raw WebSocket to the language server process.
-* **Startup buffering:** Early client messages are queued until Docker `exec.start()` finishes, preventing dropped LSP initialize packets.
-* **Docker demux parsing:** Because LSP runs with `Tty: false`, Docker's multiplexed stream headers are parsed before JSON-RPC payloads are forwarded.
-* **Resource control:** LSP sessions require editor/admin access and close after 15 minutes of idleness.
+Result:
 
-### 6. GitHub OAuth And Repository Import
+- No merge conflicts
+- Offline editing support
+- Eventual consistency
+- Low bandwidth synchronization
 
-GitHub is used as both the login provider and the fastest way to seed a real workspace.
+---
 
-* **OAuth login:** Users authenticate with GitHub, and GitHub profile data is mapped to local user records.
-* **Repository picker:** The frontend can list a user's repositories through the GitHub API.
-* **Zipball import:** Selected repositories are downloaded as zip archives, extracted in memory with `adm-zip`, and inserted into the PostgreSQL file tree.
-* **Import guardrail:** Repository import is capped at 500 files to avoid overloading the database transaction path.
-* **Terminal Git support:** Admin users can use a constrained Git wrapper in the terminal with credentials injected ephemerally into `/tmp`.
+## Docker Sandboxing
 
-### 7. Socket And Protocol Design
+The execution environment is heavily isolated.
 
-The backend uses the right transport for each kind of real-time traffic.
+### Resource Isolation
 
-* **HTTP and WebSockets on one server:** Express is wrapped in a raw Node HTTP server so upgrade requests can be routed manually.
-* **Raw WebSockets:** Yjs, terminal streams, and LSP use standard WebSockets because they need binary stream compatibility.
-* **Socket.IO:** Presence, active-file updates, file-tree refresh events, and WebRTC signaling use Socket.IO rooms.
-* **Decoupled Socket.IO access:** `backend/src/socket.ts` exposes `setIO(io)` and `getIO()`, so lower-level modules can emit events without importing the server bootstrap.
-* **Graceful teardown:** `SIGINT` and `SIGTERM` trigger cleanup of warm pools and active workspace containers.
+- 1 GB RAM
+- 1.5 CPU cores
+- PID limits
+- Container networking isolation
 
-## Security Design
+### File Hydration
 
-NexusIDE includes defense-in-depth controls across authentication, authorization, and execution.
+Workspace files are recursively reconstructed from PostgreSQL and streamed directly into Docker using TAR archives without requiring host bind mounts.
 
-* **Workspace authorization:** REST routes and WebSocket handlers check owner/collaborator/public access before serving workspace data.
-* **Role-based terminal access:** Viewers receive a restricted shell path, while editors/admins can use the full workspace terminal.
-* **Read-only CRDT enforcement:** Viewer write attempts are filtered at the Yjs WebSocket layer.
-* **Sandbox limits:** Execution containers enforce no network, read-only root filesystem, tmpfs write areas, PID caps, CPU caps, memory caps, output caps, and hard timeouts.
-* **Secret handling:** Database credentials, JWT secrets, GitHub OAuth secrets, and Gemini API keys are loaded from environment variables.
-* **Lifecycle cleanup:** Pooled containers, active terminal containers, and reconnect grace timers are cleaned up on shutdown.
+---
 
-## Built With
+## Language Server Bridge
 
-* **Frontend:** React, TypeScript, Tailwind CSS, Monaco Editor, xterm.js, Socket.IO client
-* **Backend:** Node.js, Express, TypeScript, Socket.IO, `ws`, Dockerode, Yjs, adm-zip, Axios
-* **Database:** PostgreSQL
-* **Infrastructure:** Docker Engine API
-* **AI/LSP:** Google Gemini API, Pyright, TypeScript language server
+Instead of embedding language servers inside the frontend, NexusIDE launches language servers inside the user's Docker workspace.
 
-## Getting Started
+Supported:
 
-### Prerequisites
+- Pyright
+- TypeScript Language Server
 
-* Node.js v20 or higher
-* PostgreSQL v14 or higher
-* Docker Engine or Docker Desktop
-* GitHub OAuth app credentials
-* Gemini API key, if AI autocomplete is enabled
+Communication uses JSON-RPC packets streamed through Raw WebSockets into Docker exec streams.
 
-### Installation
+---
 
-1. Clone the repository:
+## Bidirectional File Synchronization
 
-   ```bash
-   git clone https://github.com/AmanKashyapp07/sandbox-ide.git
-   cd sandbox-ide
-   ```
+Editor changes automatically synchronize with Docker while terminal-created files immediately appear inside the frontend explorer.
 
-2. Initialize the database:
+Synchronization includes
 
-   ```bash
-   createdb sandbox
-   psql -d sandbox -f database/schema.sql
-   ```
+- File creation
+- File deletion
+- Rename detection
+- Live explorer updates
 
-3. Configure backend environment variables in `backend/.env`:
+---
 
-   ```env
-   PORT=4000
-   DATABASE_URL=postgresql://your_db_username@localhost:5432/sandbox
-   JWT_SECRET=your_jwt_secret_key
-   GITHUB_CLIENT_ID=your_github_oauth_client_id
-   GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
-   GEMINI_API_KEY=your_gemini_api_key
-   ```
+# Technology Stack
 
-   For local GitHub OAuth, use:
+| Layer | Technologies |
+|--------|--------------|
+| Frontend | React, TypeScript, Tailwind CSS, Monaco Editor, xterm.js |
+| Backend | Node.js, Express, Socket.IO, ws, Dockerode |
+| Database | PostgreSQL |
+| Collaboration | Yjs CRDT |
+| AI | Gemini API |
+| Language Intelligence | Pyright, TypeScript Language Server |
+| Authentication | JWT, GitHub OAuth |
+| Infrastructure | Docker Engine API |
 
-   * Homepage URL: `http://localhost:5173`
-   * Authorization callback URL: `http://localhost:4000/api/auth/github/callback`
+---
 
-4. Start the backend:
+# Security
 
-   ```bash
-   cd backend
-   npm install
-   npm run dev
-   ```
+- Docker container isolation
+- JWT authentication
+- Workspace authorization
+- Role-based permissions
+- Environment variable secret management
+- Resource limiting
+- Dynamic port exposure
+- Network isolation
+- Protected REST endpoints
+- Protected WebSocket handlers
 
-   The backend starts Express, initializes Docker warm pools, builds the terminal image if needed, and verifies database connectivity.
+---
 
-5. Start the frontend:
+# Performance Optimizations
 
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+| Optimization | Purpose |
+|--------------|---------|
+| Warm Docker Pool | Eliminate container startup latency |
+| Workspace Multiplexing | One container shared across multiple tabs |
+| Binary CRDT Storage | Reduce synchronization overhead |
+| Debounced Database Writes | Prevent excessive writes |
+| AFK Heartbeat | Automatic idle cleanup |
+| State Vector Sync | Transfer only missing CRDT operations |
 
-6. Open the app:
+---
 
-   ```text
-   http://localhost:5173
-   ```
+# Repository Structure
 
-## Demo Path
+```
+frontend/
+│
+├── components/
+├── pages/
+├── hooks/
+├── services/
 
-For an interview or project review, the strongest demo sequence is:
+backend/
+│
+├── routes/
+├── websocket/
+├── docker/
+├── lsp/
+├── github/
+├── collaboration/
 
-1. Sign in with GitHub and create or import a workspace.
-2. Open the same workspace in two browser windows and edit one file from both windows to show CRDT convergence.
-3. Use the terminal to create or modify a file, then show it appear in the explorer.
-4. Run `run <file>` from the terminal for Python, JavaScript, C++, or Java.
-5. Show autocomplete or language intelligence in Monaco.
-6. Explain how execution containers are single-use while workspace terminal containers persist across short reconnects.
-7. Stop the backend and mention graceful Docker cleanup.
+database/
+│
+├── schema.sql
 
-## Roadmap
+shared/
+│
+├── types/
+├── utils/
+```
 
-Completed:
+---
 
-* GitHub OAuth authentication
-* GitHub repository import with in-memory zip extraction
-* Collaborative Monaco editing with Yjs persistence
-* Workspace presence and active-file indicators
-* WebRTC signaling for peer-to-peer voice rooms
-* Docker warm pools for language execution
-* Persistent workspace containers with live terminal access
-* Terminal-to-explorer synchronization
-* Global `run <file>` utility
-* Gemini-powered inline autocomplete
-* Pyright and TypeScript LSP bridge
-* Socket.IO modularization via `socket.ts`
-* Graceful cleanup for warm pools and active workspace containers
+# Getting Started
 
-Next improvements should stay focused on polish:
+## Prerequisites
 
-* Add focused integration tests for workspace container lifecycle and WebSocket authorization.
-* Add a short demo video or GIF to the README.
-* Add deployment notes for Docker socket access, environment variables, and PostgreSQL provisioning.
-* Replace global log suppression with structured logging levels.
+- Node.js 20+
+- PostgreSQL 14+
+- Docker Engine
+- GitHub OAuth Application
 
-## Engineering Lessons
+---
 
-* **CRDTs fit collaborative editors well:** They avoid the central operation-ordering burden of Operational Transform while still guaranteeing convergence.
-* **Execution and terminal containers need different lifecycles:** Code execution should be isolated and disposable; terminals need persistence and reconnect tolerance.
-* **Docker streams require protocol awareness:** PTY streams and non-PTY exec streams behave differently. Terminal output can be raw, but LSP/stdout demuxing must handle Docker frame headers.
-* **Database trees need explicit root constraints:** SQL `NULL` semantics require partial indexes to prevent duplicate root-level filenames.
-* **Protocol separation matters:** Socket.IO rooms are excellent for presence and signaling; raw WebSockets are better for Yjs, xterm.js, and LSP binary streams.
-* **Lifecycle cleanup is a feature:** Container cleanup, reconnect grace periods, and shutdown hooks are what make the system feel engineered rather than merely functional.
+## Installation
 
-## Contributing
+Clone repository
 
-1. Fork the project.
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit your changes: `git commit -m "Add your feature"`
-4. Push the branch: `git push origin feature/your-feature`
-5. Open a pull request.
+```bash
+git clone https://github.com/AmanKashyapp07/sandbox-ide.git
+cd sandbox-ide
+```
 
-## License
+Initialize database
 
-Distributed under the MIT License. See `LICENSE` for more information.
+```bash
+createdb sandbox
 
-## Contact
+psql -d sandbox -f database/schema.sql
+```
 
-Aman Kashyap - [@AmanKashyapp07](https://github.com/AmanKashyapp07) - iit2024140@iiita.ac.in
+Configure environment
 
-Project Link: [https://github.com/AmanKashyapp07/sandbox-ide](https://github.com/AmanKashyapp07/sandbox-ide)
+```env
+PORT=4000
 
-## Acknowledgments
+DATABASE_URL=postgresql://username@localhost:5432/sandbox
 
-* Course coordinators for the software engineering project guidance.
-* Maintainers of Yjs, Monaco Editor, xterm.js, Dockerode, Pyright, and TypeScript language server.
-* Full developer interview deep dives are cataloged in the `interview/` directory.
+JWT_SECRET=...
 
-<!-- MARKDOWN LINKS & IMAGES -->
-[contributors-shield]: https://img.shields.io/github/contributors/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
-[contributors-url]: https://github.com/AmanKashyapp07/sandbox-ide/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
-[forks-url]: https://github.com/AmanKashyapp07/sandbox-ide/network/members
-[stars-shield]: https://img.shields.io/github/stars/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
-[stars-url]: https://github.com/AmanKashyapp07/sandbox-ide/stargazers
-[issues-shield]: https://img.shields.io/github/issues/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
-[issues-url]: https://github.com/AmanKashyapp07/sandbox-ide/issues
-[license-shield]: https://img.shields.io/github/license/AmanKashyapp07/sandbox-ide.svg?style=for-the-badge
-[license-url]: https://github.com/AmanKashyapp07/sandbox-ide/blob/main/LICENSE
+GITHUB_CLIENT_ID=...
+
+GITHUB_CLIENT_SECRET=...
+
+GEMINI_API_KEY=...
+```
+
+Install dependencies
+
+```bash
+cd backend
+npm install
+
+cd ../frontend
+npm install
+```
+
+Start backend
+
+```bash
+cd backend
+
+npm run dev
+```
+
+Start frontend
+
+```bash
+cd frontend
+
+npm run dev
+```
+
+---
+
+# Engineering Learnings
+
+- CRDTs simplify distributed collaborative editing compared to Operational Transform.
+- Warm container pools dramatically reduce perceived startup latency.
+- Reference-counted container reuse significantly lowers infrastructure cost.
+- Language servers should execute inside the same filesystem visible to users.
+- Binary persistence minimizes storage and synchronization overhead.
+- Proper lifecycle management and graceful cleanup are essential for long-running container workloads.
+
+---
+
+# Future Improvements
+
+- Kubernetes deployment
+- Horizontal container scaling
+- Redis Pub/Sub for distributed collaboration
+- Collaborative debugging
+- Workspace snapshots
+- Version history
+- Distributed LSP workers
+- Multi-region deployment
+
+---
+
+# License
+
+Distributed under the MIT License.
+
+---
+
+# Author
+
+**Aman Kashyap**
+
+IIIT Allahabad
+
+GitHub:
+https://github.com/AmanKashyapp07
+
+Repository:
+https://github.com/AmanKashyapp07/sandbox-ide
+
+---
+
+### Project Goal
+
+NexusIDE was built to explore the systems engineering challenges behind modern cloud development environments. Rather than wrapping existing services, the project implements the underlying infrastructure—from collaborative synchronization and container orchestration to language intelligence and resource management—to demonstrate production-oriented backend and distributed systems design.

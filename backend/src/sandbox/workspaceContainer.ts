@@ -3,6 +3,7 @@ import { warmPoolManager } from './pool';
 import { getPool } from '../db';
 import tar from 'tar-stream';
 
+// this file manages the lifecycle of workspace containers, including creation, reference counting, and cleanup.
 // [UX/DX] Universal Execution Script
 // Injected into every container so users can just type `run index.js` or `run main.cpp` 
 // without needing to know specific compiler flags or runtime commands.
@@ -17,7 +18,7 @@ case "$ext" in
   java) javac "$file" -d /tmp && java -cp /tmp "\${file%.*}" ;;
   sh) sh "$file" ;;
   *) echo "Unsupported: .$ext"; exit 1 ;;
-esac`;
+esac`; // this is like alias for the user to run files without needing to know the specific command for each language.
 
 export interface WorkspaceContainerRef {
   container: Docker.Container;
@@ -25,10 +26,11 @@ export interface WorkspaceContainerRef {
   refCount: number;
   hostPort?: number | undefined;
   cleanupTimeout?: NodeJS.Timeout | null;
+  lastActivityMs?: number;
 }
-
+// workspace containers are used for running user code in a secure, isolated environment. Each user in a workspace gets their own container, but if they open multiple tabs, they share the same container. This is important for resource efficiency and session persistence.
 // [STATE MANAGEMENT] Active Session Registry
-// Maps `${userId}-${workspaceId}` to a container reference. 
+// Maps `${userId}-${workspaceId}` to a container reference. every user in a workspace gets their own container, but if they open multiple tabs, they share the same container. This is important for resource efficiency and session persistence. 
 // Enables container multiplexing: if a user opens the same workspace in 5 browser tabs, 
 // they share 1 underlying container instead of booting 5, saving massive RAM and CPU.
 const activeWorkspaceContainers = new Map<string, WorkspaceContainerRef>();
@@ -100,7 +102,7 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
     console.error(`[WorkspaceContainer] Setup failed for ${key}:`, err);
   }
 
-  activeWorkspaceContainers.set(key, { container, id, refCount: 1, hostPort, cleanupTimeout: null });
+  activeWorkspaceContainers.set(key, { container, id, refCount: 1, hostPort, cleanupTimeout: null, lastActivityMs: Date.now() });
   return container;
 }
 
@@ -145,3 +147,27 @@ export const getRunningContainer = (userId: string, workspaceId: string): Docker
 
 export const getRunningContainerRef = (userId: string, workspaceId: string): WorkspaceContainerRef | null => 
   activeWorkspaceContainers.get(`${userId}-${workspaceId}`) || null;
+
+export function touchWorkspaceActivity(userId: string, workspaceId: string): void {
+  const key = `${userId}-${workspaceId}`;
+  const ref = activeWorkspaceContainers.get(key);
+  if (ref) {
+    ref.lastActivityMs = Date.now();
+  }
+}
+
+// [RESOURCE MANAGEMENT] Global AFK Sweeper
+// Scans active containers every 5 minutes. If a container hasn't received a heartbeat
+// in over 30 minutes, forcefully kill it to prevent orphaned containers from draining resources.
+setInterval(async () => {
+  const now = Date.now();
+  for (const [key, ref] of activeWorkspaceContainers.entries()) {
+    if (ref.lastActivityMs && now - ref.lastActivityMs > 30 * 60 * 1000) {
+      console.log(`[WorkspaceContainer] AFK Timeout exceeded for ${key}. Force destroying...`);
+      if (ref.cleanupTimeout) clearTimeout(ref.cleanupTimeout);
+      activeWorkspaceContainers.delete(key);
+      await ref.container.remove({ force: true }).catch(() => {});
+      warmPoolManager.releaseTerminalContainer();
+    }
+  }
+}, 5 * 60 * 1000);
