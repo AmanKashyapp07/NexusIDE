@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole, WorkspaceAuthRequest } from '../middleware/workspaceAuth';
 import { ZipArchive } from 'archiver';
 import { getPool } from '../db';
+import * as Y from 'yjs';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/workspaceContainer';
@@ -192,20 +193,43 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
     const { name, type, parent_id, language } = req.body;
     if (!name || !['file', 'directory'].includes(type)) return res.status(400).json({ error: 'Invalid params' });
 
-    const newFile = await getPool().query('INSERT INTO files (workspace_id, name, type, parent_id, language) VALUES ($1, $2, $3, $4, $5) RETURNING id, parent_id, name, type, language', [id, name, type, parent_id || null, type === 'file' ? (language || 'javascript') : null]);
-    
-    // [ARCHITECTURE] Fire-and-Forget PTY Synchronization
-    // Background sync to the active Docker container to keep the bash terminal perfectly mirrored 
-    // without blocking the HTTP response latency for the editor UI.
+    // For new files, write an initial empty Yjs state to the DB immediately so that
+    // bindState always finds a valid (empty) doc to load from — even if the first
+    // keystroke hasn't debounced and saved yet. Without this, a collaborator who opens
+    // the file in the window before the first save gets an uninitialized doc that may
+    // not merge cleanly with the author's in-memory doc, causing stuck/empty editors.
+    let initialYjsState: Buffer | null = null;
+    if (type === 'file') {
+      const emptyDoc = new Y.Doc();
+      initialYjsState = Buffer.from(Y.encodeStateAsUpdate(emptyDoc));
+      emptyDoc.destroy();
+    }
+
+    const newFile = await getPool().query(
+      'INSERT INTO files (workspace_id, name, type, parent_id, language, content, yjs_state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, parent_id, name, type, language',
+      [id, name, type, parent_id || null, type === 'file' ? (language || 'javascript') : null, '', initialYjsState]
+    );
+
+    // Fire-and-forget PTY sync to keep the container file system mirrored
     getPool().query(`
       WITH RECURSIVE cte AS (SELECT id, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1)
       SELECT path FROM cte WHERE id = $2;`, [id, newFile.rows[0].id]
-    ).then(res => {
-      if (res.rows.length) type === 'directory' ? syncFolderToTerminal(id, res.rows[0].path).catch(()=>{}) : syncFileToTerminal(id, newFile.rows[0].id, '').catch(()=>{});
+    ).then(r => {
+      if (r.rows.length) type === 'directory' ? syncFolderToTerminal(id, r.rows[0].path).catch(()=>{}) : syncFileToTerminal(id, newFile.rows[0].id, '').catch(()=>{});
     }).catch(()=>{});
 
     res.status(201).json(newFile.rows[0]);
   } catch (err: any) { res.status(err.code === '23505' ? 400 : 500).json({ error: err.code === '23505' ? 'Duplicate file name' : err.message }); }
+});
+
+// GET file content — used as a fallback by CodeEditor when Yjs sync is slow or stuck.
+// Returns the latest content from DB so the client can force-apply it to the local doc.
+router.get('/:id/files/:fileId/content', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+  try {
+    const result = await getPool().query('SELECT content FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
+    res.json({ content: result.rows[0].content || '' });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {

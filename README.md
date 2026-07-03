@@ -35,6 +35,7 @@ Real-time collaboration • Docker Sandboxing • Persistent Terminals • AI Au
 - Security
 - Performance Optimizations
 - Getting Started
+- Testing
 - Engineering Learnings
 - Future Improvements
 - License
@@ -360,6 +361,108 @@ cd frontend
 
 npm run dev
 ```
+
+---
+
+---
+
+# Testing
+
+NexusIDE has a comprehensive, multi-layer test suite that validates everything from individual units to full real-browser multi-user collaboration flows. All 4 suites run against the actual production code — nothing is mocked at the infrastructure level.
+
+---
+
+## Test Suites Overview
+
+| Suite | Tool | Scope | Files |
+|-------|------|-------|-------|
+| **Backend Unit Tests** | Vitest | Auth routes, workspace CRUD, collaborator permissions, CRDT persistence | `backend/src/tests/` |
+| **Frontend Component Tests** | Vitest + React Testing Library | CodeEditor Yjs lifecycle, provider creation/teardown, awareness, role enforcement | `frontend/src/tests/` |
+| **E2E Collaboration Tests** | Playwright | Full multi-user CRDT editing, presence, file tree sync, role transitions, CRDT stress | `frontend/e2e/collaboration.spec.ts` |
+| **E2E Terminal Tests** | Playwright | PTY session, command execution, npm run dev, restart, viewer restrictions | `frontend/e2e/terminal.spec.ts` |
+
+---
+
+## Running the Tests
+
+### Backend Unit Tests
+
+```bash
+cd backend
+npm test
+```
+
+Tests cover:
+- `POST /auth/test-login` — user creation and JWT issuance
+- `GET /auth/me` — token verification and user hydration
+- `POST /workspace` — workspace creation with Docker container provisioning
+- `GET /workspace/:id` — authorization and role resolution for owner / collaborator / stranger
+- `POST /workspace/:id/collaborators` — invite flow with role assignment
+- `PATCH /workspace/:id/collaborators/:userId` — role update (admin only)
+- `DELETE /workspace/:id/collaborators/:userId` — remove collaborator (admin only)
+- CRDT document persistence and state-vector sync
+
+### Frontend Component Tests
+
+```bash
+cd frontend
+npm test
+```
+
+Tests cover:
+- `CodeEditor` mounts a `WebsocketProvider` per `(workspaceId, fileId)` room
+- Provider is torn down and recreated when `fileId` changes (file switch)
+- `MonacoBinding` is not created until the Yjs sync is complete
+- Editor is `readOnly` for `viewer` role and fully editable for `editor`/`admin`
+- Awareness state is correctly broadcast and cleaned up on unmount
+- Remote cursor widgets are added and removed on peer join/leave
+
+### E2E Collaboration Suite (Playwright)
+
+> Requires both backend and frontend dev servers to be running.
+
+```bash
+# Terminal 1
+cd backend && npm run dev
+
+# Terminal 2
+cd frontend && npm run dev
+
+# Terminal 3 — run the suite
+cd frontend
+npx playwright test e2e/collaboration.spec.ts --reporter=list
+```
+
+| # | Test | What it validates |
+|---|------|-------------------|
+| 1 | Typing sync & role enforcement | Bidirectional CRDT sync between two users; editor→viewer downgrade blocks further writes |
+| 2 | File tree sync & rug-pull deletion | Peer sees new files instantly; active editor closes safely when file is deleted under it |
+| 3 | Presence & ghost cursor cleanup | Avatar appears in navbar; remote cursor renders in Monaco; both disappear on tab close |
+| 4 | Interactive terminal streaming | `node script.js` executes in each user's independent PTY; output streams correctly |
+| 5 | Simultaneous CRDT stress test | Both users fire concurrent keystrokes; documents converge to identical state via Yjs |
+| 6 | File rename & socket stability | `mv` via terminal creates new sidebar entry; WebSocket room stays live after rename |
+
+### E2E Terminal Suite (Playwright)
+
+```bash
+cd frontend
+npx playwright test e2e/terminal.spec.ts --reporter=list
+```
+
+Tests cover PTY lifecycle, command execution, `npm run dev` port detection, terminal restart, and viewer access restrictions.
+
+---
+
+## E2E Test Design Philosophy
+
+The E2E tests exercise the **full production stack** — real Chromium browsers, real HTTP/WebSocket connections to the backend, real PostgreSQL, and real Docker containers. No infrastructure is mocked.
+
+Key patterns used:
+
+- **`loginUser()` helper** — hydration-safe login that waits for the input to be stable before interacting, preventing React re-render race conditions.
+- **`createFile()` helper** — waits for the React tree to settle before clicking "New File", preventing the inline input from closing prematurely on re-renders.
+- **`page.keyboard.type()`** over `.fill()` inside Monaco — Monaco's `<textarea>` is permanently `readonly="true"` at the DOM level (key events are intercepted globally); `.fill()` always fails, `.keyboard.type()` works correctly.
+- **`waitForTimeout(2000)` after typing** — allows the 800 ms server debounce to flush CRDT changes to disk before terminal execution.
 
 ---
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import CodeEditor from '../components/Editor/CodeEditor';
 import TerminalPanel from '../components/Terminal/TerminalPanel';
@@ -7,8 +7,6 @@ import { useToast } from '../components/Toast/Toast';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder, Activity, ChevronDown } from 'lucide-react';
-import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
 import { io, type Socket } from 'socket.io-client';
 import { apiUrl, wsUrl } from '../lib/backendUrls';
 
@@ -25,12 +23,6 @@ interface CollaboratorPresence {
   username: string;
   color: string;
   activeFileId: string | null;
-}
-
-interface WorkspaceProvider {
-  doc: Y.Doc;
-  on(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
-  destroy(): void;
 }
 
 interface EditorHandle {
@@ -61,9 +53,11 @@ function IdePage() {
   const [isActiveMembersOpen, setIsActiveMembersOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [terminalKey, setTerminalKey] = useState(0);
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const { addToast } = useToast();
 
-  const handleConnectionStatusChange = (status: ConnectionStatus) => {
+  const handleConnectionStatusChange = useCallback((status: ConnectionStatus) => {
     setConnectionStatus((prevStatus) => {
       if (prevStatus !== status) {
         if (status === 'connected') {
@@ -74,25 +68,37 @@ function IdePage() {
       }
       return status;
     });
-  };
+  }, [addToast]);
 
   const sidebarWidth = 260;
   const editorWidth = 62;
   const mainSplitRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorHandle | null>(null);
-  const workspaceWsProviderRef = useRef<WorkspaceProvider | null>(null);
   const presenceSocketRef = useRef<Socket | null>(null);
   const navigate = useNavigate();
   const { workspaceId: urlWorkspaceId, fileId: urlFileId } = useParams<{ workspaceId: string, fileId: string }>();
 
+  // Keep a stable reference to `navigate`. react-router recreates the `navigate`
+  // function whenever the location changes; if we put it in effect dependency arrays
+  // it retriggers effects on every navigation, which previously caused an infinite
+  // disconnect/reconnect loop. We read the latest navigate through this ref instead.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
   const activeFile = useMemo(() => {
-    const firstFile = files.find((file) => file.type === 'file') || null;
-    if (!urlFileId) return firstFile;
-    return files.find((file) => file.id === urlFileId && file.type === 'file') || firstFile;
+    // If no fileId in the URL, default to the first file (initial load / empty URL)
+    if (!urlFileId) {
+      return files.find((file) => file.type === 'file') || null;
+    }
+    // If a fileId IS in the URL, only return it if it exists in the current files array.
+    // Do NOT fall back to firstFile when urlFileId is present — that would navigate B
+    // away from their current file during a file-tree refresh (e.g. when A creates a new
+    // file and the file-tree-update causes a brief re-fetch).
+    return files.find((file) => file.id === urlFileId && file.type === 'file') || null;
   }, [files, urlFileId]);
   const activeFileId = activeFile?.id ?? null;
   
-  const fetchFiles = async (wsId: string) => {
+  const fetchFiles = useCallback(async (wsId: string) => {
     try {
       const token = localStorage.getItem('token');
       const filesRes = await fetch(apiUrl(`/workspace/${wsId}/files`), {
@@ -105,13 +111,19 @@ function IdePage() {
     } catch (err) {
       console.error('Failed to fetch files', err);
     }
-  };
+  }, []);
 
+  // ---------------------------------------------------------------------------
+  // Bootstrap: fetch the current user + workspace metadata + file tree.
+  // Depends ONLY on urlWorkspaceId (a stable string). We deliberately do NOT
+  // depend on `navigate` — that reference changes on every navigation and would
+  // re-run this effect, re-setting `user` and cascading into the socket effect.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     const initWorkspace = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        navigate('/login');
+        navigateRef.current('/login');
         return;
       }
 
@@ -122,7 +134,7 @@ function IdePage() {
 
         if (!userRes.ok) {
           localStorage.removeItem('token');
-          navigate('/login');
+          navigateRef.current('/login');
           return;
         }
 
@@ -134,7 +146,7 @@ function IdePage() {
         });
 
         if (!wsRes.ok) {
-          navigate('/dashboard');
+          navigateRef.current('/dashboard');
           return;
         }
 
@@ -146,48 +158,26 @@ function IdePage() {
         await fetchFiles(wsData.id);
       } catch (err) {
         console.error(err);
-        navigate('/login');
+        navigateRef.current('/login');
       }
     };
 
     if (urlWorkspaceId) {
       initWorkspace();
     } else {
-      navigate('/dashboard');
+      navigateRef.current('/dashboard');
     }
-  }, [navigate, urlWorkspaceId]);
+  }, [urlWorkspaceId, fetchFiles]);
 
+  // ---------------------------------------------------------------------------
+  // Socket.IO — the SINGLE channel for presence + file-tree updates.
+  // Created exactly once per (workspace, user). Depends on user?.id (a stable
+  // string), never the user object, so it is not torn down on unrelated renders.
+  // There is NO workspace-level Yjs document anymore — file-tree changes are
+  // broadcast purely through this socket.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!urlWorkspaceId || !user) return;
-
-    const ydoc = new Y.Doc();
-    const token = localStorage.getItem('token') || '';
-    const wsProvider = new WebsocketProvider(
-      wsUrl(''),
-      `workspace-${urlWorkspaceId}`,
-      ydoc,
-      { params: { token } }
-    ) as WorkspaceProvider;
-    workspaceWsProviderRef.current = wsProvider;
-
-    const eventsMap = ydoc.getMap('workspace-events');
-    eventsMap.observe(() => {
-      fetchFiles(urlWorkspaceId);
-    });
-
-    wsProvider.on('status', (event: { status: ConnectionStatus }) => {
-      setConnectionStatus(event.status);
-    });
-
-    return () => {
-      wsProvider.destroy();
-      ydoc.destroy();
-      workspaceWsProviderRef.current = null;
-    };
-  }, [urlWorkspaceId, user]);
-
-  useEffect(() => {
-    if (!urlWorkspaceId || !user) return;
+    if (!urlWorkspaceId || !user?.id) return;
 
     const token = localStorage.getItem('token') || '';
     const socket = io(wsUrl('').replace(/^ws/, 'http'), {
@@ -196,27 +186,46 @@ function IdePage() {
     presenceSocketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('[Socket] Connected to server, joining workspace room:', urlWorkspaceId);
+      setConnectionStatus('connected');
       socket.emit('join-workspace', { workspaceId: urlWorkspaceId });
+      fetchFiles(urlWorkspaceId); // Sync file tree on connect/reconnect
+    });
+
+    socket.on('disconnect', () => {
+      setConnectionStatus('disconnected');
     });
 
     socket.on('workspace-presence-update', (users: CollaboratorPresence[]) => {
-      console.log('[Socket] Received presence update:', users);
       setActiveCollaborators(users);
     });
 
     socket.on('file-tree-update', () => {
-      console.log('[Socket] Received file-tree-update, fetching fresh file tree...');
       fetchFiles(urlWorkspaceId);
     });
 
+    // Typing indicator: when another user types, show their dot for 2s
+    socket.on('user-typing', ({ userId }: { userId: string }) => {
+      setTypingUsers(prev => new Set(prev).add(userId));
+      // Clear previous timer for this user
+      const existing = typingTimersRef.current.get(userId);
+      if (existing) clearTimeout(existing);
+      // Auto-clear after 2s of no typing
+      typingTimersRef.current.set(userId, setTimeout(() => {
+        setTypingUsers(prev => {
+          const next = new Set(prev);
+          next.delete(userId);
+          return next;
+        });
+        typingTimersRef.current.delete(userId);
+      }, 2000));
+    });
+
     return () => {
-      console.log('[Socket] Disconnecting from workspace:', urlWorkspaceId);
-      socket.emit('leave-workspace');
+      socket.off();
       socket.disconnect();
       presenceSocketRef.current = null;
     };
-  }, [urlWorkspaceId, user]);
+  }, [urlWorkspaceId, user?.id, fetchFiles]);
 
   useEffect(() => {
     if (presenceSocketRef.current && activeFileId) {
@@ -227,28 +236,40 @@ function IdePage() {
   useEffect(() => {
     if (files.length === 0) return;
 
+    // No file in the URL — auto-route to the first available file
     if (!urlFileId) {
-      if (activeFileId) {
-        navigate(`/ide/${urlWorkspaceId}/${activeFileId}`, { replace: true });
+      const firstFile = files.find(f => f.type === 'file');
+      if (firstFile) {
+        navigateRef.current(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
       }
-      return;
     }
+    // urlFileId is set but not found in the current files array — this is a transient
+    // state during file-tree refreshes. Do nothing; wait for the next fetchFiles cycle.
+    // (Previously this fell back to firstFile via the useMemo, causing unwanted redirects.)
+  }, [urlFileId, files, urlWorkspaceId]);
 
-    if (activeFileId && activeFileId !== urlFileId) {
-      navigate(`/ide/${urlWorkspaceId}/${activeFileId}`, { replace: true });
-    }
-  }, [urlFileId, files.length, urlWorkspaceId, navigate, activeFileId]);
-
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
-    navigate('/login');
-  };
+    navigateRef.current('/login');
+  }, []);
 
-  const broadcastFileTreeUpdate = () => {
-    workspaceWsProviderRef.current?.doc.getMap('workspace-events').set('lastFileUpdate', Date.now());
-  };
+  // Tell other collaborators to refresh their file tree. Goes through the single
+  // Socket.IO channel — the server re-broadcasts 'file-tree-update' to the room.
+  const broadcastFileTreeUpdate = useCallback(() => {
+    presenceSocketRef.current?.emit('broadcast-file-tree', { workspaceId: urlWorkspaceId });
+  }, [urlWorkspaceId]);
 
-  const handleFileCreate = async (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => {
+  // Typing indicator: emit to server when local user is typing (debounced to 500ms)
+  const lastTypingEmit = useRef(0);
+  const handleTypingActivity = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTypingEmit.current > 500) {
+      lastTypingEmit.current = now;
+      presenceSocketRef.current?.emit('user-typing', { workspaceId: urlWorkspaceId });
+    }
+  }, [urlWorkspaceId]);
+
+  const handleFileCreate = useCallback(async (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => {
     if (!workspaceId) return;
 
     try {
@@ -269,14 +290,14 @@ function IdePage() {
       broadcastFileTreeUpdate();
 
       if (type === 'file') {
-        navigate(`/ide/${urlWorkspaceId}/${newFile.id}`);
+        navigateRef.current(`/ide/${urlWorkspaceId}/${newFile.id}`);
       }
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Failed to create file', 'error');
     }
-  };
+  }, [workspaceId, urlWorkspaceId, broadcastFileTreeUpdate, addToast]);
 
-  const handleFileDelete = async (id: string) => {
+  const handleFileDelete = useCallback(async (id: string) => {
     if (!workspaceId) return;
 
     try {
@@ -295,9 +316,9 @@ function IdePage() {
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [workspaceId, activeFile?.id, broadcastFileTreeUpdate]);
 
-  const handleExportWorkspace = async () => {
+  const handleExportWorkspace = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/export`), {
@@ -323,7 +344,7 @@ function IdePage() {
       const message = err instanceof Error ? err.message : 'Unknown export error';
       addToast(`Failed to export: ${message}`, 'error');
     }
-  };
+  }, [workspaceId, workspaceTitle, addToast]);
 
   if (!user || !workspaceId) {
     return (
@@ -415,6 +436,9 @@ function IdePage() {
                     >
                       {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
                       <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-[#030303] bg-emerald-500" />
+                      {typingUsers.has(c.userId) && (
+                        <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-blue-400 animate-ping" />
+                      )}
                     </div>
                   ))}
                   {activeCollaborators.length > 3 && (
@@ -456,7 +480,16 @@ function IdePage() {
                           <div className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0A0A0A] bg-emerald-500" />
                         </div>
                         <div className="flex flex-col items-start min-w-0">
-                          <span className="text-sm font-medium text-zinc-200 truncate w-full text-left">{c.username || 'Unknown'}</span>
+                          <span className="text-sm font-medium text-zinc-200 truncate w-full text-left flex items-center gap-1.5">
+                            {c.username || 'Unknown'}
+                            {typingUsers.has(c.userId) && (
+                              <span className="inline-flex gap-0.5 items-center">
+                                <span className="h-1 w-1 rounded-full bg-blue-400 animate-bounce [animation-delay:0ms]" />
+                                <span className="h-1 w-1 rounded-full bg-blue-400 animate-bounce [animation-delay:150ms]" />
+                                <span className="h-1 w-1 rounded-full bg-blue-400 animate-bounce [animation-delay:300ms]" />
+                              </span>
+                            )}
+                          </span>
                           {c.activeFileId && (
                             <span className="text-[11px] text-zinc-500 truncate w-full text-left flex items-center gap-1">
                               <FileText size={10} />
@@ -497,6 +530,18 @@ function IdePage() {
           </div>
         </div>
       </header>
+
+      {/* Global Disconnect Overlay */}
+      {connectionStatus !== 'connected' && (
+        <div className="absolute inset-x-0 top-14 z-40 flex justify-center pointer-events-none">
+          <div className="mt-2 flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-4 py-1.5 backdrop-blur-md shadow-lg pointer-events-auto">
+            <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+            <span className="text-xs font-medium text-amber-500 tracking-wide">
+              {connectionStatus === 'disconnected' ? 'Connection lost. Reconnecting...' : 'Connecting to workspace...'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Main Workspace Layout */}
       <div className="relative z-10 flex min-h-0 flex-1 gap-4 p-4 pt-4 pb-4 overflow-hidden">
@@ -574,6 +619,7 @@ function IdePage() {
                   readOnly={userRole === 'viewer'}
                   onEditorReady={(editor) => { editorRef.current = editor; }}
                   onConnectionStatusChange={handleConnectionStatusChange}
+                  onCodeChange={handleTypingActivity}
                 />
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-4 text-zinc-500">

@@ -1,9 +1,23 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-// [OBSERVABILITY] Global Log Suppression
-// In production, you typically replace this with a structured logger (like Pino/Winston) 
-// to prevent noisy dependency logs from flooding stdout and increasing cloud logging costs.
+// =============================================================================
+// [OBSERVABILITY] Debug Logger for Collaboration Engine
+// =============================================================================
+// All collaboration events are logged with timestamps and prefixes for fast debugging.
+// To disable in production, set LOG_LEVEL=silent in .env.
+const LOG_ENABLED = process.env.LOG_LEVEL !== 'silent';
+const _origLog = console.log;
+const _origError = console.error;
+const _origWarn = console.warn;
+
+function log(prefix: string, ...args: any[]) {
+  if (!LOG_ENABLED) return;
+  const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+  _origLog(`[${ts}] ${prefix}`, ...args);
+}
+
+// Suppress noisy dependency logs but keep our explicit log() calls working
 console.log = () => {}; console.error = () => {}; console.warn = () => {}; console.info = () => {};
 
 import express from 'express';
@@ -57,54 +71,102 @@ const server = http.createServer(app);
 // =============================================================================
 // [ARCHITECTURE] CRDT PERSISTENCE LAYER (Yjs)
 // =============================================================================
-// INTERVIEW KEY: Why CRDT over Operational Transformation (OT like Google Docs)?
-// OT requires a central server to strictly order every operation. CRDTs are decentralized; 
-// peers can apply edits in any order, and math guarantees they all converge to the exact same state.
-// We store the Yjs state as `BYTEA` (binary) in Postgres because it contains the entire edit history 
-// and logical Lamport timestamps required for conflict resolution, not just the final string.
+// Why CRDT over OT? CRDTs are decentralized — peers can apply edits in any order and
+// math guarantees convergence. We store the Yjs state as BYTEA (binary) in Postgres
+// because it contains the full edit history and Lamport timestamps for conflict resolution.
+//
+// =============================================================================
+// [ARCHITECTURE] PERSISTENCE RULES
+// =============================================================================
+// 1. Yjs is the SINGLE SOURCE OF TRUTH for any file with an open editor session.
+// 2. DB saves are debounced (800ms) to avoid flooding Postgres on every keystroke.
+// 3. After DB save, we sync to container disk. The terminalHandler's write-cooldown
+//    ensures the watcher won't misinterpret our own disk write as an external change.
+// 4. On last client disconnect (writeState), we do a final authoritative save+sync.
+// 5. When a NEW client connects (bindState), we load from DB — this gives them the
+//    latest state even if another collaborator was editing while they were away.
+
 setPersistence({
   bindState: async (docName: string, ydoc: Y.Doc) => {
     const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
-    if (!match) return;
+    if (!match) {
+      log('📄 BIND', `Skipping non-file doc: ${docName}`);
+      return;
+    }
     const workspaceId = match[1]!;
     const fileId = match[2]!;
+
+    log('📄 BIND', `New client joined doc=${docName} (workspace=${workspaceId.slice(0,8)}… file=${fileId.slice(0,8)}…)`);
 
     try {
       const res = await getPool().query('SELECT content, yjs_state FROM files WHERE id = $1', [fileId]);
       if (res.rows.length > 0) {
-        if (res.rows[0].yjs_state) Y.applyUpdate(ydoc, res.rows[0].yjs_state); // Merge saved binary history
-        else if (res.rows[0].content) ydoc.getText('monaco').insert(0, res.rows[0].content); // Legacy fallback
+        if (res.rows[0].yjs_state) {
+          const stateSize = res.rows[0].yjs_state.length;
+          Y.applyUpdate(ydoc, res.rows[0].yjs_state);
+          const textLen = ydoc.getText('monaco').toString().length;
+          log('📄 BIND', `Loaded yjs_state from DB (${stateSize} bytes → ${textLen} chars in doc)`);
+        } else if (res.rows[0].content) {
+          ydoc.getText('monaco').insert(0, res.rows[0].content);
+          log('📄 BIND', `Legacy fallback: inserted content (${res.rows[0].content.length} chars)`);
+        } else {
+          log('📄 BIND', `File exists in DB but has no content or yjs_state (empty file)`);
+        }
+      } else {
+        log('📄 BIND', `⚠️ File NOT FOUND in DB for fileId=${fileId}`);
       }
-    } catch (err) {}
+    } catch (err: any) {
+      log('📄 BIND', `❌ DB error loading file: ${err.message}`);
+    }
 
-    // [PERFORMANCE] Write Throttling / Debouncing
-    // Yjs emits an update for every single keystroke. Writing to Postgres on every keystroke 
-    // would immediately overload the DB connections. We debounce writes by 400ms.
+    // Debounced persistence
     let saveTimeout: NodeJS.Timeout | null = null;
+    let isSaving = false;
+    let updateCount = 0;
+
     ydoc.on('update', () => {
+      updateCount++;
       if (saveTimeout) clearTimeout(saveTimeout);
       saveTimeout = setTimeout(async () => {
+        if (isSaving) {
+          log('💾 SAVE', `Skipped (already saving) doc=${docName} updates=${updateCount}`);
+          return;
+        }
+        isSaving = true;
+        const batchedUpdates = updateCount;
+        updateCount = 0;
         try {
           const state = Buffer.from(Y.encodeStateAsUpdate(ydoc));
           const content = ydoc.getText('monaco').toString();
+          log('💾 SAVE', `Persisting doc=${docName} updates=${batchedUpdates} contentLen=${content.length} stateSize=${state.length}`);
           await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, fileId]);
-          syncFileToTerminal(workspaceId, fileId, content).catch(() => {});
-        } catch (err) {}
-      }, 400);
+          log('💾 SAVE', `✅ DB write complete for ${fileId.slice(0,8)}…`);
+          syncFileToTerminal(workspaceId, fileId, content).catch((e) => {
+            log('💾 SYNC', `❌ Disk sync failed: ${e.message}`);
+          });
+        } catch (err: any) {
+          log('💾 SAVE', `❌ DB save error: ${err.message}`);
+        }
+        isSaving = false;
+      }, 800);
     });
   },
 
   writeState: async (docName: string, ydoc: Y.Doc) => {
-    // Authoritative final save when the last client disconnects from the file.
     const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
     if (!match) return;
     const workspaceId = match[1]!;
     const fileId = match[2]!;
     try {
+      const state = Buffer.from(Y.encodeStateAsUpdate(ydoc));
       const content = ydoc.getText('monaco').toString();
-      await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [Buffer.from(Y.encodeStateAsUpdate(ydoc)), content, fileId]);
+      log('🔒 CLOSE', `Last client left doc=${docName} — final save (${content.length} chars, ${state.length} bytes)`);
+      await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, fileId]);
       syncFileToTerminal(workspaceId, fileId, content).catch(() => {});
-    } catch (err) {}
+      log('🔒 CLOSE', `✅ Final save complete for ${fileId.slice(0,8)}…`);
+    } catch (err: any) {
+      log('🔒 CLOSE', `❌ Final save error: ${err.message}`);
+    }
   }
 });
 
@@ -136,34 +198,51 @@ wss.on('connection', async (ws, req) => {
 
     // Route 3: Yjs Collaborative Editing
     const token = url.searchParams.get('token');
-    if (!token) return ws.close(4401, 'Unauthorized');
+    if (!token) {
+      log('🔌 WS', `Rejected: no token, path=${url.pathname}`);
+      return ws.close(4401, 'Unauthorized');
+    }
 
     let decodedUser: any;
     try { decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret'); } 
-    catch (e) { return ws.close(4401, 'Invalid token'); }
+    catch (e) {
+      log('🔌 WS', `Rejected: invalid token, path=${url.pathname}`);
+      return ws.close(4401, 'Invalid token');
+    }
 
     const docName = url.pathname.slice(1);
+    log('🔌 WS', `Connection from user="${decodedUser.username}" (${decodedUser.id?.slice(0,8)}…) doc="${docName}"`);
+
     if (!docName || docName === 'default') return setupWSConnection(ws, req, { docName });
 
     const match = docName.match(/^([0-9a-fA-F-]{36})(-.*)?$/) || docName.match(/^workspace-([0-9a-fA-F-]{36})$/);
-    if (!match) return ws.close(4000, 'Invalid room format');
+    if (!match || !match[1]) {
+      log('🔌 WS', `Rejected: invalid room format "${docName}"`);
+      return ws.close(4000, 'Invalid room format');
+    }
     const workspaceId = match[1];
 
     const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
-    if (!wsResult.rows.length) return ws.close(4044, 'Workspace not found');
+    if (!wsResult.rows.length) {
+      log('🔌 WS', `Rejected: workspace not found ${workspaceId}`);
+      return ws.close(4044, 'Workspace not found');
+    }
 
     let role = wsResult.rows[0].owner_id === decodedUser.id ? 'admin' : null;
     if (!role) {
       const collabRes = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, decodedUser.id]);
       role = collabRes.rows.length ? collabRes.rows[0].role : (wsResult.rows[0].is_public ? 'viewer' : null);
     }
-    if (!role) return ws.close(4403, 'Forbidden');
+    if (!role) {
+      log('🔌 WS', `Rejected: forbidden user=${decodedUser.username} workspace=${workspaceId.slice(0,8)}…`);
+      return ws.close(4403, 'Forbidden');
+    }
 
-    // [SECURITY] CRDT Read-Only Enforcement
-    // Viewers shouldn't be able to edit code. We intercept incoming WS messages at the byte level.
-    // In Yjs protocol: MessageType 0 is a Sync message. Message[1] === 0 is "SyncStep1" (requesting state vector).
-    // We allow SyncStep1 so they can read, but silently drop all other binary updates.
+    log('🔌 WS', `✅ Authorized user="${decodedUser.username}" role=${role} doc="${docName}"`);
+
+    // [SECURITY] CRDT Read-Only Enforcement for viewers
     if (role === 'viewer') {
+      log('🔌 WS', `Applying viewer read-only filter for ${decodedUser.username}`);
       const originalOn = ws.on.bind(ws);
       ws.on = (event: string, listener: any) => {
         if (event === 'message') {
@@ -176,8 +255,15 @@ wss.on('connection', async (ws, req) => {
       };
     }
 
+    ws.on('close', (code, reason) => {
+      log('🔌 WS', `Disconnected user="${decodedUser.username}" doc="${docName}" code=${code}`);
+    });
+
     setupWSConnection(ws, req, { docName });
-  } catch (error) { ws.close(4500, 'Internal Server Error'); }
+  } catch (error: any) {
+    log('🔌 WS', `❌ Error: ${error.message}`);
+    ws.close(4500, 'Internal Server Error');
+  }
 });
 
 // =============================================================================
@@ -222,6 +308,32 @@ io.on('connection', (socket) => {
     if (member) { member.activeFileId = activeFileId; broadcastPresence(wsId); }
   });
 
+  // File-tree broadcast: when one client creates/deletes a file, it asks the server
+  // to notify everyone else in the workspace to refresh their tree. This replaces the
+  // old workspace-level Yjs document — the single Socket.IO channel handles it now.
+  socket.on('broadcast-file-tree', ({ workspaceId }) => {
+    if (!socket.data.user || !workspaceId) return;
+    log('🌲 TREE', `Broadcasting file-tree-update to presence-${String(workspaceId).slice(0,8)}… (from ${socket.data.user.username})`);
+    io.to(`presence-${workspaceId}`).emit('file-tree-update');
+  });
+
+  // Typing indicator: relay to other users in the workspace (exclude sender)
+  socket.on('user-typing', ({ workspaceId }) => {
+    if (!socket.data.user || !workspaceId) return;
+    socket.to(`presence-${workspaceId}`).emit('user-typing', { userId: socket.data.user.id });
+  });
+
+  socket.on('leave-workspace', () => {
+    const wsId = socket.data.presenceWorkspaceId;
+    if (wsId) {
+      socket.leave(`presence-${wsId}`);
+      workspacePresence.get(wsId)?.delete(socket.id);
+      if (workspacePresence.get(wsId)?.size === 0) workspacePresence.delete(wsId);
+      broadcastPresence(wsId);
+      socket.data.presenceWorkspaceId = undefined;
+    }
+  });
+
   // [NETWORK ARCHITECTURE] WebRTC Signaling Relay
   // INTERVIEW KEY: Our server does NOT process audio data. We are simply a signaling broker.
   // We relay SDP Offers, Answers, and ICE Candidates between peers. Once established, audio flows P2P, saving massive bandwidth.
@@ -255,8 +367,11 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 4000;
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => {
+    log('🚀 BOOT', `Server listening on port ${PORT}`);
     warmPoolManager.initializePools().catch(() => {});
-    getPool().query('SELECT NOW()', (err) => console.log(err ? '❌ DB Connection Failed' : '✅ DB Connected'));
+    getPool().query('SELECT NOW()', (err) => {
+      log('🚀 BOOT', err ? '❌ DB Connection Failed' : '✅ DB Connected');
+    });
   });
 }
 

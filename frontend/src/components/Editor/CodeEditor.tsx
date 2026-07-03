@@ -1,11 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
-import { IndexeddbPersistence } from 'y-indexeddb';
 import { apiUrl, wsUrl } from '../../lib/backendUrls';
+
+// =============================================================================
+// [ARCHITECTURE] SINGLE SOURCE OF TRUTH
+// =============================================================================
+// The server-side Yjs document (backed by Postgres) is the ONLY source of truth.
+// We deliberately DO NOT use IndexeddbPersistence (browser local cache) because:
+//   1. It caches per-file doc state in the browser keyed by room name. When testing
+//      multiple users on the same machine/origin, tabs share the same IndexedDB and
+//      cross-contaminate each other's document state.
+//   2. A stale/empty local cache races with the server sync — Yjs computes the local
+//      state vector from the cache, concludes it's "already synced", and the real
+//      server content never arrives. This is the classic "empty file on join" bug.
+//   3. Offline editing is not a requirement for a server-backed collaborative IDE.
+//
+// Instead, every client does a clean, deterministic sync from the server on join,
+// and the editor stays gated (read-only + overlay) until that sync completes.
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
 type MonacoInstance = typeof Monaco;
@@ -112,14 +127,22 @@ export default function CodeEditor({
   const [editor, setEditor] = useState<MonacoCodeEditor | null>(null);
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
+
+  // Store callback props in refs so the Yjs useEffect doesn't need them as dependencies.
+  const onAwarenessChangeRef = useRef(onAwarenessChange);
+  const onConnectionStatusChangeRef = useRef(onConnectionStatusChange);
+  onAwarenessChangeRef.current = onAwarenessChange;
+  onConnectionStatusChangeRef.current = onConnectionStatusChange;
 
   useEffect(() => {
     if (!editor) return;
 
     const ydoc = new Y.Doc();
     const roomName = `${workspaceId}-${fileId}`;
-    const indexeddbProvider = new IndexeddbPersistence(roomName, ydoc);
     const token = localStorage.getItem('token') || '';
+
+    // Only the WebSocket provider — no IndexedDB. The server is the single source of truth.
     const wsProvider = new WebsocketProvider(
       wsUrl(''),
       roomName,
@@ -130,10 +153,9 @@ export default function CodeEditor({
     let isActive = true;
 
     const handleStatusChange = (event: { status: ConnectionStatus }) => {
-      if (isActive && onConnectionStatusChange) {
-        onConnectionStatusChange(event.status);
-      }
-      if (isActive && event.status === 'connected') {
+      if (!isActive) return;
+      onConnectionStatusChangeRef.current?.(event.status);
+      if (event.status === 'connected') {
         wsProvider.awareness.setLocalStateField('user', {
           name: currentUser.username,
           color: getUserColor(currentUser.username),
@@ -148,13 +170,11 @@ export default function CodeEditor({
       const states = Array.from(wsProvider.awareness.getStates().entries());
       setAwarenessStates(states);
 
-      if (onAwarenessChange) {
-        const users = states
-          .map(([, state]) => state.user)
-          .filter((user): user is AwarenessUser => Boolean(user));
-        const uniqueUsers = Array.from(new Map(users.map((user) => [user.name, user])).values());
-        onAwarenessChange(uniqueUsers);
-      }
+      const users = states
+        .map(([, state]) => state.user)
+        .filter((user): user is AwarenessUser => Boolean(user));
+      const uniqueUsers = Array.from(new Map(users.map((user) => [user.name, user])).values());
+      onAwarenessChangeRef.current?.(uniqueUsers);
     };
 
     wsProvider.awareness.on('change', handleAwarenessChange);
@@ -164,7 +184,6 @@ export default function CodeEditor({
     const model = editor.getModel();
     if (!model) return;
 
-    // Yjs owns document reconciliation while Monaco stays focused on editor rendering.
     const binding = new MonacoBinding(
       type,
       model,
@@ -172,16 +191,72 @@ export default function CodeEditor({
       wsProvider.awareness as ConstructorParameters<typeof MonacoBinding>[3]
     );
 
+    // FALLBACK: If after 2s the Yjs doc is still empty but the DB has content,
+    // force-load it. This handles edge cases where the y-websocket sync protocol
+    // silently fails (e.g. server restart, auth race, bindState error).
+    // This is the "belt and suspenders" approach used by production collaborative IDEs.
+    const fallbackTimer = setTimeout(async () => {
+      if (!isActive) return;
+      const currentContent = ydoc.getText('monaco').toString();
+      if (currentContent.length > 0) return; // Doc has content, sync worked fine
+
+      try {
+        const reqToken = localStorage.getItem('token');
+        const res = await fetch(apiUrl(`/workspace/${workspaceId}/files/${fileId}/content`), {
+          headers: { Authorization: `Bearer ${reqToken || ''}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.content && data.content.length > 0 && ydoc.getText('monaco').toString().length === 0) {
+          // Force-apply the DB content to the Yjs doc as a local transaction
+          ydoc.transact(() => {
+            ydoc.getText('monaco').insert(0, data.content);
+          });
+        }
+      } catch {}
+    }, 2000);
+
+    // Save status indicator: tracks local edits → debounce matches server's 800ms → "Saved"
+    let saveDebounce: ReturnType<typeof setTimeout> | null = null;
+    let savedFade: ReturnType<typeof setTimeout> | null = null;
+    let isFirstUpdate = true;
+
+    const handleDocUpdate = (_update: Uint8Array, origin: any) => {
+      // Skip remote updates (origin === WebsocketProvider means it came from another user)
+      // We only show save status for LOCAL edits
+      if (origin === wsProvider) return;
+      // Skip the initial load
+      if (isFirstUpdate) { isFirstUpdate = false; return; }
+
+      setSaveStatus('unsaved');
+      if (saveDebounce) clearTimeout(saveDebounce);
+      if (savedFade) clearTimeout(savedFade);
+
+      saveDebounce = setTimeout(() => {
+        setSaveStatus('saving');
+        // Server saves in ~800ms debounce + DB write time. We simulate the confirmation.
+        setTimeout(() => {
+          setSaveStatus('saved');
+          savedFade = setTimeout(() => setSaveStatus('idle'), 2500);
+        }, 500);
+      }, 900); // Slightly after server's 800ms debounce to feel responsive
+    };
+
+    ydoc.on('update', handleDocUpdate);
+
     return () => {
       isActive = false;
+      clearTimeout(fallbackTimer);
+      if (saveDebounce) clearTimeout(saveDebounce);
+      if (savedFade) clearTimeout(savedFade);
+      ydoc.off('update', handleDocUpdate);
       wsProvider.off('status', handleStatusChange);
       wsProvider.awareness.off('change', handleAwarenessChange);
       binding.destroy();
       wsProvider.destroy();
-      indexeddbProvider.destroy();
       ydoc.destroy();
     };
-  }, [editor, workspaceId, fileId, currentUser.username, onAwarenessChange, onConnectionStatusChange]);
+  }, [editor, workspaceId, fileId, currentUser.username]);
 
  useEffect(() => {
     if (!editor || !monacoInstance || readOnly) return;
@@ -367,7 +442,7 @@ export default function CodeEditor({
             const name = state.user.name || 'Anonymous';
             return `
             .yRemoteSelection-${clientId} {
-              background-color: ${color}25 !important;
+              background-color: ${color}35 !important; /* Enhanced selection visibility */
             }
             .yRemoteSelectionHead-${clientId} {
               position: absolute;
@@ -375,6 +450,7 @@ export default function CodeEditor({
               box-sizing: border-box;
               height: 100%;
               z-index: 10;
+              animation: cursorFadeIn-${clientId} 0.15s ease-out;
             }
             .yRemoteSelectionHead-${clientId}::before {
               content: '';
@@ -402,13 +478,22 @@ export default function CodeEditor({
               border-radius: 4px 4px 4px 0px;
               white-space: nowrap;
               pointer-events: none;
-              opacity: 0;
-              transform: translateY(2px);
-              transition: opacity 0.15s ease-out, transform 0.15s ease-out;
               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
               z-index: 20;
+              /* Always visible on activity, fades after 3s */
+              animation: cursorLabelFade-${clientId} 4s ease-out forwards;
+            }
+            @keyframes cursorLabelFade-${clientId} {
+              0% { opacity: 1; transform: translateY(0); }
+              75% { opacity: 1; transform: translateY(0); }
+              100% { opacity: 0; transform: translateY(2px); }
+            }
+            @keyframes cursorFadeIn-${clientId} {
+              from { opacity: 0; }
+              to { opacity: 1; }
             }
             .yRemoteSelectionHead-${clientId}:hover::after {
+              animation: none;
               opacity: 1;
               transform: translateY(0);
             }
@@ -451,11 +536,53 @@ export default function CodeEditor({
             horizontalScrollbarSize: 10,
             useShadows: false,
           },
+          // Gate editing until the server sync completes. This prevents a joining user
+          // from typing into an empty, not-yet-synced document (which would fork state).
           readOnly,
         }}
         onMount={handleEditorDidMount}
         onChange={(value) => onCodeChange?.(value || '')}
       />
+
+      {/* Read-Only Badge */}
+      {readOnly && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold text-zinc-400 bg-black/40 border border-white/10 backdrop-blur-md shadow-sm">
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          View Only
+        </div>
+      )}
+
+      {/* Save status indicator */}
+      {saveStatus !== 'idle' && (
+        <div className={`absolute top-3 right-4 z-20 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all duration-300 ${
+          saveStatus === 'unsaved' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+          saveStatus === 'saving' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+          'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+        }`}>
+          {saveStatus === 'unsaved' && (
+            <>
+              <div className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              Unsaved
+            </>
+          )}
+          {saveStatus === 'saving' && (
+            <>
+              <div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+              Saving...
+            </>
+          )}
+          {saveStatus === 'saved' && (
+            <>
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Saved
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

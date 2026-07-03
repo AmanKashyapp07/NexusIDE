@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --ignore ./workspace_data src/server.ts",
     "start": "tsx src/server.ts",
     "test": "vitest run"
   },
@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@mistralai/mistralai": "^1.8.2",
     "adm-zip": "^0.5.18",
     "archiver": "^8.0.0",
     "axios": "^1.18.1",
@@ -22,7 +23,6 @@
     "express": "^5.2.1",
     "http-proxy-middleware": "^3.0.7",
     "jsonwebtoken": "^9.0.3",
-    "@mistralai/mistralai": "^1.8.2",
     "pg": "^8.21.0",
     "socket.io": "^4.8.3",
     "ws": "^8.21.0",
@@ -42,6 +42,7 @@
     "@types/supertest": "^7.2.0",
     "@types/tar-stream": "^3.1.4",
     "@types/ws": "^8.18.1",
+    "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

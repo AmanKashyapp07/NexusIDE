@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiUrl } from '../lib/backendUrls';
 
 interface FeatureCardProps {
@@ -18,6 +19,12 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description }) =
 );
 
 export default function AuthPage() {
+  const [testUsername, setTestUsername] = useState('');
+  const [testPassword, setTestPassword] = useState('');
+  const [testError, setTestError] = useState('');
+  const [testLoading, setTestLoading] = useState(false);
+  const navigate = useNavigate();
+
   const features = [
     { icon: '🛡️', title: 'Immutable Access', description: 'Isolated sandboxes running behind an advanced OAuth security layer.' },
     { icon: '⚡', title: 'High Availability', description: 'Zero-latency workspace initialization with sub-100ms recovery protocols.' },
@@ -109,11 +116,70 @@ export default function AuthPage() {
                 <div className="w-full border-t border-white/[0.06]" />
               </div>
               <span className="relative bg-[#0d0d11] px-3.5 text-[10px] font-bold uppercase tracking-widest text-neutral-500">
-                Secure Layer
+                Test Login
               </span>
             </div>
 
-            <p className="text-center text-[11px] leading-relaxed text-neutral-500 px-2 relative z-10 font-normal">
+            {/* Test Login Form */}
+            <form
+              className="space-y-3 relative z-10"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!testUsername.trim()) return;
+                setTestError('');
+                setTestLoading(true);
+                try {
+                  const res = await fetch(apiUrl('/auth/test-login'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: testUsername.trim(), password: testPassword || 'test' }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || 'Login failed');
+                  localStorage.setItem('token', data.token);
+                  navigate('/dashboard');
+                } catch (err: any) {
+                  setTestError(err.message || 'Login failed');
+                } finally {
+                  setTestLoading(false);
+                }
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Username (e.g. alice, bob)"
+                value={testUsername}
+                onChange={(e) => setTestUsername(e.target.value)}
+                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 placeholder-neutral-500 outline-none transition focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/20"
+              />
+              <input
+                type="password"
+                placeholder="Password (anything works)"
+                value={testPassword}
+                onChange={(e) => setTestPassword(e.target.value)}
+                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 placeholder-neutral-500 outline-none transition focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/20"
+              />
+              {testError && (
+                <p className="text-xs text-red-400">{testError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={testLoading || !testUsername.trim()}
+                className="w-full flex items-center justify-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 py-2.5 px-4 text-sm font-semibold text-purple-300 transition hover:bg-purple-500/20 hover:border-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testLoading ? (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" /></svg>
+                ) : (
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                )}
+                Sign in as Test User
+              </button>
+              <p className="text-[10px] text-center text-neutral-600">
+                Use different usernames in different browser tabs to simulate multiple collaborators.
+              </p>
+            </form>
+
+            <p className="text-center text-[11px] leading-relaxed text-neutral-500 px-2 relative z-10 font-normal mt-4">
               By continuing, you agree to our{' '}
               <a href="#terms" className="text-neutral-400 underline decoration-neutral-600 underline-offset-2 hover:text-white transition">Terms of Service</a>{' '}
               and{' '}

@@ -83,6 +83,60 @@ router.get('/github/callback', async (req, res) => {
   }
 });
 
+// =============================================================================
+// [DEV ONLY] Test Login — username/password bypass for local multi-user testing
+// =============================================================================
+// Creates or finds a user by username. No real password hashing — this is purely
+// for testing collaboration with multiple browser tabs on the same machine.
+router.post('/test-login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    if (username.length < 2 || username.length > 30) {
+      return res.status(400).json({ error: 'Username must be 2-30 characters' });
+    }
+
+    const pool = getPool();
+    const email = `${username.toLowerCase()}@test.local`;
+
+    // Check if user already exists
+    let dbUser = await pool.query('SELECT * FROM users WHERE username = $1 OR email = $2', [username, email]);
+    let userId: string;
+
+    if (dbUser.rows.length > 0) {
+      userId = dbUser.rows[0].id;
+    } else {
+      // Auto-create the test user
+      const newUser = await pool.query(
+        'INSERT INTO users (username, email, avatar_url) VALUES ($1, $2, $3) RETURNING id',
+        [username, email, `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}`]
+      );
+      userId = newUser.rows[0].id;
+    }
+
+    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+    const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({ token, user: { id: userId, username } });
+  } catch (error: any) {
+    // Handle unique constraint violation (race condition)
+    if (error.code === '23505') {
+      const pool = getPool();
+      const dbUser = await pool.query('SELECT id, username FROM users WHERE username = $1', [req.body.username]);
+      if (dbUser.rows.length > 0) {
+        const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+        const token = jwt.sign({ id: dbUser.rows[0].id, username: dbUser.rows[0].username }, JWT_SECRET, { expiresIn: '7d' });
+        return res.json({ token, user: { id: dbUser.rows[0].id, username: dbUser.rows[0].username } });
+      }
+    }
+    console.error('Test login error:', error.message);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
 // Get Current User (Me)
 router.get('/me', async (req, res) => {
   try {
