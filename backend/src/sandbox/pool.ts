@@ -4,7 +4,11 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import * as net from 'net';
 
+// this file solves the problem of cold-start latency for containers by maintaining a pool of pre-warmed containers ready for immediate use. It also manages a separate pool for terminal containers, which are heavier and require more resources. The pools are dynamically adjusted based on usage patterns to optimize resource utilization and performance.
+// under normal circumstances, the warm pool manager will maintain a small number of pre-warmed containers for each supported language, allowing for rapid execution of code snippets without the overhead of container creation. The terminal pool is managed separately, with dynamic scaling based on active sessions to ensure that resources are allocated efficiently while still providing a responsive development environment. otheriwse, it will take 400-800ms to create a new container on-demand, which is not ideal for interactive coding experiences.
+
 // Docker daemon path selection based on platform
+
 const homeDir = process.env.HOME || '';
 const defaultMacSocket = path.join(homeDir, '.docker/run/docker.sock');
 const finalSocketPath = process.platform === 'darwin' && existsSync(defaultMacSocket)
@@ -31,43 +35,18 @@ function getFreePort(): Promise<number> {
   });
 }
 
-// ARCHITECTURE DETAIL: Cold-start container latency reduction.
-// Creating a container on-demand takes 400-800ms (overlay2 assembly, namespace creation, cgroup limits, PTY fork).
-// Maintaining pre-warmed containers with active background replenishment drops execution start overhead to ~10ms.
-const POOL_SIZE = 2; // High-concurrency buffer. Refills in background when popped.
 const TERMINAL_POOL_MIN = 1;
 const TERMINAL_POOL_MAX = 5;
 let TERMINAL_POOL_SIZE = 2; // Dynamic pool size target
 
-const WARM_LANGUAGES = ['python', 'javascript', 'cpp', 'c', 'bash', 'java'];
-
-const IMAGE_CONFIGS: Record<string, string> = {
-  python: 'python:3.10-alpine',
-  javascript: 'node:20-alpine',
-  cpp: 'gcc:12',
-  c: 'gcc:12',
-  bash: 'alpine:3.18',
-  java: 'eclipse-temurin:21-jdk-alpine'
-};
-
 const TERMINAL_IMAGE = 'sandbox-dev-env:latest';
 
 class WarmPoolManager {
-  private pools: Record<string, WarmContainer[]> = {};
   private terminalPool: WarmContainer[] = [];
   private activeTerminalSessions = 0;
-  
-  // CONCURRENCY CONTROL: Prevents multiple concurrent refilling cycles
-  // from spawning excess containers due to asynchronous event loop interleaving.
-  private replenishing: Record<string, boolean> = {};
   private replenishingTerminal: boolean = false;
 
-  constructor() {
-    for (const lang of WARM_LANGUAGES) {
-      this.pools[lang] = [];
-      this.replenishing[lang] = false;
-    }
-  }
+  constructor() {}
 
   // Pre-builds custom workspace developer environment (compiler tools & global runtime packages)
   private async ensureTerminalImageExists(): Promise<void> {
@@ -90,85 +69,12 @@ WORKDIR /app
     }
   }
 
-  // Startup phase: Initializes pools in parallel to optimize boot speed (Promise.all concurrency)
+  // Startup phase: Initializes terminal pool
   public async initializePools(): Promise<void> {
     console.log('[WarmPool] Initializing warm pools...');
     await this.ensureTerminalImageExists();
-    await Promise.all([
-      ...WARM_LANGUAGES.map((lang) => this.fillPool(lang)),
-      this.fillTerminalPool()
-    ]);
+    await this.fillTerminalPool();
     console.log('[WarmPool] All pools initialized.');
-  }
-
-  // FIFO Popping: Pops oldest container, starts async non-blocking replenishment.
-  // Single-use execution containers: Once code runs, container is discarded (prevents state leakage).
-  // Fallback: If empty, create container synchronously (slower response but prevents failures).
-  public async popContainer(lang: string): Promise<WarmContainer> {
-    const pool = this.pools[lang];
-    if (!pool || pool.length === 0) {
-      console.warn(`[WarmPool] Pool empty for ${lang}. Creating on-demand.`);
-      return this.createWarmContainer(lang);
-    }
-
-    const warmContainer = pool.shift()!;
-    this.fillPool(lang).catch((err) => console.error(`[WarmPool] Refill failed for ${lang}:`, err.message));
-    return warmContainer;
-  }
-
-  // Refills pool up to target POOL_SIZE sequentially in the background (prevents host CPU load spikes)
-  private async fillPool(lang: string): Promise<void> {
-    if (this.replenishing[lang]) return;
-    this.replenishing[lang] = true;
-
-    try {
-      const pool = this.pools[lang];
-      while (pool && pool.length < POOL_SIZE) {
-        pool.push(await this.createWarmContainer(lang));
-      }
-    } finally {
-      this.replenishing[lang] = false;
-    }
-  }
-
-  // CONTAINER HARDENING & SECURITY (Defense in Depth):
-  // - Memory/MemorySwap: Limits memory usage; swap limit = memory prevents swap space exhaustion.
-  // - NanoCpus: Restricts host CPU starvation.
-  // - PidsLimit: Fork-bomb prevention (ceilings maximum active processes).
-  // - NetworkMode 'none': Isolation; blocks data exfiltration and reverse shells.
-  // - ReadonlyRootfs: Read-only container root prevents planting persistent backdoors.
-  // - Tmpfs: Ephemeral, capped in-memory directories for file writes (/app, /tmp).
-  // - exec mount option: Required to allow execution of compiled C/C++ native binaries on tmpfs.
-  // - Tty false: Multiplexes stdout/stderr into an 8-byte frame header protocol for clean division.
-  private async createWarmContainer(lang: string): Promise<WarmContainer> {
-    const image = IMAGE_CONFIGS[lang];
-    if (!image) throw new Error(`Unsupported pool language: ${lang}`);
-
-    const container = await docker.createContainer({
-      Image: image,
-      Cmd: ['sh', '-c', 'sleep infinity'], // Generic POSIX idle command to keep container alive
-      HostConfig: {
-        Memory: 100 * 1024 * 1024,
-        MemorySwap: 100 * 1024 * 1024,
-        NanoCpus: 500_000_000,
-        PidsLimit: 50,
-        NetworkMode: 'none',
-        ReadonlyRootfs: true,
-        Tmpfs: {
-          '/app': 'rw,exec,size=10m',
-          '/tmp': 'rw,exec,size=10m'
-        }
-      },
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-      OpenStdin: true,
-      StdinOnce: true,
-      Tty: false
-    });
-
-    await container.start();
-    return { container, id: container.id };
   }
 
   // Dynamic scaling for Terminal Containers:
@@ -271,19 +177,29 @@ WORKDIR /app
   // Graceful shutdown hook: Force-removes all pooled containers to prevent host Docker resource leaks (zombies)
   public async cleanup(): Promise<void> {
     console.log('[WarmPool] Cleaning up...');
-    for (const lang of WARM_LANGUAGES) {
-      const pool = this.pools[lang];
-      while (pool && pool.length > 0) {
-        const warm = pool.shift()!;
-        await warm.container.remove({ force: true }).catch((err) => console.error(`Remove failed for ${warm.id}:`, err.message));
-      }
-    }
-
     while (this.terminalPool.length > 0) {
       const warm = this.terminalPool.shift()!;
       await warm.container.remove({ force: true }).catch((err) => console.error(`Remove failed for ${warm.id}:`, err.message));
     }
   }
-}
+} // when we type control c in the terminal, this cleanup method is called to gracefully shut down all pooled containers. It iterates through each language pool and the terminal pool, forcefully removing each container to prevent resource leaks and ensure that no zombie containers remain on the host system. This helps maintain a clean and efficient Docker environment, preventing unnecessary resource consumption and potential conflicts with future container operations. all containers are deleted to prevent resource leaks and ensure that the system remains clean and efficient. This is particularly important in a development environment where containers may be created and destroyed frequently, as it helps to avoid clutter and potential conflicts with future container operations.
 
 export const warmPoolManager = new WarmPoolManager();
+
+
+// Image - template used to create containers
+// Container - running instance of an image. this project creates containers to execute code snippets in various programming languages. Each container is an isolated environment that runs a specific image, which contains the necessary runtime and dependencies for the language being executed. The warm pool manager maintains a pool of pre-warmed containers for each supported language, allowing for rapid execution of code snippets without the overhead of creating a new container on-demand. This approach helps to reduce latency and improve performance when executing code in the sandbox environment.
+// we are not running code on local machine to prrevent security issues. Instead, we are running code in isolated containers that are managed by the warm pool manager. This ensures that the code execution environment is secure and does not have access to the host system or other containers. The warm pool manager handles the creation, management, and cleanup of these containers, allowing for efficient and secure execution of code snippets in various programming languages.
+// Dockerfile - a text file that contains instructions for building a Docker image. It specifies the base image, dependencies, and configuration needed to create a containerized environment for running code snippets in different programming languages. The warm pool manager uses these Dockerfiles to build the necessary images for each supported language, ensuring that the containers have the required runtime and libraries to execute code securely and efficiently. terminal image is manually designed but languages image is pulled from docker hub. The terminal image is built using a custom Dockerfile that installs various development tools and packages needed for the terminal environment. This allows for a consistent and ready-to-use development environment for users, while the language images are pulled from Docker Hub to provide lightweight and efficient runtime environments for executing code snippets in different programming languages. we didn't design the language images because they are already available on Docker Hub and provide the necessary runtime environments for executing code in their respective languages. By using pre-existing images, we can save time and resources while still ensuring that the containers have the required dependencies and configurations for secure and efficient code execution.
+
+// build - process of creating a Docker image from a Dockerfile. It involves executing the instructions in the Dockerfile to assemble the necessary components, dependencies, and configurations into a single image that can be used to create containers. The warm pool manager builds the terminal image using a custom Dockerfile, while the language images are pulled from Docker Hub, which provides pre-built images for various programming languages. This approach allows for efficient and secure execution of code snippets in different languages while maintaining a consistent development environment for users.
+
+// docker daemon - the background service that manages Docker containers and images. It handles container creation, execution, and cleanup, as well as image management and networking. The warm pool manager interacts with the Docker daemon through the Dockerode library to create and manage containers for executing code snippets in various programming languages. The Docker daemon ensures that the containers are isolated, secure, and efficiently managed, allowing for rapid execution of code in a sandboxed environment.
+
+// docker socket - a Unix domain socket that allows communication between the Docker client and the Docker daemon. It is used by the warm pool manager to send commands and receive responses from the Docker daemon, enabling the creation, management, and cleanup of containers for executing code snippets in different programming languages. The warm pool manager uses the Docker socket to interact with the Docker daemon, ensuring that containers are created and managed securely and efficiently.
+
+// dockerode - a Node.js library that provides a high-level API for interacting with the Docker daemon. It allows developers to create, manage, and monitor Docker containers and images using JavaScript or TypeScript. The warm pool manager uses Dockerode to communicate with the Docker daemon, enabling the creation and management of containers for executing code snippets in various programming languages. Dockerode simplifies the process of working with Docker in a Node.js environment, providing an easy-to-use interface for managing containers and images.
+
+// port binding - the process of mapping a port on the host machine to a port inside a Docker container. This allows external clients to access services running inside the container through the specified host port. The warm pool manager uses port binding for terminal containers to expose a web interface on a dynamically allocated host port, enabling users to interact with the development environment through their web browser. Port binding is essential for providing access to services running inside containers while maintaining isolation and security.
+
+// terminal history - a feature that allows users to persist their command history across terminal container restarts. The warm pool manager mounts a host directory to the terminal containers, enabling the storage of command history in a persistent location. This allows users to retain their command history even when the terminal container is stopped or restarted, providing a more seamless and user-friendly experience when working in the development environment.

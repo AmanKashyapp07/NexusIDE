@@ -2,7 +2,6 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole, WorkspaceAuthRequest } from '../middleware/workspaceAuth';
 import { ZipArchive } from 'archiver';
-import { executeCode } from '../sandbox/docker';
 import { getPool } from '../db';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -203,51 +202,6 @@ router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: 
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
-
-// =============================================================================
-// EXECUTION & SERVICES
-// =============================================================================
-
-// [SECURITY] Multi-Tenant Resource Guard
-// Only Editors can trigger the execution engine. This guards against "Viewers" executing 
-// infinite loops or memory bombs to disrupt the host server. 
-router.post('/:id/execute', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
-  const id = req.params.id as string;
-  const { code, language, input, fileName, fileId } = req.body;
-  if (!code || !language) return res.status(400).json({ error: 'Code and language required' });
-
-  let workspaceFiles: any[] = [];
-  let activeFilePath = fileName || 'index.js';
-
-  try {
-    const filesRes = await getPool().query(`WITH RECURSIVE cte AS (SELECT id, parent_id, name, type, content, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, f.parent_id, f.name, f.type, f.content, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1) SELECT * FROM cte;`, [id]);
-    workspaceFiles = filesRes.rows;
-    if (fileId) {
-      const idx = workspaceFiles.findIndex(f => f.id === fileId);
-      if (idx !== -1) { workspaceFiles[idx].content = code; activeFilePath = workspaceFiles[idx].path; }
-    }
-  } catch (err) {} // Fail gracefully on hydration
-
-  try {
-    const r = await executeCode(code, language, input, { workspaceId: id, activeFilePath, workspaceFiles });
-    const status = r.oomKilled ? 'failed' : r.exitCode === 137 ? 'timeout' : r.exitCode === 0 ? 'success' : 'failed';
-    
-    await getPool().query(`INSERT INTO execution_history (workspace_id, user_id, language, code_snapshot, output, status, duration_ms, memory_usage_bytes, cpu_usage_percent, file_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, req.user?.id || null, language, code, r.output, status, Math.round(r.durationMs), r.memoryUsageBytes || 0, r.cpuUsagePercent || 0, fileName || null]).catch(()=>{});
-    
-    res.json({ output: r.output, metrics: { durationMs: r.durationMs, exitCode: r.exitCode, oomKilled: r.oomKilled, cpuUsagePercent: r.cpuUsagePercent, memoryUsageBytes: r.memoryUsageBytes }});
-  } catch (e: any) {
-    await getPool().query(`INSERT INTO execution_history (workspace_id, user_id, language, code_snapshot, output, status, duration_ms, memory_usage_bytes, cpu_usage_percent, file_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, req.user?.id || null, language, code, e.message || String(e), 'error', 0, 0, 0, fileName || null]).catch(()=>{});
-    res.status(500).json({ error: e.message || 'Execution failed' });
-  }
-});
-
-router.get('/:id/execution-history', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
-  try {
-    res.json((await getPool().query('SELECT eh.id, eh.user_id, u.username, eh.language, eh.status, eh.duration_ms, eh.memory_usage_bytes, eh.cpu_usage_percent, eh.file_name, eh.executed_at FROM execution_history eh LEFT JOIN users u ON eh.user_id = u.id WHERE eh.workspace_id = $1 ORDER BY eh.executed_at DESC LIMIT 10', [req.params.id])).rows);
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
-});
-
-
 
 // =============================================================================
 // AI ASSISTANT & PREVIEW PROXY
