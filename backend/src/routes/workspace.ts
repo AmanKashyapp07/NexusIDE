@@ -9,7 +9,7 @@ import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/works
 import { WORKSPACE_DATA_DIR } from '../sandbox/pool';
 import * as path from 'path';
 import { rmSync, existsSync } from 'fs';
-import OpenAI from 'openai';
+import { Mistral } from '@mistralai/mistralai';
 
 const router = Router();
 
@@ -230,61 +230,37 @@ router.post('/:id/heartbeat', requireWorkspaceRole('viewer'), async (req: Worksp
 });
 
 router.get('/:id/autocomplete/health', requireWorkspaceRole('viewer'), async (_req: WorkspaceAuthRequest, res: Response) => {
-  const model = process.env.NVIDIA_AUTOCOMPLETE_MODEL || 'meta/llama-3.1-8b-instruct';
-  const nvidiaApiKeyLoaded = !!process.env.NVIDIA_API_KEY;
+  const model = process.env.MISTRAL_AUTOCOMPLETE_MODEL || 'codestral-latest';
+  const mistralApiKeyLoaded = !!process.env.MISTRAL_API_KEY;
 
-  if (!nvidiaApiKeyLoaded) {
-    return res.status(503).json({ ok: false, error: 'NVIDIA API key missing', model });
+  if (!mistralApiKeyLoaded) {
+    return res.status(503).json({ ok: false, error: 'MISTRAL API key missing', model });
   }
 
-  res.json({ ok: true, nvidiaApiKeyLoaded, model });
+  res.json({ ok: true, mistralApiKeyLoaded, model });
 });
 
 router.post('/:id/autocomplete', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const { prefix, suffix, language } = req.body;
-    const nvidiaApiKey = process.env.NVIDIA_API_KEY;
-    if (!nvidiaApiKey) return res.status(503).json({ error: 'NVIDIA API key missing' });
+    const { prefix, suffix } = req.body;
+    const mistralApiKey = process.env.MISTRAL_API_KEY;
+    if (!mistralApiKey) return res.status(503).json({ error: 'MISTRAL API key missing' });
 
-    const nvidiaClient = new OpenAI({
-      apiKey: nvidiaApiKey,
-      baseURL: 'https://integrate.api.nvidia.com/v1'
+    const mistralClient = new Mistral({ apiKey: mistralApiKey });
+    const completion = await mistralClient.fim.complete({
+      model: process.env.MISTRAL_AUTOCOMPLETE_MODEL || 'codestral-latest',
+      prompt: prefix,
+      suffix: suffix || '',
+      temperature: 0.2,
+      maxTokens: 100,
     });
 
-    const completion = await nvidiaClient.chat.completions.create({
-      model: process.env.NVIDIA_AUTOCOMPLETE_MODEL || 'meta/llama-3.1-8b-instruct',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert ${language || 'unknown'} code completion engine. Your ONLY job is to output the exact code that directly follows the prefix.
+    const completionContent = completion.choices[0]?.message?.content;
+    const completionText = Array.isArray(completionContent)
+      ? completionContent.map(chunk => ('text' in chunk ? chunk.text : '')).join('')
+      : (completionContent || '');
 
-RULES:
-1. DO NOT repeat the prefix.
-2. DO NOT output the suffix.
-3. DO NOT wrap your answer in markdown formatting or backticks.
-4. Start your response EXACTLY where the prefix ends.
-
-<PREFIX>
-${prefix}
-</PREFIX>
-<SUFFIX>
-${suffix || ''}
-</SUFFIX>
-
-OUTPUT:`
-        },
-        {
-          role: 'user',
-          content: 'Return only the completion text that belongs at OUTPUT:'
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 256,
-      stop: ['\n\n\n', '<PREFIX>', '<SUFFIX>', '<CURSOR>']
-    });
-
-    const text = (completion.choices[0]?.message?.content || '').replace(/<(THOUGHT|thought)>[\s\S]*?(<\/(THOUGHT|thought)>|$)/gi, '');
-    res.json({ completion: text.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trimEnd() });
+    res.json({ completion: completionText.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trimEnd() });
   } catch (err: any) { res.status(500).json({ error: 'Generation failed' }); }
 });
 
