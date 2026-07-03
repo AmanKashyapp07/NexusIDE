@@ -44,7 +44,7 @@ export default function AuthPage() {
             <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-md shadow-purple-500/20">
               <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
             </div>
-            <span className="bg-gradient-to-r from-neutral-100 to-neutral-400 bg-clip-text text-transparent">DevSpace</span>
+            <span className="bg-gradient-to-r from-neutral-100 to-neutral-400 bg-clip-text text-transparent">NexusIDE</span>
           </div>
         </div>
       </header>

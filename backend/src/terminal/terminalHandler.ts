@@ -72,7 +72,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     if (userRole === 'admin' && githubToken) {
       envVars.push(`GITHUB_TOKEN=${githubToken}`, `GIT_AUTHOR_NAME=${githubUsername}`, `GIT_AUTHOR_EMAIL=${githubEmail}`, `GIT_COMMITTER_NAME=${githubUsername}`, `GIT_COMMITTER_EMAIL=${githubEmail}`, `GIT_ASKPASS=/tmp/git-askpass`);
       const askpass = `#!/bin/sh\ncase "$1" in\n  *Username*|*username*) echo "git" ;;\n  *) echo "$GITHUB_TOKEN" ;;\nesac`;
-      const wrapper = `#!/bin/sh\ncase "$1" in\n  clone) /usr/bin/git "$@" ;;\n  commit|push|add|status|log|diff) if [ ! -d .git ]; then echo "Error: Not a git repository."; exit 1; fi; /usr/bin/git "$@" ;;\n  *) echo "Only clone, commit, push, add, status, log, diff allowed." ; exit 1 ;;\nesac`;
+      const wrapper = `#!/bin/sh\ncase "$1" in\n  clone) /usr/bin/git "$@" ;;\n  commit|push|add|status|log|diff|pull) if [ ! -d .git ]; then echo "Error: Not a git repository."; exit 1; fi; /usr/bin/git "$@" ;;\n  *) echo "Only clone, commit, push, add, status, log, diff, pull allowed." ; exit 1 ;;\nesac`;
       
       try {
         const setupExec = await container.exec({ Cmd: ['sh', '-c', `echo "${Buffer.from(askpass).toString('base64')}" | base64 -d > /tmp/git-askpass && chmod +x /tmp/git-askpass && echo "${Buffer.from(wrapper).toString('base64')}" | base64 -d > /tmp/git && chmod +x /tmp/git`] });

@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [editingTitle, setEditingTitle] = useState('');
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const [deletingWorkspace, setDeletingWorkspace] = useState<Workspace | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -102,14 +103,20 @@ export default function DashboardPage() {
     navigate(`/ide/${joinId.trim()}`);
   };
 
-  const handleDelete = async (e: React.MouseEvent, ws: Workspace) => {
+  const handleDelete = (e: React.MouseEvent, ws: Workspace) => {
     e.stopPropagation();
     const isOwner = user?.id === ws.owner_id;
     if (!isOwner) {
       addToast('You are not Admin of this workspace', 'error');
       return;
     }
-    if (!confirm('Are you sure you want to delete this workspace?')) return;
+    setDeletingWorkspace(ws);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingWorkspace) return;
+    const ws = deletingWorkspace;
+    setDeletingWorkspace(null);
 
     try {
       const token = localStorage.getItem('token');
@@ -200,7 +207,7 @@ export default function DashboardPage() {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/10 border border-violet-500/20">
               <Zap className="text-violet-400" size={18} />
             </div>
-            <span className="text-sm font-bold text-white tracking-wide">DevSpace</span>
+            <span className="text-sm font-bold text-white tracking-wide">NexusIDE</span>
           </div>
           
           <div className="flex items-center gap-4">
@@ -381,6 +388,32 @@ export default function DashboardPage() {
           </aside>
         </div>
       </main>
+
+      {/* Custom Confirmation Modal */}
+      {deletingWorkspace && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0c0c10] p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Delete Workspace</h3>
+            <p className="text-sm text-zinc-400 mt-2">
+              Are you sure you want to delete <span className="text-zinc-200 font-semibold">"{deletingWorkspace.title}"</span>? This action is permanent and will physically erase the sandbox directories.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setDeletingWorkspace(null)}
+                className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/10 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="rounded-lg bg-red-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-600 cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

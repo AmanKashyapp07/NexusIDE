@@ -8,7 +8,6 @@ import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder, Activity, ChevronDown } from 'lucide-react';
 import * as Y from 'yjs';
-// @ts-ignore — y-websocket lacks complete TypeScript declarations
 import { WebsocketProvider } from 'y-websocket';
 import { io, type Socket } from 'socket.io-client';
 import { apiUrl, wsUrl } from '../lib/backendUrls';
