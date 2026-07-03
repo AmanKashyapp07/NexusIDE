@@ -184,6 +184,13 @@ export default function CodeEditor({
     const model = editor.getModel();
     if (!model) return;
 
+    // CRITICAL: Clear the Monaco model BEFORE creating the binding.
+    // MonacoBinding merges the existing model content with the Yjs doc content,
+    // so if the model already has text (e.g. from a previous file load or stale
+    // state), the content gets duplicated. By clearing the model first, Yjs
+    // becomes the sole source of truth and populates the editor cleanly on sync.
+    model.setValue('');
+
     const binding = new MonacoBinding(
       type,
       model,

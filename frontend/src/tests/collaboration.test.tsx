@@ -56,7 +56,9 @@ vi.mock('@monaco-editor/react', () => ({
       if (onMount) {
         const mockEditor = {
           updateOptions: vi.fn(),
-          getModel: vi.fn(() => ({})),
+          getModel: vi.fn(() => ({
+            setValue: vi.fn(),
+          })),
         };
         const mockMonaco = {
           languages: {
