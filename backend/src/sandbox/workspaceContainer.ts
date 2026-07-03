@@ -1,7 +1,9 @@
 import Docker from 'dockerode';
-import { warmPoolManager } from './pool';
+import { warmPoolManager, WORKSPACE_DATA_DIR } from './pool';
 import { getPool } from '../db';
 import tar from 'tar-stream';
+import { existsSync, mkdirSync } from 'fs';
+import * as path from 'path';
 
 // this file manages the lifecycle of workspace containers, including creation, reference counting, and cleanup.
 // [UX/DX] Universal Execution Script
@@ -52,9 +54,17 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
 
   const { container, id, hostPort } = await warmPoolManager.popTerminalContainer();
 
+  // [PERSISTENT STORAGE] Create Host-Side Workspace Directory
+  // Each workspace gets a dedicated folder on the host machine. Because the entire
+  // workspace_data/ directory is bind-mounted into the container at /workspaces,
+  // this folder is instantly visible inside the container at /workspaces/<workspaceId>.
+  const wsHostDir = path.join(WORKSPACE_DATA_DIR, workspaceId);
+  if (!existsSync(wsHostDir)) mkdirSync(wsHostDir, { recursive: true });
+
   // [DATA HYDRATION] Recursive Tree Traversal
   // Pulls the entire virtual filesystem from Postgres in a single query using a Recursive CTE, 
   // avoiding the N+1 query problem when loading deeply nested folder structures.
+  // Files are extracted into the host-side bind mount, so the container sees them immediately.
   const filesRes = await getPool().query(
     `WITH RECURSIVE file_path_cte AS (
       SELECT id, parent_id, name, type, content, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL
@@ -65,10 +75,10 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
     [workspaceId]
   );
 
-  // [ARCHITECTURE] Streamed File Injection (TMPFS Workaround)
-  // Docker's standard `container.putArchive()` writes directly to the host's OverlayFS. 
-  // Because our /app directory is a RAM-backed `tmpfs` (for security/speed), putArchive silently fails.
-  // Workaround: We pipe a tar stream directly into a running `tar -x` process inside the container.
+  // [ARCHITECTURE] Streamed File Injection into Bind Mount
+  // We pipe a tar stream into a `tar -x` process inside the container, extracting
+  // directly into the workspace's bind-mounted directory for native-speed file I/O.
+  const wsContainerPath = `/workspaces/${workspaceId}`;
   const pack = tar.pack();
   for (const file of filesRes.rows) {
     if (file.type === 'file') pack.entry({ name: file.path }, file.content || '');
@@ -77,7 +87,7 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
   pack.entry({ name: '.run.sh' }, RUN_SCRIPT);
   pack.finalize();
 
-  const exec = await container.exec({ Cmd: ['tar', '-x', '-C', '/app'], AttachStdin: true, AttachStdout: true, AttachStderr: true });
+  const exec = await container.exec({ Cmd: ['tar', '-x', '-C', wsContainerPath], AttachStdin: true, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({ hijack: true, stdin: true });
   
   await new Promise<void>((resolve, reject) => {
@@ -92,11 +102,11 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
   // 2. [UX] Fire-and-forget `npm install` in the background (using Detach: true). 
   //    The user gets control of the terminal instantly while heavy dependencies install invisibly.
   try {
-    const setupExec = await container.exec({ Cmd: ['sh', '-c', 'cp /app/.run.sh /usr/local/bin/run && chmod +x /usr/local/bin/run && rm -f /app/.run.sh'] });
+    const setupExec = await container.exec({ Cmd: ['sh', '-c', `cp ${wsContainerPath}/.run.sh /usr/local/bin/run && chmod +x /usr/local/bin/run && rm -f ${wsContainerPath}/.run.sh`] });
     const setupStream = await setupExec.start({ hijack: true, stdin: false });
     await new Promise<void>((res) => { setupStream.on('end', res); setupStream.on('error', res); });
 
-    const installExec = await container.exec({ Cmd: ['sh', '-c', 'cd /app && if [ -f package.json ] && [ ! -d node_modules ]; then npm install; fi'] });
+    const installExec = await container.exec({ Cmd: ['sh', '-c', `cd ${wsContainerPath} && if [ -f package.json ] && [ ! -d node_modules ]; then npm install; fi`] });
     installExec.start({ Detach: true, hijack: false }).catch(() => {});
   } catch (err) {
     console.error(`[WorkspaceContainer] Setup failed for ${key}:`, err);

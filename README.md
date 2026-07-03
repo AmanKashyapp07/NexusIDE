@@ -172,9 +172,9 @@ The execution environment is heavily isolated.
 - PID limits
 - Container networking isolation
 
-### File Hydration
+### File Hydration & Persistent Storage
 
-Workspace files are recursively reconstructed from PostgreSQL and streamed directly into Docker using TAR archives without requiring host bind mounts.
+Workspace files are physically persisted on the host server's disk and mapped into the container using **Docker Bind Mounts**. This simulates enterprise Persistent Block Storage (like AWS EBS), eliminating the need to repeatedly stream tarballs from the database into a temporary RAM filesystem. This results in instant container hydration and native SSD speeds for massive operations like `npm install`.
 
 ---
 
@@ -240,6 +240,7 @@ Synchronization includes
 |--------------|---------|
 | Warm Docker Pool | Eliminate container startup latency |
 | Workspace Multiplexing | One container shared across multiple tabs |
+| Docker Bind Mounts | Instant zero-hydration startup & native SSD speeds |
 | Binary CRDT Storage | Reduce synchronization overhead |
 | Debounced Database Writes | Prevent excessive writes |
 | AFK Heartbeat | Automatic idle cleanup |

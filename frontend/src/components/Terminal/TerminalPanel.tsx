@@ -174,6 +174,12 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
       clearTimeout(initFitTimeout);
       window.removeEventListener('resize', handleWindowResize);
       
+      // Detach listeners to prevent state updates and toasts during unmount/cleanup
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close();
       }

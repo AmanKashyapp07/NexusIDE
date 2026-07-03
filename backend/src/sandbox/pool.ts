@@ -41,6 +41,12 @@ let TERMINAL_POOL_SIZE = 2; // Dynamic pool size target
 
 const TERMINAL_IMAGE = 'sandbox-dev-env:latest';
 
+// [PERSISTENT STORAGE] Host-side workspace data directory
+// All workspace files are stored here on the host machine and bind-mounted into containers.
+// This replaces the previous tmpfs-backed /app approach, enabling native-speed file I/O
+// and persistent storage that survives container restarts.
+export const WORKSPACE_DATA_DIR = path.resolve(__dirname, '..', '..', 'workspace_data');
+
 class WarmPoolManager {
   private terminalPool: WarmContainer[] = [];
   private activeTerminalSessions = 0;
@@ -138,10 +144,12 @@ WORKDIR /app
   // - Increased Resource Limits: 1GB memory, 1.5 CPUs, 500 Pids to handle npm install and compilers.
   // - Tty true: Critical for interactive shells. Forces pseudo-terminal allocation so stdout/stderr
   //   are not multiplexed with Docker's 8-byte frame header, preventing character corruption in browser PTY.
-  // - Volume Bind: Mounts host directory to persist shell history across container restarts.
+  // - Bind Mount: Maps host workspace_data/ directory into /workspaces inside the container for
+  //   persistent, native-speed file I/O that survives container restarts.
   private async createTerminalContainer(): Promise<WarmContainer> {
-    const HISTORY_DIR = path.join('/Users/amankashyap/Documents/sandbox/backend', 'terminal_history');
+    const HISTORY_DIR = path.join(WORKSPACE_DATA_DIR, '..', 'terminal_history');
     if (!existsSync(HISTORY_DIR)) mkdirSync(HISTORY_DIR, { recursive: true });
+    if (!existsSync(WORKSPACE_DATA_DIR)) mkdirSync(WORKSPACE_DATA_DIR, { recursive: true });
 
     const hostPort = await getFreePort();
 
@@ -157,10 +165,12 @@ WORKDIR /app
         PidsLimit: 500,
         ReadonlyRootfs: false,
         Tmpfs: {
-          '/app': 'rw,exec,size=512m',
           '/tmp': 'rw,exec,size=256m'
         },
-        Binds: [`${HISTORY_DIR}:/history`]
+        Binds: [
+          `${HISTORY_DIR}:/history`,
+          `${WORKSPACE_DATA_DIR}:/workspaces`
+        ]
       },
       AttachStdin: true,
       AttachStdout: true,

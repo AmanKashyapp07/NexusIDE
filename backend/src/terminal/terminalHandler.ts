@@ -59,8 +59,9 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     // Viewers get restricted bash (rbash) preventing them from changing directories or running unauthorized scripts.
     const isViewer = userRole === 'viewer';
     const envVars = [
-      'PS1=\\[\\033[1;35m\\]\\u@sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[1;32m\\]\\$\\[\\033[0m\\] ',
-      'TERM=xterm-256color', 'LANG=C.UTF-8', 'HOME=/tmp' // Fix for read-only rootfs
+      'PS1=\\[\\033[1;35m\\]sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[1;32m\\]\\$\\[\\033[0m\\] ',
+      'PROMPT_DIRTRIM=2',
+      'TERM=xterm-256color', 'LANG=C.UTF-8', `HOME=/workspaces/${workspaceId}`
     ];
     if (isViewer) envVars.push('PATH=/viewer_bin');
 
@@ -81,7 +82,8 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
       } catch (err: any) { console.error('[Terminal] Git setup failed:', err.message); }
     }
 
-    const exec = await container.exec({ Cmd: isViewer ? ['/bin/bash', '--restricted'] : ['/bin/bash'], Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true, WorkingDir: '/app', Env: envVars });
+    const wsPath = `/workspaces/${workspaceId}`;
+    const exec = await container.exec({ Cmd: isViewer ? ['/bin/bash', '--restricted'] : ['/bin/bash'], Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true, WorkingDir: wsPath, Env: envVars });
     stream = await exec.start({ hijack: true, stdin: true, Tty: true });
 
     // Start background file synchronization watcher
@@ -132,7 +134,8 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     if (!pathRes.rows.length) return;
 
     const filePath = pathRes.rows[0].path;
-    const writeStream = await (await container.exec({ Cmd: ['sh', '-c', `mkdir -p "$(dirname "/app/${filePath}")" && cat > "/app/${filePath}"`], AttachStdin: true, AttachStdout: true, AttachStderr: true })).start({ hijack: true, stdin: true });
+    const wsPath = `/workspaces/${workspaceId}`;
+    const writeStream = await (await container.exec({ Cmd: ['sh', '-c', `mkdir -p "$(dirname "${wsPath}/${filePath}")" && cat > "${wsPath}/${filePath}"`], AttachStdin: true, AttachStdout: true, AttachStderr: true })).start({ hijack: true, stdin: true });
     writeStream.end(content);
 
     // [PERFORMANCE] Debounced NPM Installs
@@ -141,20 +144,20 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     if (filePath === 'package.json') {
       if (npmInstallTimeouts.has(workspaceId)) clearTimeout(npmInstallTimeouts.get(workspaceId)!);
       npmInstallTimeouts.set(workspaceId, setTimeout(async () => {
-        try { (await container.exec({ Cmd: ['sh', '-c', 'cd /app && npm install'] })).start({ Detach: true, hijack: false }).catch(()=>{}); } catch {}
+        try { (await container.exec({ Cmd: ['sh', '-c', `cd ${wsPath} && npm install`] })).start({ Detach: true, hijack: false }).catch(()=>{}); } catch {}
       }, 2000));
     }
   } catch (err: any) { console.error('[TerminalSync] Sync failed:', err.message); }
 }
 
-export async function syncDeleteToTerminal(wsId: string, path: string): Promise<void> {
+export async function syncDeleteToTerminal(wsId: string, filePath: string): Promise<void> {
   const c = await getContainerForSync(wsId);
-  if (c) (await c.exec({ Cmd: ['rm', '-rf', `/app/${path}`] })).start({ hijack: true, stdin: false }).catch(()=>{});
+  if (c) (await c.exec({ Cmd: ['rm', '-rf', `/workspaces/${wsId}/${filePath}`] })).start({ hijack: true, stdin: false }).catch(()=>{});
 }
 
-export async function syncFolderToTerminal(wsId: string, path: string): Promise<void> {
+export async function syncFolderToTerminal(wsId: string, folderPath: string): Promise<void> {
   const c = await getContainerForSync(wsId);
-  if (c) (await c.exec({ Cmd: ['mkdir', '-p', `/app/${path}`] })).start({ hijack: true, stdin: false }).catch(()=>{});
+  if (c) (await c.exec({ Cmd: ['mkdir', '-p', `/workspaces/${wsId}/${folderPath}`] })).start({ hijack: true, stdin: false }).catch(()=>{});
 }
 
 // =============================================================================
@@ -197,9 +200,9 @@ async function dbUpdateFile(workspaceId: string, fileId: string, content: string
 
 async function dbDeleteFile(fileId: string) { await getPool().query('DELETE FROM files WHERE id = $1', [fileId]); }
 
-async function readContainerFileContent(container: Docker.Container, relativePath: string): Promise<string> {
+async function readContainerFileContent(container: Docker.Container, workspaceId: string, relativePath: string): Promise<string> {
   try {
-    const stream = await (await container.exec({ Cmd: ['cat', `/app/${relativePath}`], AttachStdout: true })).start({ hijack: true });
+    const stream = await (await container.exec({ Cmd: ['cat', `/workspaces/${workspaceId}/${relativePath}`], AttachStdout: true })).start({ hijack: true });
     return new Promise((resolve, reject) => {
       let output = '';
       const w = new Writable({ write(c, _, cb) { output += c.toString('utf8'); cb(); } });
@@ -221,14 +224,16 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
     if (ws.readyState !== WebSocket.OPEN) return;
     try {
       // 1. Snapshot the current FS state
-      const stream = await (await container.exec({ Cmd: ['find', '/app', '-mindepth', '1', '-maxdepth', '5', '-name', 'node_modules', '-prune', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';', '-o', '-name', '.git', '-prune', '-o', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';'], AttachStdout: true })).start({ hijack: true });
+      const wsPath = `/workspaces/${workspaceId}`;
+      const stream = await (await container.exec({ Cmd: ['find', wsPath, '-mindepth', '1', '-maxdepth', '5', '-name', 'node_modules', '-prune', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';', '-o', '-name', '.git', '-prune', '-o', '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';'], AttachStdout: true })).start({ hijack: true });
       const rawOutput = await new Promise<string>((res) => { let out = ''; const w = new Writable({ write(c, _, cb) { out += c.toString(); cb(); }}); container.modem.demuxStream(stream, w, w); stream.on('end', () => res(out)); stream.on('error', () => res('')); });
       
       const currentFiles = new Map<string, any>();
+      const wsPathPrefix = `/workspaces/${workspaceId}/`;
       rawOutput.replace(/\r/g, '').split('\n').forEach(line => {
-        const match = line.match(/^(\d+)\s+(\d+)\s+(.*?)\s+\/app\/(.*)$/);
-        if (match && match[1] && match[2] && match[3] && match[4]) {
-          const relPath = match[4].trim();
+        const match = line.match(/^(\d+)\s+(\d+)\s+(.*?)\s+(\/workspaces\/.*)$/);
+        if (match && match[1] && match[2] && match[3] && match[4] && match[4].startsWith(wsPathPrefix)) {
+          const relPath = match[4].substring(wsPathPrefix.length).trim();
           if (!relPath.startsWith('.') && !relPath.includes('/.')) { // Ignore dotfiles
             currentFiles.set(relPath, { path: relPath, mtime: parseInt(match[1], 10), size: parseInt(match[2], 10), isDir: match[3].includes('directory') });
           }
@@ -257,10 +262,10 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
         const last = lastState.get(path);
         if (!last) {
           if (fileDetails.has(path)) { lastState.set(path, current); continue; }
-          const content = (!current.isDir && current.size > 0) ? await readContainerFileContent(container, path) : '';
+          const content = (!current.isDir && current.size > 0) ? await readContainerFileContent(container, workspaceId, path) : '';
           if (await dbCreateFile(workspaceId, path, current.isDir ? 'directory' : 'file', content)) { lastState.set(path, current); changed = true; }
         } else if (!current.isDir && (current.mtime !== last.mtime || current.size !== last.size)) {
-          const content = current.size > 0 ? await readContainerFileContent(container, path) : '';
+          const content = current.size > 0 ? await readContainerFileContent(container, workspaceId, path) : '';
           if (fileDetails.get(path)?.content !== content) { await dbUpdateFile(workspaceId, fileDetails.get(path)!.id, content); changed = true; }
           lastState.set(path, current);
         }

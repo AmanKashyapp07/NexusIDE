@@ -7,6 +7,9 @@ import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/workspaceContainer';
 import { GoogleGenAI } from '@google/genai';
+import { WORKSPACE_DATA_DIR } from '../sandbox/pool';
+import * as path from 'path';
+import { rmSync, existsSync } from 'fs';
 
 const router = Router();
 
@@ -101,13 +104,25 @@ router.get('/:id/export', requireWorkspaceRole('viewer'), async (req: WorkspaceA
 // [DATA INTEGRITY] Cascading Deletes
 // By deleting the root workspace row, PostgreSQL's ON DELETE CASCADE constraint automatically 
 // annihilates all orphaned rows in `files` and `workspace_collaborators` in a single atomic transaction.
+// Additionally, we synchronously delete the workspace's physical host directory from workspace_data/
+// to prevent disk bloat from orphaned bind-mount folders.
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
+  const id = req.params.id as string;
   try {
-    const ws = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [req.params.id]);
+    const ws = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [id]);
     if (!ws.rows.length) return res.status(404).json({ error: 'Not found' });
     if (ws.rows[0].owner_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
-    await getPool().query('DELETE FROM workspaces WHERE id = $1', [req.params.id]);
+    await getPool().query('DELETE FROM workspaces WHERE id = $1', [id]);
+
+    // [STORAGE CLEANUP] Remove host-side bind mount directory
+    // The SQL cascade handles DB rows. We must manually delete the physical workspace folder
+    // on the host machine to prevent workspace_data/ from accumulating orphaned directories.
+    const wsHostDir = path.join(WORKSPACE_DATA_DIR, id);
+    if (existsSync(wsHostDir)) {
+      rmSync(wsHostDir, { recursive: true, force: true });
+    }
+
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
