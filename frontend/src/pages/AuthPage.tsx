@@ -1,4 +1,5 @@
 import React from 'react';
+import { apiUrl } from '../lib/backendUrls';
 
 interface FeatureCardProps {
   icon: string;
@@ -25,7 +26,7 @@ export default function AuthPage() {
   ];
 
   const handleGitHubLogin = () => {
-    window.location.href = 'http://localhost:4000/api/auth/github';
+    window.location.href = apiUrl('/auth/github');
   };
 
   return (

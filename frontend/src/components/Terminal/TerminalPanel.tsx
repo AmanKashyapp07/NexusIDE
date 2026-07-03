@@ -9,6 +9,7 @@ import {
   Info
 } from 'lucide-react';
 import { useToast } from '../Toast/Toast';
+import { apiUrl, wsUrl } from '../../lib/backendUrls';
 
 interface TerminalPanelProps {
   workspaceId: string;
@@ -112,8 +113,8 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
 
     const token = localStorage.getItem('token') || '';
     
-    const wsUrl = `ws://localhost:4000/terminal/${workspaceId}?token=${token}`;
-    const ws = new WebSocket(wsUrl);
+    const terminalWsUrl = wsUrl(`/terminal/${workspaceId}?token=${token}`);
+    const ws = new WebSocket(terminalWsUrl);
     wsRef.current = ws;
 
     ws.binaryType = 'arraybuffer';
@@ -204,7 +205,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
       if (isActive) {
         isActive = false; // reset for next cycle
         const token = localStorage.getItem('token');
-        fetch(`http://localhost:4000/api/workspace/${workspaceId}/heartbeat`, {
+        fetch(apiUrl(`/workspace/${workspaceId}/heartbeat`), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

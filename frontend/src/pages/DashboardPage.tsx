@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../components/Toast/Toast';
 import { Zap, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X, Users, Clock } from 'lucide-react';
+import { apiUrl } from '../lib/backendUrls';
 
 interface Workspace {
   id: string;
@@ -33,7 +34,7 @@ export default function DashboardPage() {
       }
 
       try {
-        const userRes = await fetch('http://localhost:4000/api/auth/me', {
+        const userRes = await fetch(apiUrl('/auth/me'), {
           headers: { Authorization: `Bearer ${token}` }
         });
 
@@ -46,7 +47,7 @@ export default function DashboardPage() {
         const userData = await userRes.json();
         setUser(userData.user);
 
-        const wsRes = await fetch('http://localhost:4000/api/workspace', {
+        const wsRes = await fetch(apiUrl('/workspace'), {
           headers: { Authorization: `Bearer ${token}` }
         });
         const wsData = await wsRes.json();
@@ -72,7 +73,7 @@ export default function DashboardPage() {
     setIsCreating(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:4000/api/workspace', {
+      const res = await fetch(apiUrl('/workspace'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -112,7 +113,7 @@ export default function DashboardPage() {
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${ws.id}`, {
+      const res = await fetch(apiUrl(`/workspace/${ws.id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -151,7 +152,7 @@ export default function DashboardPage() {
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:4000/api/workspace', {
+      const res = await fetch(apiUrl('/workspace'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

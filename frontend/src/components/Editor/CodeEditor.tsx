@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { IndexeddbPersistence } from 'y-indexeddb';
+import { apiUrl, wsUrl } from '../../lib/backendUrls';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
 type MonacoInstance = typeof Monaco;
@@ -120,7 +121,7 @@ export default function CodeEditor({
     const indexeddbProvider = new IndexeddbPersistence(roomName, ydoc);
     const token = localStorage.getItem('token') || '';
     const wsProvider = new WebsocketProvider(
-      'ws://localhost:4000',
+      wsUrl(''),
       roomName,
       ydoc,
       { params: { token } }
@@ -232,7 +233,7 @@ export default function CodeEditor({
 
             try {
               const reqToken = localStorage.getItem('token');
-              const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/autocomplete`, {
+              const res = await fetch(apiUrl(`/workspace/${workspaceId}/autocomplete`), {
                 method: 'POST',
                 signal: activeAbortController.signal,
                 headers: {

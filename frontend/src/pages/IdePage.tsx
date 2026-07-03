@@ -11,6 +11,7 @@ import * as Y from 'yjs';
 // @ts-ignore — y-websocket lacks complete TypeScript declarations
 import { WebsocketProvider } from 'y-websocket';
 import { io, type Socket } from 'socket.io-client';
+import { apiUrl, wsUrl } from '../lib/backendUrls';
 
 type UserRole = 'admin' | 'editor' | 'viewer';
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
@@ -95,7 +96,7 @@ function IdePage() {
   const fetchFiles = async (wsId: string) => {
     try {
       const token = localStorage.getItem('token');
-      const filesRes = await fetch(`http://localhost:4000/api/workspace/${wsId}/files`, {
+      const filesRes = await fetch(apiUrl(`/workspace/${wsId}/files`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (filesRes.ok) {
@@ -116,7 +117,7 @@ function IdePage() {
       }
 
       try {
-        const userRes = await fetch('http://localhost:4000/api/auth/me', {
+        const userRes = await fetch(apiUrl('/auth/me'), {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -129,7 +130,7 @@ function IdePage() {
         const userData = await userRes.json();
         setUser(userData.user);
 
-        const wsRes = await fetch(`http://localhost:4000/api/workspace/${urlWorkspaceId}`, {
+        const wsRes = await fetch(apiUrl(`/workspace/${urlWorkspaceId}`), {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -163,7 +164,7 @@ function IdePage() {
     const ydoc = new Y.Doc();
     const token = localStorage.getItem('token') || '';
     const wsProvider = new WebsocketProvider(
-      'ws://localhost:4000',
+      wsUrl(''),
       `workspace-${urlWorkspaceId}`,
       ydoc,
       { params: { token } }
@@ -190,7 +191,7 @@ function IdePage() {
     if (!urlWorkspaceId || !user) return;
 
     const token = localStorage.getItem('token') || '';
-    const socket = io('http://localhost:4000', {
+    const socket = io(wsUrl('').replace(/^ws/, 'http'), {
       auth: { token },
     });
     presenceSocketRef.current = socket;
@@ -253,7 +254,7 @@ function IdePage() {
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/files`, {
+      const res = await fetch(apiUrl(`/workspace/${workspaceId}/files`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -281,7 +282,7 @@ function IdePage() {
 
     try {
       const token = localStorage.getItem('token');
-      await fetch(`http://localhost:4000/api/workspace/${workspaceId}/files/${id}`, {
+      await fetch(apiUrl(`/workspace/${workspaceId}/files/${id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -300,7 +301,7 @@ function IdePage() {
   const handleExportWorkspace = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/export`, {
+      const res = await fetch(apiUrl(`/workspace/${workspaceId}/export`), {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -599,7 +600,7 @@ function IdePage() {
               </div>
               <div className="flex items-center gap-2 bg-[#121214] p-1 rounded-lg border border-white/[0.04]">
                 <button
-                  onClick={() => window.open(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${localStorage.getItem('token')}`, '_blank')}
+                  onClick={() => window.open(apiUrl(`/workspace/${workspaceId}/preview/?token=${localStorage.getItem('token')}`), '_blank')}
                   className="group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-all hover:bg-emerald-500/20"
                 >
                   <Globe size={12} className="transition-transform group-hover:scale-110" />

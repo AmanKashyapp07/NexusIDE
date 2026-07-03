@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { X, Users, UserPlus, Loader2, Trash2, Shield, Mail } from 'lucide-react';
+import { apiUrl } from '../../lib/backendUrls';
 
 type CollaboratorRole = 'admin' | 'editor' | 'viewer';
 
@@ -51,7 +52,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
 
   const loadCollaborators = useCallback(async () => {
     const token = localStorage.getItem('token');
-    const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/collaborators`, {
+    const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators`), {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!res.ok) throw new Error('Failed to fetch collaborators');
@@ -87,7 +88,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
     setError(null);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/collaborators`, {
+      const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -115,7 +116,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
     setError(null);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/collaborators/${userId}`, {
+      const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators/${userId}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -138,7 +139,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
     setError(null);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${workspaceId}/collaborators/${userId}`, {
+      const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators/${userId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
