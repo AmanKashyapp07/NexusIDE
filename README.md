@@ -48,7 +48,7 @@ Real-time collaboration • Docker Sandboxing • Persistent Terminals • AI Au
 | Real-time Collaboration | Conflict-free collaborative editing using Yjs CRDTs |
 | Persistent Workspaces | Long-lived Docker development environments |
 | Interactive Terminal | xterm.js connected directly to Docker PTY |
-| AI Autocomplete | Gemini Fill-in-the-Middle completion |
+| AI Autocomplete | NVIDIA-powered Fill-in-the-Middle completion |
 | Language Intelligence | Pyright & TypeScript LSP integration |
 | GitHub Import | Import repositories through OAuth |
 | Live Collaboration | Presence indicators and multi-user editing |
@@ -92,7 +92,7 @@ graph TD
     D1[PostgreSQL Database]
     D2[Docker Pool Manager]
     D3[Active Workspace Containers]
-    D4[Gemini AI Endpoint]
+    D4[NVIDIA API Endpoint]
 
     %% Client to Gateway Connections
     A1 <-->|JSON-RPC| B2
@@ -174,7 +174,10 @@ The execution environment is heavily isolated.
 
 ### File Hydration & Persistent Storage
 
-Workspace files are physically persisted on the host server's disk and mapped into the container using **Docker Bind Mounts**. This simulates enterprise Persistent Block Storage (like AWS EBS), eliminating the need to repeatedly stream tarballs from the database into a temporary RAM filesystem. This results in instant container hydration and native SSD speeds for massive operations like `npm install`.
+* **Current Implementation:** Workspace files are physically persisted on the host server's disk (`backend/workspace_data/`) and mapped into the container using **Docker Bind Mounts**. This simulates enterprise Persistent Block Storage (like AWS EBS), eliminating the need to repeatedly stream tarballs from the database into a temporary RAM filesystem. This results in instant container hydration and native SSD speeds for massive operations like `npm install`.
+* **Future Deployment Storage Strategy:** When deploying this project to a production cloud environment:
+  * **Single Instance Deployment:** The host-side `workspace_data/` directory will be backed by a dedicated **Persistent Block Storage Volume** (such as AWS EBS or GCP Persistent Disk) attached to the host Virtual Machine, ensuring workspace data survives host crashes or VM upgrades.
+  * **Multi-Node Cluster Deployment (Kubernetes / AWS ECS):** The directory will mount a **Shared Network Filesystem** (such as AWS EFS, GCP Filestore, or NFS) to allow containers running on different servers to access the same workspace volume seamlessly.
 
 ---
 
@@ -212,10 +215,17 @@ Synchronization includes
 | Backend | Node.js, Express, Socket.IO, ws, Dockerode |
 | Database | PostgreSQL |
 | Collaboration | Yjs CRDT |
-| AI | Gemini API |
+| AI | NVIDIA API |
 | Language Intelligence | Pyright, TypeScript Language Server |
 | Authentication | JWT, GitHub OAuth |
 | Infrastructure | Docker Engine API |
+
+## NVIDIA API Notes
+
+- Configure `NVIDIA_API_KEY` and optionally `NVIDIA_AUTOCOMPLETE_MODEL`.
+- The autocomplete path uses NVIDIA's chat-completions endpoint at `https://integrate.api.nvidia.com/v1/chat/completions`.
+- Rate limits and quotas are account- and model-dependent on NVIDIA's side; this project does not enforce its own AI quota.
+- If the key or quota is unavailable, the backend returns a clear error (`503` for missing key, `401`/`429`/`5xx` depending on upstream behavior).
 
 ---
 
@@ -320,7 +330,9 @@ GITHUB_CLIENT_ID=...
 
 GITHUB_CLIENT_SECRET=...
 
-GEMINI_API_KEY=...
+NVIDIA_API_KEY=...
+
+NVIDIA_AUTOCOMPLETE_MODEL=meta/llama-3.1-8b-instruct
 ```
 
 Install dependencies

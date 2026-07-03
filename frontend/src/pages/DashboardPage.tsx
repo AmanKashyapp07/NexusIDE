@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../components/Toast/Toast';
 import { Zap, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X } from 'lucide-react';
 
 interface Workspace {
@@ -23,6 +24,7 @@ export default function DashboardPage() {
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const navigate = useNavigate();
+  const { addToast } = useToast();
 
   useEffect(() => {
     const init = async () => {
@@ -82,10 +84,15 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (res.ok) {
+        addToast('Workspace created successfully', 'success');
         navigate(`/ide/${data.id}`);
+      } else {
+        addToast(data.error || 'Failed to create workspace', 'error');
+        setIsCreating(false);
       }
     } catch (err) {
       console.error(err);
+      addToast('Failed to create workspace', 'error');
       setIsCreating(false);
     }
   };
@@ -102,7 +109,7 @@ export default function DashboardPage() {
     e.stopPropagation();
     const isOwner = user?.id === ws.owner_id;
     if (!isOwner) {
-      alert('You are not Admin of this workspace');
+      addToast('You are not Admin of this workspace', 'error');
       return;
     }
     if (!confirm('Are you sure you want to delete this workspace?')) return;
@@ -115,9 +122,14 @@ export default function DashboardPage() {
       });
       if (res.ok) {
         setWorkspaces(prev => prev.filter(item => item.id !== ws.id));
+        addToast('Workspace deleted successfully', 'success');
+      } else {
+        const data = await res.json();
+        addToast(data.error || 'Failed to delete workspace', 'error');
       }
     } catch (err) {
       console.error(err);
+      addToast('Failed to delete workspace', 'error');
     }
   };
 
@@ -126,7 +138,7 @@ export default function DashboardPage() {
     const isOwner = user?.id === ws.owner_id;
     const isAdmin = isOwner || ws.user_role === 'admin';
     if (!isAdmin) {
-      alert('You are not Admin of this workspace');
+      addToast('You are not Admin of this workspace', 'error');
       return;
     }
     setEditingWorkspaceId(ws.id);
@@ -153,9 +165,14 @@ export default function DashboardPage() {
       });
       if (res.ok) {
         setWorkspaces(prev => prev.map(ws => ws.id === id ? { ...ws, title: editingTitle } : ws));
+        addToast('Workspace title updated', 'success');
+      } else {
+        const data = await res.json();
+        addToast(data.error || 'Failed to update workspace title', 'error');
       }
     } catch (err) {
       console.error(err);
+      addToast('Failed to update workspace title', 'error');
     } finally {
       setEditingWorkspaceId(null);
     }

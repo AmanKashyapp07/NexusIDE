@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import * as Y from 'yjs';
-// @ts-expect-error y-websocket does not ship complete TypeScript declarations.
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -183,7 +182,7 @@ export default function CodeEditor({
     };
   }, [editor, workspaceId, fileId, currentUser.username, onAwarenessChange, onConnectionStatusChange]);
 
-  useEffect(() => {
+ useEffect(() => {
     if (!editor || !monacoInstance || readOnly) return;
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -192,7 +191,6 @@ export default function CodeEditor({
 
     const provider = monacoInstance.languages.registerInlineCompletionsProvider('*', {
       provideInlineCompletions: async (model, position, _context, token) => {
-        // The API only needs nearby text; bounding context keeps latency and payload size stable.
         const startLine = Math.max(1, position.lineNumber - 500);
         const endLine = Math.min(model.getLineCount(), position.lineNumber + 500);
 
@@ -230,7 +228,6 @@ export default function CodeEditor({
             if (activeAbortController) activeAbortController.abort();
             activeAbortController = new AbortController();
 
-            // Monaco cancellation and fetch aborts are linked to prevent stale ghost text.
             token.onCancellationRequested(() => activeAbortController?.abort());
 
             try {
@@ -253,11 +250,36 @@ export default function CodeEditor({
                 return resolve(emptyCompletions);
               }
 
-              ghostTextCache.set(cacheKey, data.completion);
+              let finalCompletion = data.completion;
+
+              finalCompletion = finalCompletion
+                .replace(/^```[a-z]*\n/i, '')
+                .replace(/```$/i, '');
+
+              const maxCheckLength = Math.min(textUntilPosition.length, finalCompletion.length, 1000);
+              let overlapLength = 0;
+
+              for (let i = maxCheckLength; i > 0; i--) {
+                const prefixEnd = textUntilPosition.slice(-i);
+                if (finalCompletion.startsWith(prefixEnd)) {
+                  overlapLength = i;
+                  break;
+                }
+              }
+
+              if (overlapLength > 0) {
+                finalCompletion = finalCompletion.slice(overlapLength);
+              }
+
+              if (!finalCompletion.trim()) {
+                return resolve(emptyCompletions);
+              }
+
+              ghostTextCache.set(cacheKey, finalCompletion);
 
               resolve({
                 items: [{
-                  insertText: data.completion,
+                  insertText: finalCompletion,
                   range: new monacoInstance.Range(
                     position.lineNumber, position.column,
                     position.lineNumber, position.column
@@ -284,7 +306,7 @@ export default function CodeEditor({
       if (activeAbortController) activeAbortController.abort();
     };
   }, [editor, monacoInstance, readOnly, workspaceId, language]);
-
+  
   const handleEditorDidMount: OnMount = (editorInstance, monaco) => {
     setEditor(editorInstance);
     setMonacoInstance(monaco as MonacoInstance);
@@ -302,6 +324,22 @@ export default function CodeEditor({
       allowNonTsExtensions: true,
     });
 
+    // Disable diagnostics (red squiggly lines) globally for built-in Monaco compilers
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: true,
+    });
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: true,
+    });
+    monaco.languages.css.cssDefaults.setDiagnosticsOptions({
+      validate: false,
+    });
+    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+      validate: false,
+    });
+
     editorInstance.updateOptions({
       wordBasedSuggestions: 'currentDocument',
       inlineSuggest: { enabled: true }
@@ -312,6 +350,15 @@ export default function CodeEditor({
   return (
     <div className="relative h-full w-full bg-[#1e1e1e]">
       <style>
+        {`
+          /* Hide diagnostic error, warning, info, and hint squiggly lines */
+          .squiggly-error, .squiggly-warning, .squiggly-info, .squiggly-hint {
+            display: none !important;
+            background: none !important;
+            border-bottom: none !important;
+            text-decoration: none !important;
+          }
+        `}
         {awarenessStates
           .map(([clientId, state]) => {
             if (!state.user?.color) return '';
