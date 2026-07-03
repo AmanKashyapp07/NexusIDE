@@ -171,19 +171,36 @@ async function getWorkspaceFilesMap(workspaceId: string) {
   return { pathToId, idToPath, fileDetails };
 }
 
-async function dbCreateFile(workspaceId: string, relativePath: string, type: 'file' | 'directory', content = '') {
+async function dbCreateFile(workspaceId: string, relativePath: string, type: 'file' | 'directory', content = ''): Promise<string | null> {
   const parts = relativePath.split('/'), name = parts.pop() || '', parentPath = parts.join('/');
-  const parentId = parentPath ? (await getWorkspaceFilesMap(workspaceId)).pathToId.get(parentPath) || null : null;
-  const lang = type === 'file' ? (name.match(/\.(js|ts|mjs)$/) ? 'javascript' : name.match(/\.py$/) ? 'python' : name.match(/\.cpp$/) ? 'cpp' : name.match(/\.c$/) ? 'c' : name.match(/\.html$/) ? 'html' : name.match(/\.css$/) ? 'css' : name.match(/\.java$/) ? 'java' : 'text') : null;
-  
-  const res = await getPool().query(`INSERT INTO files (workspace_id, name, type, parent_id, language, content) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, [workspaceId, name, type, parentId, lang, content]);
-  
-  // Propagate to Yjs CRDT instance
-  if (res.rows[0]?.id && type === 'file') {
-    const ydoc = new Y.Doc(); ydoc.getText('monaco').insert(0, content);
-    await getPool().query('UPDATE files SET yjs_state = $1 WHERE id = $2', [Buffer.from(Y.encodeStateAsUpdate(ydoc)), res.rows[0].id]);
+  let parentId: string | null = null;
+  if (parentPath) {
+    const map = await getWorkspaceFilesMap(workspaceId);
+    parentId = map.pathToId.get(parentPath) || null;
+    // Auto-create missing parent directories recursively (safety net for git clone race conditions)
+    if (!parentId) {
+      parentId = await dbCreateFile(workspaceId, parentPath, 'directory', '') || null;
+    }
   }
-  return res.rows[0]?.id;
+  const lang = type === 'file' ? (name.match(/\.(js|ts|tsx|jsx|mjs)$/) ? 'javascript' : name.match(/\.py$/) ? 'python' : name.match(/\.cpp$/) ? 'cpp' : name.match(/\.c$/) ? 'c' : name.match(/\.html$/) ? 'html' : name.match(/\.css$/) ? 'css' : name.match(/\.java$/) ? 'java' : name.match(/\.json$/) ? 'json' : name.match(/\.md$/) ? 'markdown' : 'text') : null;
+  
+  try {
+    const res = await getPool().query(`INSERT INTO files (workspace_id, name, type, parent_id, language, content) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, [workspaceId, name, type, parentId, lang, content]);
+    
+    // Propagate to Yjs CRDT instance
+    if (res.rows[0]?.id && type === 'file') {
+      const ydoc = new Y.Doc(); ydoc.getText('monaco').insert(0, content);
+      await getPool().query('UPDATE files SET yjs_state = $1 WHERE id = $2', [Buffer.from(Y.encodeStateAsUpdate(ydoc)), res.rows[0].id]);
+    }
+    return res.rows[0]?.id;
+  } catch (err: any) {
+    // Handle duplicate (race condition where another scan already inserted this path)
+    if (err.code === '23505') {
+      const existing = await getWorkspaceFilesMap(workspaceId);
+      return existing.pathToId.get(relativePath) || null;
+    }
+    throw err;
+  }
 }
 
 async function dbUpdateFile(workspaceId: string, fileId: string, content: string) {
@@ -202,12 +219,21 @@ async function dbDeleteFile(fileId: string) { await getPool().query('DELETE FROM
 
 async function readContainerFileContent(container: Docker.Container, workspaceId: string, relativePath: string): Promise<string> {
   try {
-    const stream = await (await container.exec({ Cmd: ['cat', `/workspaces/${workspaceId}/${relativePath}`], AttachStdout: true })).start({ hijack: true });
-    return new Promise((resolve, reject) => {
-      let output = '';
-      const w = new Writable({ write(c, _, cb) { output += c.toString('utf8'); cb(); } });
-      container.modem.demuxStream(stream, w, w);
-      stream.on('end', () => resolve(output)); stream.on('error', reject);
+    // Use base64 encoding to safely transport file content without Docker demux header corruption
+    const exec = await container.exec({ Cmd: ['sh', '-c', `base64 "/workspaces/${workspaceId}/${relativePath}"`], AttachStdout: true, AttachStderr: true });
+    const stream = await exec.start({ hijack: true });
+    return new Promise((resolve) => {
+      let stdout = '';
+      const stdoutW = new Writable({ write(c, _, cb) { stdout += c.toString('utf8'); cb(); } });
+      const stderrW = new Writable({ write(_, __, cb) { cb(); } }); // discard stderr
+      container.modem.demuxStream(stream, stdoutW, stderrW);
+      stream.on('end', () => {
+        try {
+          const decoded = Buffer.from(stdout.replace(/\s/g, ''), 'base64').toString('utf8');
+          resolve(decoded);
+        } catch { resolve(''); }
+      });
+      stream.on('error', () => resolve(''));
     });
   } catch { return ''; }
 }
@@ -258,7 +284,15 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
       }
 
       // 3. Process Additions & Modifications
-      for (const [path, current] of currentFiles.entries()) {
+      // Sort entries: directories first, then by path depth (shallowest first)
+      // This guarantees parent directories exist in DB before their children are inserted
+      const sortedEntries = [...currentFiles.entries()].sort(([aPath, aVal], [bPath, bVal]) => {
+        if (aVal.isDir && !bVal.isDir) return -1;
+        if (!aVal.isDir && bVal.isDir) return 1;
+        return aPath.split('/').length - bPath.split('/').length || aPath.localeCompare(bPath);
+      });
+
+      for (const [path, current] of sortedEntries) {
         const last = lastState.get(path);
         if (!last) {
           if (fileDetails.has(path)) { lastState.set(path, current); continue; }

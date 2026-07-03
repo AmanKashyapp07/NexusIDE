@@ -29,13 +29,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Intercept Vite absolute paths from preview IF referer is present
+// Universal transparent routing for sandbox preview
+// This intercepts ANY stray absolute path requests (e.g. fetch('/api/message'), <script src="/main.js">)
+// originating from the preview iframe and automatically reroutes them into the sandbox container.
 app.use((req, res, next) => {
+  // Ignore requests already correctly routed to the workspace API
   if (req.path.startsWith('/api/workspace')) return next();
+  
   const referer = req.headers.referer;
-  if (referer && (req.path.startsWith('/@') || req.path.startsWith('/node_modules') || req.path.startsWith('/src/') || req.path.match(/\.(tsx?|jsx?|css)$/))) {
+  if (referer) {
     const match = referer.match(/\/api\/workspace\/([^\/]+)\/preview/);
     if (match) {
+      // Request originated from a workspace preview! Redirect to the sandbox proxy path.
       return res.redirect(`/api/workspace/${match[1]}/preview${req.originalUrl}`);
     }
   }
