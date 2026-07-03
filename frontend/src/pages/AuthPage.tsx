@@ -1,106 +1,127 @@
-import { Zap } from 'lucide-react';
+import React from 'react';
+
+interface FeatureCardProps {
+  icon: string;
+  title: string;
+  description: string;
+}
+
+const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description }) => (
+  <div className="group relative flex flex-col gap-2 rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 backdrop-blur-md transition-all duration-300 hover:border-purple-500/30 hover:bg-white/[0.04]">
+    {/* Subtle gradient spot behind the card icon on hover */}
+    <div className="absolute -inset-px rounded-2xl bg-gradient-to-br from-purple-500/10 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+    <span className="text-xl text-purple-400 relative z-10">{icon}</span>
+    <h3 className="font-semibold text-sm text-neutral-200 tracking-tight relative z-10">{title}</h3>
+    <p className="text-xs text-neutral-400 leading-relaxed relative z-10">{description}</p>
+  </div>
+);
 
 export default function AuthPage() {
-  const handleGithubLogin = () => {
+  const features = [
+    { icon: '🛡️', title: 'Immutable Access', description: 'Isolated sandboxes running behind an advanced OAuth security layer.' },
+    { icon: '⚡', title: 'High Availability', description: 'Zero-latency workspace initialization with sub-100ms recovery protocols.' },
+    { icon: '📦', title: 'Decoupled UI', description: 'Engineered interfaces built to separate state rendering from processing units.' },
+    { icon: '🔄', title: 'Real-time Sync', description: 'Conflict-free collaborative coding infrastructure powered by Yjs state trees.' },
+  ];
+
+  const handleGitHubLogin = () => {
     window.location.href = 'http://localhost:4000/api/auth/github';
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#07060b] text-zinc-200 selection:bg-violet-400/25">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="nx-orb nx-orb-1" />
-        <div className="nx-orb nx-orb-2" />
-        <div className="nx-orb nx-orb-3" />
-      </div>
+    <div className="relative min-h-screen w-full bg-[#070709] text-white overflow-x-hidden font-sans flex items-center justify-center">
+      
+      {/* ─── BACKGROUND MESH & GEOMETRIC GRID ─── */}
+      <div className="absolute inset-0 z-0 bg-[linear-gradient(to_right,#1f1f2e_1px,transparent_1px),linear-gradient(to_bottom,#1f1f2e_1px,transparent_1px)] bg-[size:4.5rem_4.5rem] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,#000_60%,transparent_100%)] opacity-[0.25]" />
+      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-[400px] h-[400px] bg-indigo-600/10 rounded-full blur-[100px] pointer-events-none" />
 
-      <div className="absolute inset-0 nx-grid-overlay opacity-40" />
-
-      <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-10 sm:px-6 lg:px-8">
-        <div className="grid w-full gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-          <section className="flex flex-col justify-between rounded-[2rem] nx-glass-strong p-8 shadow-[0_30px_80px_rgba(0,0,0,0.45)] sm:p-10 lg:p-12">
-            <div className="max-w-xl space-y-8">
-              <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-violet-200">
-                <span className="h-1.5 w-1.5 rounded-full bg-violet-400 shadow-[0_0_18px_rgba(139,92,246,0.9)]" />
-                Collaborative Cloud IDE
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] shadow-inner shadow-violet-500/10">
-                  <Zap size={28} className="text-violet-300" />
-                </div>
-                <div className="space-y-3">
-                  <h1 className="max-w-lg text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                    Ship code faster with a workspace that feels{' '}
-                    <span className="nx-text-gradient">calm and focused.</span>
-                  </h1>
-                  <p className="max-w-xl text-base leading-7 text-zinc-400 sm:text-lg">
-                    Authenticate with GitHub to access your active projects and start building in isolated, real-time environments.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                {[
-                  'Conflict-Free Concurrency',
-                  'Persistent Session States',
-                  'Isolated Sandboxes',
-                ].map((item) => (
-                  <div key={item} className="rounded-2xl border border-violet-500/10 bg-violet-500/[0.04] px-4 py-3 text-sm text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-colors hover:border-violet-500/20 hover:bg-violet-500/[0.08]">
-                    {item}
-                  </div>
-                ))}
-              </div>
+      {/* ─── FLOATING TOP LOGO BRANDING ─── */}
+      <header className="absolute top-0 left-0 w-full p-6 lg:p-8 z-20">
+        <div className="max-w-7xl mx-auto flex items-center">
+          <div className="flex items-center gap-2.5 font-bold text-lg tracking-tight select-none">
+            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-md shadow-purple-500/20">
+              <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
             </div>
-
-            <div className="mt-10 grid gap-3 border-t border-white/10 pt-6 sm:grid-cols-3">
-              {[
-                ['Immutable Access', 'GitHub OAuth security layer'],
-                ['High Availability', 'Sub-100ms environment recovery'],
-                ['Decoupled UI', 'Engineered glassmorphism interface'],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.06]">
-                  <div className="text-xs uppercase tracking-[0.24em] text-zinc-500">{label}</div>
-                  <div className="mt-2 text-sm text-zinc-200">{value}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="flex items-center justify-center">
-            <div className="w-full max-w-[32rem] rounded-[2rem] nx-glass-strong p-6 shadow-[0_24px_90px_rgba(0,0,0,0.5),0_0_60px_rgba(139,92,246,0.06)] sm:p-8">
-              <div className="mb-8 flex flex-col items-center text-center">
-                <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-400/15 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  <Zap size={30} className="text-violet-300" />
-                </div>
-                <h2 className="text-2xl font-semibold tracking-tight text-white">
-                  Developer Authentication
-                </h2>
-                <p className="mt-2 max-w-sm text-sm leading-6 text-zinc-400">
-                  Securely log in with your GitHub account to manage workspaces.
-                </p>
-              </div>
-
-              <div className="space-y-5">
-                <button
-                  onClick={handleGithubLogin}
-                  className="nx-btn-shimmer group relative flex w-full items-center justify-center gap-3 rounded-2xl border border-zinc-700 bg-[#24292e] px-4 py-3.5 text-sm font-semibold text-white shadow-[0_16px_30px_rgba(0,0,0,0.2)] transition duration-200 hover:bg-[#2f363d] focus:outline-none focus:ring-4 focus:ring-violet-400/20"
-                >
-                  <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="css-i6dzq1"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-                  <span>Continue with GitHub</span>
-                </button>
-              </div>
-
-              <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-center">
-                <p className="text-sm text-zinc-400">
-                  By signing in, you agree to the Terms of Service.
-                </p>
-              </div>
-            </div>
-          </section>
+            <span className="bg-gradient-to-r from-neutral-100 to-neutral-400 bg-clip-text text-transparent">DevSpace</span>
+          </div>
         </div>
-      </div>
+      </header>
+
+      {/* ─── MAIN CONTAINER ─── */}
+      <main className="relative z-10 w-full max-w-7xl mx-auto px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center pt-24 pb-12">
+        
+        {/* LEFT COLUMN: HERO DESCRIPTIVES & VALUE CARDS */}
+        <div className="lg:col-span-7 space-y-12 max-w-2xl lg:max-w-none">
+          <div className="space-y-6">
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-inner">
+              <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
+              COLLABORATIVE CLOUD IDE
+            </span>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] text-neutral-100">
+              Ship code faster in a workspace that feels{' '}
+              <span className="bg-gradient-to-r from-purple-400 via-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+                calm and focused.
+              </span>
+            </h1>
+            <p className="text-neutral-400 text-base sm:text-lg leading-relaxed font-normal">
+              Authenticate with your provider to access isolated containers, write robust applications alongside colleagues, and coordinate your development stack smoothly.
+            </p>
+          </div>
+
+          {/* Grid Layout containing Product Features */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {features.map((feature, idx) => (
+              <FeatureCard 
+                key={idx}
+                icon={feature.icon}
+                title={feature.title}
+                description={feature.description}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: PREMIUM GLASS AUTH MODULE */}
+        <div className="lg:col-span-5 flex justify-center lg:justify-end w-full">
+          <div className="w-full max-w-md rounded-2xl border border-white/[0.06] bg-[#0c0c10]/70 p-8 backdrop-blur-xl shadow-2xl shadow-black/50 relative group">
+            {/* Soft inner container border-glow effect */}
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-purple-500/10 to-transparent opacity-50 pointer-events-none" />
+            
+            <div className="text-center space-y-2 mb-8 relative z-10">
+              <h2 className="text-2xl font-bold tracking-tight text-neutral-100">Welcome back</h2>
+              <p className="text-sm text-neutral-400">Securely log in to your developer environment.</p>
+            </div>
+
+            <div className="space-y-4 relative z-10">
+              <button onClick={handleGitHubLogin} className="w-full flex items-center justify-center gap-3 bg-neutral-100 text-neutral-950 font-bold py-3 px-4 rounded-xl hover:bg-neutral-200 active:scale-[0.99] transition duration-200 shadow-md shadow-white/5">
+                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.008.069-.008 1.008.07 1.54 1.036 1.54 1.036.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+                </svg>
+                Continue with GitHub
+              </button>
+            </div>
+
+            {/* Visual Text Divider */}
+            <div className="relative my-6 flex items-center justify-center relative z-10">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/[0.06]" />
+              </div>
+              <span className="relative bg-[#0d0d11] px-3.5 text-[10px] font-bold uppercase tracking-widest text-neutral-500">
+                Secure Layer
+              </span>
+            </div>
+
+            <p className="text-center text-[11px] leading-relaxed text-neutral-500 px-2 relative z-10 font-normal">
+              By continuing, you agree to our{' '}
+              <a href="#terms" className="text-neutral-400 underline decoration-neutral-600 underline-offset-2 hover:text-white transition">Terms of Service</a>{' '}
+              and{' '}
+              <a href="#privacy" className="text-neutral-400 underline decoration-neutral-600 underline-offset-2 hover:text-white transition">Privacy Policy</a>.
+            </p>
+          </div>
+        </div>
+
+      </main>
     </div>
   );
 }
-
-// this is just basic authentication page that allows users to log in with their GitHub account. It has a button that redirects the user to the GitHub OAuth flow. Once authenticated, the user will be redirected back to the application with a token.

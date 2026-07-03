@@ -6,7 +6,7 @@ import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import { useToast } from '../components/Toast/Toast';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
-import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder } from 'lucide-react';
+import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder, Activity, ChevronDown } from 'lucide-react';
 import * as Y from 'yjs';
 // @ts-ignore — y-websocket lacks complete TypeScript declarations
 import { WebsocketProvider } from 'y-websocket';
@@ -40,14 +40,14 @@ interface EditorHandle {
 // Helper to give a touch of color to files based on extension in the tab
 const getFileColor = (name: string) => {
   const lower = name.toLowerCase();
-  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text-[#3178c6]';
-  if (lower.endsWith('.js') || lower.endsWith('.jsx')) return 'text-[#f7df1e]';
-  if (lower.endsWith('.py')) return 'text-[#3572A5]';
-  if (lower.endsWith('.html')) return 'text-[#e34c26]';
-  if (lower.endsWith('.css')) return 'text-[#563d7c]';
-  if (lower.endsWith('.json')) return 'text-[#cbd5e1]';
-  if (lower.endsWith('.md')) return 'text-[#3b82f6]';
-  return 'text-zinc-400';
+  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text-blue-400';
+  if (lower.endsWith('.js') || lower.endsWith('.jsx')) return 'text-yellow-400';
+  if (lower.endsWith('.py')) return 'text-sky-400';
+  if (lower.endsWith('.html')) return 'text-orange-400';
+  if (lower.endsWith('.css')) return 'text-indigo-400';
+  if (lower.endsWith('.json')) return 'text-zinc-400';
+  if (lower.endsWith('.md')) return 'text-emerald-400';
+  return 'text-zinc-500';
 };
 
 function IdePage() {
@@ -76,8 +76,8 @@ function IdePage() {
     });
   };
 
-  const sidebarWidth = 256;
-  const editorWidth = 60;
+  const sidebarWidth = 260;
+  const editorWidth = 62;
   const mainSplitRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorHandle | null>(null);
   const workspaceWsProviderRef = useRef<WorkspaceProvider | null>(null);
@@ -327,14 +327,12 @@ function IdePage() {
 
   if (!user || !workspaceId) {
     return (
-      <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#07060b] text-zinc-300">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="nx-orb nx-orb-1" />
-          <div className="nx-orb nx-orb-2" />
-        </div>
-        <div className="relative flex flex-col items-center gap-4 rounded-[1.75rem] nx-glass-strong px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.5)]">
-          <Loader2 className="h-8 w-8 animate-spin text-violet-300" />
-          <p className="text-sm text-zinc-400">Initializing your workspace...</p>
+      <div className="relative flex h-screen w-full items-center justify-center bg-[#050505] text-zinc-300">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+        <div className="absolute left-0 right-0 top-0 -z-10 m-auto h-[400px] w-[400px] rounded-full bg-indigo-500 opacity-20 blur-[120px]"></div>
+        <div className="relative flex flex-col items-center gap-6 rounded-3xl border border-white/5 bg-white/5 p-12 backdrop-blur-2xl shadow-2xl">
+          <Loader2 className="h-10 w-10 animate-spin text-indigo-400" />
+          <p className="text-sm font-medium tracking-wide text-zinc-400">Booting environment...</p>
         </div>
       </div>
     );
@@ -360,82 +358,81 @@ function IdePage() {
   };
 
   return (
-    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#07060b] text-zinc-300 selection:bg-violet-400/25">
+    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#030303] text-zinc-300 font-sans selection:bg-indigo-500/30">
       
-      {/* Ambient Background Orbs */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none nx-orb-dim">
-        <div className="nx-orb nx-orb-1" />
-        <div className="nx-orb nx-orb-2" />
-      </div>
+      {/* Background Texture & Glows */}
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:32px_32px]" />
+      <div className="pointer-events-none absolute -left-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-indigo-500/10 blur-[120px]" />
+      <div className="pointer-events-none absolute -bottom-1/4 -right-1/4 h-[600px] w-[600px] rounded-full bg-emerald-500/10 blur-[120px]" />
 
-      {/* Frosted Glass Header */}
-      <header className="relative z-50 flex shrink-0 items-center justify-between border-b border-violet-500/10 bg-[rgba(13,12,20,0.80)] px-5 py-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.25),0_0_1px_rgba(139,92,246,0.10)] backdrop-blur-2xl">
-
-        {/* Left: Logo + Workspace title */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-violet-400/15 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-            <Zap className="text-violet-300" size={16} />
-          </div>
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <span className="font-semibold text-white">{workspaceTitle}</span>
-            {userRole && (
-              <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.22em] ${
-                userRole === 'admin' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' :
-                userRole === 'editor' ? 'border-blue-400/20 bg-blue-400/10 text-blue-300' :
-                'border-orange-400/20 bg-orange-400/10 text-orange-300'
-              }`}>
-                {userRole}
-              </span>
-            )}
+      {/* Header Area */}
+      <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-white/[0.04] bg-[#030303]/80 px-4 shadow-sm backdrop-blur-xl">
+        
+        {/* Left: Branding & Status */}
+        <div className="flex items-center gap-4">
+          <div className="group flex cursor-pointer items-center gap-3 transition-opacity hover:opacity-80" onClick={() => navigate('/dashboard')}>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-inner">
+              <Zap className="text-white" size={16} strokeWidth={2.5} />
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold tracking-tight text-zinc-100">{workspaceTitle}</span>
+                <div
+                  className={`h-2 w-2 rounded-full ${
+                    connectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                    connectionStatus === 'disconnected' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' :
+                    'bg-amber-500 animate-pulse'
+                  }`}
+                  title={`Status: ${connectionStatus}`}
+                />
+              </div>
+              <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">{userRole} workspace</span>
+            </div>
           </div>
         </div>
 
-        {/* Right: Actions */}
-        <div className="flex items-center gap-2">
+        {/* Right: Actions & Collaborators */}
+        <div className="flex items-center gap-3">
           <VoiceChat workspaceId={workspaceId} user={user} />
+          
+          {/* Divider */}
+          <div className="h-6 w-[1px] bg-white/[0.08] mx-2" />
 
-          {/* Connection Status */}
-          <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-            connectionStatus === 'connected'
-              ? 'border-emerald-400/15 bg-emerald-400/10 text-emerald-200'
-              : connectionStatus === 'disconnected'
-                ? 'border-red-400/15 bg-red-400/10 text-red-200'
-                : 'border-amber-400/15 bg-amber-400/10 text-amber-200'
-          }`}>
-            <span className="relative flex h-2 w-2">
-              {connectionStatus !== 'disconnected' && (
-                <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-70 ${
-                  connectionStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'
-                }`} />
-              )}
-              <span className={`relative inline-flex h-2 w-2 rounded-full ${
-                connectionStatus === 'connected' ? 'bg-emerald-400' :
-                connectionStatus === 'disconnected' ? 'bg-red-400' : 'bg-amber-400'
-              }`} />
-            </span>
-            <span>{connectionStatus === 'connected' ? 'Live Sync' : connectionStatus === 'disconnected' ? 'Offline' : 'Connecting...'}</span>
-          </div>
-
-          {/* Active Members Dropdown */}
+          {/* Active Collaborators Avatars */}
           {activeCollaborators.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setIsActiveMembersOpen((isOpen) => !isOpen)}
-                className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
+            <div className="relative flex items-center">
+              <button 
+                onClick={() => setIsActiveMembersOpen(!isActiveMembersOpen)}
+                className="group flex items-center gap-1 rounded-full p-1 pr-2 transition-colors hover:bg-white/5"
               >
-                <div className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                <div className="flex items-center -space-x-2 mr-1">
+                  {activeCollaborators.slice(0, 3).map((c, i) => (
+                    <div
+                      key={c.userId}
+                      className="relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#030303] text-[10px] font-bold text-white shadow-sm transition-transform group-hover:-translate-y-0.5"
+                      style={{ backgroundColor: c.color || '#6366f1', zIndex: 10 - i }}
+                      title={c.username}
+                    >
+                      {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
+                      <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-[#030303] bg-emerald-500" />
+                    </div>
+                  ))}
+                  {activeCollaborators.length > 3 && (
+                    <div className="relative z-0 flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#030303] bg-zinc-800 text-[10px] font-bold text-white shadow-sm">
+                      +{activeCollaborators.length - 3}
+                    </div>
+                  )}
                 </div>
-                {activeCollaborators.length} Online
+                <ChevronDown size={14} className="text-zinc-500 transition-transform group-hover:text-zinc-300" />
               </button>
 
               {isActiveMembersOpen && (
-                <div className="absolute right-0 top-full mt-2 w-52 rounded-2xl border border-white/10 bg-[#0d0c14] p-2 shadow-2xl z-50">
-                  <div className="mb-2 px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 border-b border-white/5">
-                    Active Members
+                <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-white/[0.08] bg-[#0A0A0A]/95 p-2 shadow-2xl backdrop-blur-xl z-50">
+                  <div className="mb-2 flex items-center gap-2 px-2 pb-2 text-xs font-semibold text-zinc-400 border-b border-white/5">
+                    <Activity size={12} className="text-emerald-500" />
+                    Online Members
                   </div>
-                  <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
+                  <div className="max-h-60 overflow-y-auto flex flex-col gap-1">
                     {activeCollaborators.map((c) => (
                       <button
                         key={c.userId}
@@ -445,21 +442,24 @@ function IdePage() {
                             setIsActiveMembersOpen(false);
                           }
                         }}
-                        className={`w-full flex items-center gap-2 rounded-xl px-2 py-1.5 transition-colors ${
-                          c.activeFileId ? 'hover:bg-white/10 cursor-pointer' : 'opacity-70 cursor-default'
+                        className={`w-full flex items-center gap-3 rounded-xl px-2 py-2 transition-all ${
+                          c.activeFileId ? 'hover:bg-white/5 cursor-pointer' : 'opacity-60 cursor-default'
                         }`}
-                        title={c.activeFileId ? 'Jump to their file' : 'Idle'}
                       >
-                        <div
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white border border-white/10"
-                          style={{ backgroundColor: c.color || '#8b5cf6' }}
-                        >
-                          {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
+                        <div className="relative">
+                          <div
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white shadow-sm"
+                            style={{ backgroundColor: c.color || '#6366f1' }}
+                          >
+                            {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
+                          </div>
+                          <div className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0A0A0A] bg-emerald-500" />
                         </div>
                         <div className="flex flex-col items-start min-w-0">
-                          <span className="text-xs text-zinc-300 truncate w-full text-left">{c.username || 'Unknown'}</span>
+                          <span className="text-sm font-medium text-zinc-200 truncate w-full text-left">{c.username || 'Unknown'}</span>
                           {c.activeFileId && (
-                            <span className="text-[10px] text-violet-400/80 truncate w-full text-left">
+                            <span className="text-[11px] text-zinc-500 truncate w-full text-left flex items-center gap-1">
+                              <FileText size={10} />
                               {files.find(f => f.id === c.activeFileId)?.name || 'Editing'}
                             </span>
                           )}
@@ -472,47 +472,39 @@ function IdePage() {
             </div>
           )}
 
-          <button
-            onClick={() => setIsCollabModalOpen(true)}
-            className="flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/20"
-          >
-            <Users size={14} />
-            Share
-          </button>
-
-          <button
-            onClick={handleExportWorkspace}
-            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
-            title="Export as ZIP"
-          >
-            <Download size={14} />
-            Export
-          </button>
-
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10"
-          >
-            Dashboard
-          </button>
-
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-300"
-          >
-            <LogOut size={14} />
-            Logout
-          </button>
+          <div className="flex items-center gap-1.5 bg-[#121214] rounded-lg p-1 border border-white/[0.04] shadow-sm">
+            <button
+              onClick={() => setIsCollabModalOpen(true)}
+              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <Users size={14} />
+              Share
+            </button>
+            <button
+              onClick={handleExportWorkspace}
+              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <Download size={14} />
+              Export
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center justify-center rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
+              title="Logout"
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Main IDE Layout — padded with rounded glass cards */}
-      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden p-3 gap-3">
-
-        {/* Sidebar Panel */}
+      {/* Main Workspace Layout */}
+      <div className="relative z-10 flex min-h-0 flex-1 gap-4 p-4 pt-4 pb-4 overflow-hidden">
+        
+        {/* Sidebar Navigation */}
         <div
           style={{ width: `${sidebarWidth}px` }}
-          className="flex-shrink-0 flex h-full rounded-[1.5rem] border border-white/[0.07] bg-[rgba(13,12,20,0.65)] shadow-[0_16px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl overflow-hidden"
+          className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.05] bg-[#0A0A0A]/60 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
         >
           <Sidebar
             files={files}
@@ -525,25 +517,25 @@ function IdePage() {
           />
         </div>
 
-        {/* Editor + Terminal Row */}
-        <main ref={mainSplitRef} className="flex min-h-0 flex-1 flex-row gap-3 overflow-hidden">
-
-          {/* Editor Panel */}
+        {/* Editor & Terminal Area */}
+        <main ref={mainSplitRef} className="flex min-h-0 flex-1 gap-4 overflow-hidden">
+          
+          {/* Code Editor Panel */}
           <section
             style={{ width: `${editorWidth}%` }}
-            className="flex min-h-0 flex-col flex-shrink-0 rounded-[1.5rem] border border-white/[0.07] bg-[rgba(13,12,20,0.65)] shadow-[0_16px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl overflow-hidden"
+            className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.05] bg-[#0A0A0A]/60 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
           >
-            {/* Breadcrumbs */}
-            <div className="flex h-9 shrink-0 items-center border-b border-white/[0.05] bg-white/[0.02] px-4 select-none">
+            {/* Context/Breadcrumbs Bar */}
+            <div className="flex h-11 shrink-0 items-center border-b border-white/[0.04] bg-[#050505]/40 px-4 backdrop-blur-md">
               {activeFile ? (
-                <div className="flex items-center text-[13px] text-zinc-300 font-bold">
+                <div className="flex items-center text-xs font-medium text-zinc-400">
                   {getFileBreadcrumbs().map((crumb, index, arr) => {
                     const isLast = index === arr.length - 1;
                     return (
-                      <div key={crumb.id} className="flex items-center gap-1">
+                      <div key={crumb.id} className="flex items-center">
                         <div
-                          className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-colors ${
-                            isLast ? 'text-white font-extrabold' : 'hover:bg-white/5 hover:text-white cursor-pointer'
+                          className={`flex items-center gap-1.5 rounded-md px-2 py-1 transition-all ${
+                            isLast ? 'text-zinc-100 bg-white/5 shadow-sm' : 'hover:bg-white/5 hover:text-zinc-200 cursor-pointer'
                           }`}
                           onClick={() => {
                             if (!isLast && crumb.type === 'file') {
@@ -552,24 +544,27 @@ function IdePage() {
                           }}
                         >
                           {crumb.type === 'directory' ? (
-                            <Folder size={13} className="text-violet-400/80" />
+                            <Folder size={14} className="text-zinc-500" />
                           ) : (
-                            <FileText size={13} className={getFileColor(crumb.name)} />
+                            <FileText size={14} className={getFileColor(crumb.name)} />
                           )}
                           <span>{crumb.name}</span>
                         </div>
-                        {!isLast && <ChevronRight size={12} className="text-zinc-650" />}
+                        {!isLast && <ChevronRight size={14} className="mx-0.5 text-zinc-700" />}
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <div className="text-[13px] italic font-semibold text-zinc-600">No file selected</div>
+                <div className="flex items-center gap-2 text-xs font-medium text-zinc-600">
+                  <Activity size={14} />
+                  Ready to code
+                </div>
               )}
             </div>
 
-            {/* Monaco Canvas */}
-            <div className="min-h-0 flex-1">
+            {/* Monaco Container */}
+            <div className="relative min-h-0 flex-1 bg-[#020202]/50">
               {activeFile ? (
                 <CodeEditor
                   workspaceId={workspaceId}
@@ -581,9 +576,11 @@ function IdePage() {
                   onConnectionStatusChange={handleConnectionStatusChange}
                 />
               ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-zinc-600">
-                  <Code2 className="h-14 w-14 opacity-15" />
-                  <p>Select a file to start coding.</p>
+                <div className="flex h-full flex-col items-center justify-center gap-4 text-zinc-500">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/5 bg-white/[0.02]">
+                    <Code2 className="h-8 w-8 text-zinc-600" />
+                  </div>
+                  <p className="text-sm tracking-wide">Select a file from the explorer to begin.</p>
                 </div>
               )}
             </div>
@@ -592,21 +589,20 @@ function IdePage() {
           {/* Terminal Panel */}
           <section
             style={{ width: `calc(${100 - editorWidth}%)` }}
-            className="flex min-h-0 flex-col flex-shrink-0 rounded-[1.5rem] border border-white/[0.07] bg-[rgba(13,12,20,0.65)] shadow-[0_16px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl overflow-hidden"
+            className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.05] bg-[#0A0A0A]/60 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
           >
-            {/* Terminal Tab Bar */}
-            <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] bg-white/[0.025] px-3">
-              <div className="flex items-center gap-2">
-                <TerminalSquare size={13} className="text-violet-300/70" />
-                <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">Terminal</span>
+            {/* Terminal Actions Bar */}
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-white/[0.04] bg-[#050505]/40 px-4 backdrop-blur-md">
+              <div className="flex items-center gap-2.5">
+                <TerminalSquare size={14} className="text-indigo-400" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Sandbox</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2 bg-[#121214] p-1 rounded-lg border border-white/[0.04]">
                 <button
                   onClick={() => window.open(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${localStorage.getItem('token')}`, '_blank')}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-colors hover:bg-emerald-500/20"
-                  title="Open Live Web Preview"
+                  className="group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-all hover:bg-emerald-500/20"
                 >
-                  <Globe size={11} />
+                  <Globe size={12} className="transition-transform group-hover:scale-110" />
                   Preview
                 </button>
                 {userRole !== 'viewer' && (
@@ -615,24 +611,22 @@ function IdePage() {
                       sessionStorage.setItem('resetTerminal', 'true');
                       setTerminalKey(prev => prev + 1);
                     }}
-                    className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200"
-                    title="Reset Sandbox"
+                    className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
                   >
-                    <RotateCcw size={11} />
-                    Reset
+                    <RotateCcw size={12} />
+                    Restart
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Terminal Canvas */}
-            <div className="min-h-0 flex-1">
+            {/* Terminal Instance */}
+            <div className="min-h-0 flex-1 bg-[#020202]/80">
               {workspaceId && (
                 <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} isVisible={true} />
               )}
             </div>
           </section>
-
         </main>
       </div>
       

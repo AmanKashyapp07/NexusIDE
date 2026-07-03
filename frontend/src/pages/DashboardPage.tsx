@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../components/Toast/Toast';
-import { Zap, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X } from 'lucide-react';
+import { Zap, Plus, ArrowRight, FolderCode, LogOut, Loader2, ArrowUpRight, Trash2, Edit2, Check, X, Users, Clock } from 'lucide-react';
 
 interface Workspace {
   id: string;
@@ -11,8 +11,6 @@ interface Workspace {
   owner_id: string;
   user_role?: string;
 }
-
-
 
 export default function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -97,8 +95,6 @@ export default function DashboardPage() {
     }
   };
 
-
-
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinId.trim()) return;
@@ -178,73 +174,81 @@ export default function DashboardPage() {
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+  };
+
   if (isLoading) {
     return (
-      <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-[#07060b] text-zinc-300">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="nx-orb nx-orb-1" />
-          <div className="nx-orb nx-orb-2" />
-        </div>
-        <div className="relative flex flex-col items-center gap-4 rounded-[1.75rem] nx-glass-strong px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.5)]">
-          <Loader2 className="h-8 w-8 animate-spin text-violet-300" />
-          <p className="text-sm text-zinc-400">Loading your dashboard...</p>
+      <div className="flex h-screen w-full items-center justify-center bg-[#09090b] text-zinc-300">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+          <p className="text-sm font-medium text-zinc-500 tracking-wide">Initializing workspace...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#07060b] text-zinc-200 selection:bg-violet-400/25 font-sans">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="nx-orb nx-orb-1" />
-        <div className="nx-orb nx-orb-2" />
-        <div className="nx-orb nx-orb-3" />
+    <div className="min-h-screen bg-[#09090b] text-zinc-200 font-sans selection:bg-violet-500/30">
+      {/* Top Navigation Bar */}
+      <nav className="sticky top-0 z-50 w-full border-b border-white/5 bg-[#09090b]/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/10 border border-violet-500/20">
+              <Zap className="text-violet-400" size={18} />
+            </div>
+            <span className="text-sm font-bold text-white tracking-wide">DevSpace</span>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 pr-4 border-r border-white/10">
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt={user.username} className="h-8 w-8 rounded-full object-cover border border-white/10" />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 border border-white/10">
+                  <span className="text-xs font-medium text-zinc-400">{user?.username.charAt(0).toUpperCase()}</span>
+                </div>
+              )}
+              <span className="text-sm font-medium text-zinc-300">{user?.username}</span>
+            </div>
+            <button onClick={handleLogout} className="text-zinc-500 hover:text-red-400 transition-colors p-1" title="Log out">
+              <LogOut size={18} />
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Ambient Background Glow */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-1/2 -left-1/2 w-full h-full bg-violet-900/10 blur-[120px] rounded-full mix-blend-screen" />
       </div>
 
-      <div className="absolute inset-0 nx-grid-overlay opacity-30" />
-
-      <div className="relative mx-auto max-w-6xl px-6 py-12">
-        <header className="flex items-center justify-between mb-12 border-b border-white/10 pb-6">
-          <div className="flex items-center gap-4">
-            {user?.avatar_url ? (
-              <img 
-                src={user.avatar_url} 
-                alt={user.username} 
-                className="h-12 w-12 rounded-2xl object-cover border border-violet-400/20 shadow-[0_0_15px_rgba(139,92,246,0.15)]" 
-              />
-            ) : (
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                <Zap className="text-violet-300" size={24} />
-              </div>
-            )}
-            <div>
-              <h1 className="text-2xl font-semibold text-white tracking-tight">Welcome, {user?.username}</h1>
-              <p className="text-sm text-zinc-400 mt-1">Manage your collaborative cloud workspaces</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-300"
-          >
-            <LogOut size={16} />
-            Logout
-          </button>
+      {/* Main Content Layout */}
+      <main className="relative mx-auto max-w-7xl px-6 py-12">
+        <header className="mb-12">
+          <h1 className="text-3xl font-semibold text-white tracking-tight">Overview</h1>
+          <p className="text-zinc-500 mt-1.5 text-sm">Manage your cloud environments and collaborate with your team.</p>
         </header>
 
-        <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
+        <div className="grid gap-10 lg:grid-cols-[1fr_320px]">
+          {/* Workspaces Section */}
           <section>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-medium text-white flex items-center gap-2">
-                <FolderCode size={18} className="text-violet-400" />
-                Your Workspaces
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                <FolderCode size={16} />
+                Recent Workspaces
               </h2>
             </div>
 
             {workspaces.length === 0 ? (
-              <div className="rounded-[2rem] border border-white/5 bg-white/[0.02] p-12 text-center border-dashed backdrop-blur-sm">
-                <FolderCode size={40} className="mx-auto text-zinc-600 mb-4 opacity-50" />
-                <h3 className="text-lg font-medium text-zinc-300">No workspaces yet</h3>
-                <p className="text-zinc-500 mt-2">Create your first sandbox to start coding.</p>
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] py-16 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/5 mb-4">
+                  <FolderCode size={28} className="text-zinc-500" />
+                </div>
+                <h3 className="text-lg font-medium text-zinc-200">No workspaces yet</h3>
+                <p className="text-sm text-zinc-500 mt-1 max-w-xs">Create your first sandbox environment to start writing code.</p>
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -254,9 +258,9 @@ export default function DashboardPage() {
                     onClick={() => {
                       if (editingWorkspaceId !== ws.id) navigate(`/ide/${ws.id}`);
                     }}
-                    className={`group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.2)] backdrop-blur-md transition-all duration-300 hover:border-violet-400/30 hover:bg-white/[0.07] hover:shadow-[0_8px_30px_rgba(139,92,246,0.12)] hover:scale-[1.02] ${editingWorkspaceId === ws.id ? 'cursor-default ring-1 ring-violet-500/50' : 'cursor-pointer'}`}
+                    className={`group relative overflow-hidden rounded-xl border border-white/10 bg-[#121318] p-5 transition-all duration-200 hover:border-violet-500/30 hover:bg-[#16171d] hover:shadow-[0_0_20px_rgba(139,92,246,0.05)] ${editingWorkspaceId === ws.id ? 'cursor-default ring-1 ring-violet-500/50' : 'cursor-pointer hover:-translate-y-0.5'}`}
                   >
-                    <div className="flex items-start justify-between min-h-[2rem]">
+                    <div className="flex items-start justify-between min-h-[2.5rem]">
                       {editingWorkspaceId === ws.id ? (
                         <form className="flex w-full items-center gap-2" onSubmit={(e) => handleEditSave(e, ws.id)}>
                           <input
@@ -265,45 +269,55 @@ export default function DashboardPage() {
                             value={editingTitle}
                             onChange={(e) => setEditingTitle(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
-                            className="flex-1 rounded-lg border border-violet-500/30 bg-black/50 px-3 py-1 text-sm text-white outline-none focus:border-violet-400"
+                            className="flex-1 rounded-md border border-violet-500/50 bg-[#09090b] px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-violet-500"
                           />
-                          <button type="submit" className="rounded-lg p-1.5 text-emerald-400 hover:bg-emerald-500/20" onClick={(e) => handleEditSave(e, ws.id)}>
+                          <button type="submit" className="rounded-md p-1.5 text-emerald-400 hover:bg-emerald-500/10">
                             <Check size={16} />
                           </button>
-                          <button type="button" className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-500/20 hover:text-white" onClick={(e) => { e.stopPropagation(); setEditingWorkspaceId(null); }}>
+                          <button type="button" className="rounded-md p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white" onClick={(e) => { e.stopPropagation(); setEditingWorkspaceId(null); }}>
                             <X size={16} />
                           </button>
                         </form>
                       ) : (
                         <>
-                          <h3 className="text-lg font-medium text-zinc-100 group-hover:text-violet-100 transition-colors pr-16">{ws.title}</h3>
+                          <h3 className="text-base font-medium text-zinc-200 group-hover:text-violet-200 transition-colors pr-16 truncate">
+                            {ws.title}
+                          </h3>
 
-                          <div className="absolute right-4 top-4 z-10 flex opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                          <div className="absolute right-4 top-4 z-10 flex opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                             <button
                               onClick={(e) => handleEditStart(e, ws)}
-                              className="cursor-pointer rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-violet-300"
+                              className="rounded-md p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white"
                               title="Edit Title"
                             >
-                              <Edit2 size={16} />
+                              <Edit2 size={15} />
                             </button>
                             <button
                               onClick={(e) => handleDelete(e, ws)}
-                              className="cursor-pointer rounded-lg p-1.5 text-zinc-400 hover:bg-red-500/20 hover:text-red-400"
+                              className="rounded-md p-1.5 text-zinc-400 hover:bg-red-500/10 hover:text-red-400 ml-1"
                               title="Delete Workspace"
                             >
-                              <Trash2 size={16} />
+                              <Trash2 size={15} />
                             </button>
                           </div>
-                          <ArrowUpRight size={18} className="pointer-events-none absolute right-4 top-5 text-zinc-500 opacity-0 group-hover:opacity-0 transition-opacity -translate-x-2 translate-y-2 group-hover:translate-x-0 group-hover:translate-y-0 duration-300" />
+                          
+                          {/* Hover Arrow Indicator */}
+                          <div className="absolute right-5 top-5 text-zinc-600 opacity-0 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-1 group-hover:-translate-y-1">
+                             <ArrowUpRight size={18} />
+                          </div>
                         </>
                       )}
                     </div>
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="text-xs font-mono text-zinc-500 truncate mr-4">
-                        ID: {ws.id.split('-')[0]}...
+
+                    {/* Metadata Footer */}
+                    <div className="mt-5 flex items-center gap-4 text-xs font-medium text-zinc-500">
+                      <div className="flex items-center gap-1.5">
+                        <Users size={13} />
+                        <span className="truncate max-w-[80px]">ID: {ws.id.split('-')[0]}</span>
                       </div>
-                      <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-                        {new Date(ws.updated_at).toLocaleDateString()}
+                      <div className="flex items-center gap-1.5">
+                        <Clock size={13} />
+                        <span>{formatDate(ws.updated_at)}</span>
                       </div>
                     </div>
                   </div>
@@ -312,56 +326,60 @@ export default function DashboardPage() {
             )}
           </section>
 
+          {/* Action Sidebar */}
           <aside className="space-y-6">
-            <div className="rounded-[1.5rem] nx-glass-strong p-6 shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
-              <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400 mb-4">Create New</h3>
-              <form onSubmit={handleCreate} className="space-y-4">
+            {/* Create Card */}
+            <div className="rounded-2xl border border-white/5 bg-gradient-to-b from-white/[0.03] to-transparent p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-violet-500/20 to-transparent" />
+              <h3 className="text-sm font-semibold text-white mb-1">Create Workspace</h3>
+              <p className="text-xs text-zinc-500 mb-5">Spin up a new isolated environment.</p>
+              
+              <form onSubmit={handleCreate} className="space-y-3">
                 <input
                   type="text"
                   required
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="Workspace Name"
-                  className="nx-input-glow block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-zinc-600 shadow-inner outline-none transition duration-200 hover:border-white/20"
+                  placeholder="e.g. React-Sandbox"
+                  className="block w-full rounded-lg border border-white/10 bg-[#09090b] px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50"
                 />
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="nx-btn-shimmer nx-btn-gradient flex w-full items-center justify-center gap-2 rounded-xl border border-violet-300/20 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(139,92,246,0.2)] transition duration-200 hover:shadow-[0_12px_25px_rgba(99,102,241,0.3)] disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-zinc-200 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-                  New Workspace
+                  Create Now
                 </button>
               </form>
             </div>
 
-
-            <div className="rounded-[1.5rem] nx-glass-strong p-6 shadow-[0_24px_40px_rgba(0,0,0,0.4)]">
-              <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400 mb-4">Join Existing</h3>
-              <form onSubmit={handleJoin} className="space-y-4">
+            {/* Join Card */}
+            <div className="rounded-2xl border border-white/5 bg-gradient-to-b from-white/[0.03] to-transparent p-6">
+              <h3 className="text-sm font-semibold text-white mb-1">Join Workspace</h3>
+              <p className="text-xs text-zinc-500 mb-5">Enter a UUID to collaborate with others.</p>
+              
+              <form onSubmit={handleJoin} className="space-y-3">
                 <input
                   type="text"
                   required
                   value={joinId}
                   onChange={(e) => setJoinId(e.target.value)}
-                  placeholder="Paste UUID..."
-                  className="nx-input-glow block w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm font-mono text-white placeholder:text-zinc-600 placeholder:font-sans shadow-inner outline-none transition duration-200 hover:border-white/20"
+                  placeholder="Paste workspace ID..."
+                  className="block w-full rounded-lg border border-white/10 bg-[#09090b] px-4 py-2.5 text-sm font-mono text-zinc-300 placeholder:text-zinc-600 placeholder:font-sans outline-none transition-all focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
                 />
                 <button
                   type="submit"
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-white/5 hover:bg-emerald-500/10 hover:text-emerald-300 px-4 py-2.5 text-sm font-semibold text-zinc-300 transition duration-200"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
                 >
-                  Join Workspace
-                  <ArrowRight size={16} />
+                  Join Environment
+                  <ArrowRight size={16} className="opacity-70" />
                 </button>
               </form>
             </div>
           </aside>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
-
-
-// this file is responsible for rendering the dashboard page of the application. It fetches the user's workspaces and GitHub repositories, allowing them to create new workspaces, import from GitHub, or join existing workspaces. The page also handles user authentication and logout functionality. It's basic CRUD operations for workspaces, including creating, joining, editing, and deleting workspaces. The UI is designed with a modern glassmorphism aesthetic and includes responsive design elements for better user experience across devices. Here, there is no collaboration feature, just basic workspace management. The dashboard is the main hub for users to manage their coding environments and projects. Users can join their team's workspaces or create new ones, making it a central point for project management and collaboration.
