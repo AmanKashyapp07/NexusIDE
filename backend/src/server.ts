@@ -29,6 +29,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Intercept Vite absolute paths from preview IF referer is present
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/workspace')) return next();
+  const referer = req.headers.referer;
+  if (referer && (req.path.startsWith('/@') || req.path.startsWith('/node_modules') || req.path.startsWith('/src/') || req.path.match(/\.(tsx?|jsx?|css)$/))) {
+    const match = referer.match(/\/api\/workspace\/([^\/]+)\/preview/);
+    if (match) {
+      return res.redirect(`/api/workspace/${match[1]}/preview${req.originalUrl}`);
+    }
+  }
+  next();
+});
+
 // REST HTTP Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/workspace', requireAuth, workspaceRoutes);
