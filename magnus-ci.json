@@ -12,6 +12,10 @@
     "test-frontend": {
       "run": "npm run test:frontend",
       "needs": ["setup"]
+    },
+    "test-e2e": {
+      "run": "bash scripts/run-e2e-ci.sh",
+      "needs": ["setup"]
     }
   }
 }
