@@ -13,7 +13,8 @@ su - postgres -c "psql -c \"CREATE ROLE \\\"user\\\" WITH SUPERUSER LOGIN PASSWO
 su - postgres -c "createdb -O user sandbox"
 PGPASSWORD=password psql -h localhost -U user -d sandbox -f database/schema.sql
 
-# Playwright browsers and dependencies are pre-installed in the mcr.microsoft.com/playwright image.
+echo "=== 4. Installing Playwright Chromium & System Dependencies ==="
+npx playwright install --with-deps chromium
 
 echo "=== 5. Building Sandboxed Developer Environment Container ==="
 docker build -t sandbox-dev-env:latest backend/
