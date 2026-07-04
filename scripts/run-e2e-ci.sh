@@ -2,13 +2,8 @@
 # E2E test orchestration script for container-based CI engines (like MagnusCI)
 set -e
 
-echo "=== 1. Installing System Dependencies (Postgres, Netcat, Curl) ==="
-apt-get update && apt-get install -y postgresql postgresql-client netcat-openbsd curl
-
-echo "=== 1b. Installing Modern Docker CLI Binary (speaks API v1.44+) ==="
-curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.0.3.tgz | tar -xz -C /tmp
-mv /tmp/docker/docker /usr/local/bin/docker
-rm -rf /tmp/docker
+echo "=== 1. Installing System Dependencies (Postgres, Netcat, Docker CLI) ==="
+apt-get update && apt-get install -y postgresql postgresql-client netcat-openbsd docker.io
 
 echo "=== 2. Starting PostgreSQL Service ==="
 service postgresql start
