@@ -44,8 +44,11 @@ interface YAwareness {
 
 interface CollaborationProvider {
   awareness: YAwareness;
+  synced?: boolean;
   on(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
   off(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
+  on(event: 'sync', handler: (isSynced: boolean) => void): void;
+  off(event: 'sync', handler: (isSynced: boolean) => void): void;
   destroy(): void;
 }
 
@@ -56,6 +59,7 @@ interface AutocompleteResponse {
 interface CodeEditorProps {
   workspaceId: string;
   fileId: string;
+  filename?: string;
   language: string;
   currentUser: { username: string; id: string };
   onCodeChange?: (code: string) => void;
@@ -116,6 +120,7 @@ const ghostTextCache = new AutocompleteCache(50);
 export default function CodeEditor({
   workspaceId,
   fileId,
+  filename,
   language,
   currentUser,
   onCodeChange,
@@ -128,29 +133,76 @@ export default function CodeEditor({
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
-
+  const [isSynced, setIsSynced] = useState(false);
   // Store callback props in refs so the Yjs useEffect doesn't need them as dependencies.
   const onAwarenessChangeRef = useRef(onAwarenessChange);
   const onConnectionStatusChangeRef = useRef(onConnectionStatusChange);
+  const onCodeChangeRef = useRef(onCodeChange);
   onAwarenessChangeRef.current = onAwarenessChange;
   onConnectionStatusChangeRef.current = onConnectionStatusChange;
+  onCodeChangeRef.current = onCodeChange;
 
+  // ===========================================================================
+  // [COLLABORATION SESSION] Deterministic Yjs lifecycle
+  // ===========================================================================
+  // This effect owns ONE collaborative document session for the current file.
+  // It is keyed on the STABLE document identity (workspaceId + fileId), never on
+  // transient UI timing. Two lifecycles are handled with clear separation:
+  //
+  //   1. ROOM/SESSION lifecycle — the Y.Doc + WebsocketProvider + sync state.
+  //      Created exactly once per (workspace, file). The server-side Yjs doc
+  //      (backed by Postgres) is the single source of truth.
+  //
+  //   2. BINDING lifecycle — the MonacoBinding that connects the Y.Doc's text to
+  //      the live Monaco model. Because @monaco-editor/react swaps the underlying
+  //      model ASYNCHRONOUSLY when `path` changes, we bind DETERMINISTICALLY:
+  //      we only ever bind when the editor's *current* model matches the file we
+  //      expect, and we rebind (reusing the same Y.Doc) if Monaco swaps the model.
+  //
+  // We deliberately do NOT call model.setValue('') — y-monaco's MonacoBinding
+  // reconciles the model to the Y.Text on construction and via observers, so it
+  // is the sole authority over editor content. Manually clearing the model races
+  // the async model swap and was the cause of the empty-editor / content-leak bugs.
   useEffect(() => {
     if (!editor) return;
 
-    const ydoc = new Y.Doc();
+    // A fresh session always starts UN-synced. The overlay + read-only gate stay
+    // active until the provider completes its sync handshake with the server.
+    setIsSynced(false);
+
+    let isActive = true;
+    let saveDebounce: ReturnType<typeof setTimeout> | null = null;
+    let savedFade: ReturnType<typeof setTimeout> | null = null;
+    let syncSafetyNet: ReturnType<typeof setTimeout> | null = null;
+
+    const expectedName = filename || fileId;
     const roomName = `${workspaceId}-${fileId}`;
     const token = localStorage.getItem('token') || '';
 
-    // Only the WebSocket provider — no IndexedDB. The server is the single source of truth.
+    // ---- 1. ROOM/SESSION: create the doc + provider once ----
+    const ydoc = new Y.Doc();
     const wsProvider = new WebsocketProvider(
       wsUrl(''),
       roomName,
       ydoc,
       { params: { token } }
-    ) as CollaborationProvider;
+    ) as unknown as CollaborationProvider;
 
-    let isActive = true;
+    // Binding state — mutated by the deterministic binder below.
+    let binding: MonacoBinding | null = null;
+    let boundModel: Monaco.editor.ITextModel | null = null;
+    // The MonacoBinding constructor reconciles the model to the Y.Text, which can
+    // fire exactly one local content change. Ignore that single self-inflicted
+    // update so it doesn't show a spurious "unsaved → saved" flash on open.
+    let ignoreInitialBindUpdate = false;
+
+    // ---- sync state machine: connecting → syncing → synced ----
+    const markSynced = () => {
+      if (!isActive) return;
+      if (syncSafetyNet) { clearTimeout(syncSafetyNet); syncSafetyNet = null; }
+      setIsSynced(true);
+    };
+    const handleSync = (synced: boolean) => { if (synced) markSynced(); };
 
     const handleStatusChange = (event: { status: ConnectionStatus }) => {
       if (!isActive) return;
@@ -160,14 +212,19 @@ export default function CodeEditor({
           name: currentUser.username,
           color: getUserColor(currentUser.username),
         });
+        // Safety net: the 'sync' event is the primary signal, but if it is ever
+        // missed (e.g. a lost handshake frame), we must not leave the editor
+        // permanently gated. Once connected, allow editing shortly after — Yjs is
+        // a CRDT, so any edits made before full sync converge without data loss.
+        if (!syncSafetyNet) {
+          syncSafetyNet = setTimeout(() => { markSynced(); }, 2500);
+        }
       }
     };
 
-    wsProvider.on('status', handleStatusChange);
-
     const handleAwarenessChange = () => {
       if (!isActive) return;
-      const states = Array.from(wsProvider.awareness.getStates().entries());
+      const states = Array.from(wsProvider.awareness.getStates().entries()) as [number, AwarenessState][];
       setAwarenessStates(states);
 
       const users = states
@@ -177,93 +234,83 @@ export default function CodeEditor({
       onAwarenessChangeRef.current?.(uniqueUsers);
     };
 
-    wsProvider.awareness.on('change', handleAwarenessChange);
-    handleAwarenessChange();
-
-    const type = ydoc.getText('monaco');
-    const model = editor.getModel();
-    if (!model) return;
-
-    // CRITICAL: Clear the Monaco model BEFORE creating the binding.
-    // MonacoBinding merges the existing model content with the Yjs doc content,
-    // so if the model already has text (e.g. from a previous file load or stale
-    // state), the content gets duplicated. By clearing the model first, Yjs
-    // becomes the sole source of truth and populates the editor cleanly on sync.
-    model.setValue('');
-
-    const binding = new MonacoBinding(
-      type,
-      model,
-      new Set([editor]),
-      wsProvider.awareness as ConstructorParameters<typeof MonacoBinding>[3]
-    );
-
-    // FALLBACK: If after 2s the Yjs doc is still empty but the DB has content,
-    // force-load it. This handles edge cases where the y-websocket sync protocol
-    // silently fails (e.g. server restart, auth race, bindState error).
-    // This is the "belt and suspenders" approach used by production collaborative IDEs.
-    const fallbackTimer = setTimeout(async () => {
-      if (!isActive) return;
-      const currentContent = ydoc.getText('monaco').toString();
-      if (currentContent.length > 0) return; // Doc has content, sync worked fine
-
-      try {
-        const reqToken = localStorage.getItem('token');
-        const res = await fetch(apiUrl(`/workspace/${workspaceId}/files/${fileId}/content`), {
-          headers: { Authorization: `Bearer ${reqToken || ''}` }
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.content && data.content.length > 0 && ydoc.getText('monaco').toString().length === 0) {
-          // Force-apply the DB content to the Yjs doc as a local transaction
-          ydoc.transact(() => {
-            ydoc.getText('monaco').insert(0, data.content);
-          });
-        }
-      } catch {}
-    }, 2000);
-
-    // Save status indicator: tracks local edits → debounce matches server's 800ms → "Saved"
-    let saveDebounce: ReturnType<typeof setTimeout> | null = null;
-    let savedFade: ReturnType<typeof setTimeout> | null = null;
-    let isFirstUpdate = true;
-
     const handleDocUpdate = (_update: Uint8Array, origin: any) => {
-      // Skip remote updates (origin === WebsocketProvider means it came from another user)
-      // We only show save status for LOCAL edits
-      if (origin === wsProvider) return;
-      // Skip the initial load
-      if (isFirstUpdate) { isFirstUpdate = false; return; }
+      if (!isActive) return;
+      // Only LOCAL edits (origin === the active binding) drive the save indicator.
+      // Remote updates (origin === provider) and the binding's initial reconcile
+      // are ignored.
+      if (origin !== binding) return;
+      if (ignoreInitialBindUpdate) { ignoreInitialBindUpdate = false; return; }
 
       setSaveStatus('unsaved');
       if (saveDebounce) clearTimeout(saveDebounce);
-      if (savedFade) clearTimeout(savedFade);
-
       saveDebounce = setTimeout(() => {
         setSaveStatus('saving');
-        // Server saves in ~800ms debounce + DB write time. We simulate the confirmation.
         setTimeout(() => {
           setSaveStatus('saved');
-          savedFade = setTimeout(() => setSaveStatus('idle'), 2500);
+          if (savedFade) clearTimeout(savedFade);
+          savedFade = setTimeout(() => setSaveStatus('idle'), 2000);
         }, 500);
-      }, 900); // Slightly after server's 800ms debounce to feel responsive
+      }, 1000);
+
+      onCodeChangeRef.current?.(editor.getValue());
     };
 
+    wsProvider.on('status', handleStatusChange as any);
+    wsProvider.on('sync', handleSync);
+    wsProvider.awareness.on('change', handleAwarenessChange);
     ydoc.on('update', handleDocUpdate);
+    // Sample the current sync state AFTER attaching the listener, so we never miss
+    // a handshake that completed synchronously against a warm server room.
+    if (wsProvider.synced) markSynced();
+    handleAwarenessChange();
+
+    // ---- 2. BINDING: attach deterministically to the correct live model ----
+    const tryBind = () => {
+      if (!isActive) return;
+      const model = editor.getModel();
+      // Wait until Monaco has actually swapped in the model for THIS file.
+      if (!model || !model.uri.path.endsWith(expectedName)) return;
+      // Already bound to this exact model — nothing to do.
+      if (binding && boundModel === model) return;
+      // Bound to a stale model (Monaco swapped underneath us) — drop it and rebind
+      // the SAME Y.Doc to the new model. No provider/doc teardown.
+      if (binding && boundModel !== model) {
+        binding.destroy();
+        binding = null;
+        boundModel = null;
+      }
+      ignoreInitialBindUpdate = true;
+      binding = new MonacoBinding(
+        ydoc.getText('monaco'),
+        model,
+        new Set([editor]),
+        wsProvider.awareness as any
+      );
+      boundModel = model;
+    };
+
+    // Attempt an immediate bind (model may already be correct on mount / warm switch).
+    tryBind();
+    // Rebind whenever Monaco swaps the model — the single, deterministic trigger.
+    const modelDisposable = editor.onDidChangeModel(() => tryBind());
 
     return () => {
       isActive = false;
-      clearTimeout(fallbackTimer);
+      modelDisposable.dispose();
       if (saveDebounce) clearTimeout(saveDebounce);
       if (savedFade) clearTimeout(savedFade);
-      ydoc.off('update', handleDocUpdate);
-      wsProvider.off('status', handleStatusChange);
+      if (syncSafetyNet) clearTimeout(syncSafetyNet);
+      wsProvider.off('status', handleStatusChange as any);
+      wsProvider.off('sync', handleSync);
       wsProvider.awareness.off('change', handleAwarenessChange);
-      binding.destroy();
+      ydoc.off('update', handleDocUpdate);
+      // Teardown order: unbind → disconnect provider → destroy doc.
+      if (binding) binding.destroy();
       wsProvider.destroy();
       ydoc.destroy();
     };
-  }, [editor, workspaceId, fileId, currentUser.username]);
+  }, [editor, workspaceId, fileId, currentUser.username, filename]);
 
  useEffect(() => {
     if (!editor || !monacoInstance || readOnly) return;
@@ -391,6 +438,10 @@ export default function CodeEditor({
   }, [editor, monacoInstance, readOnly, workspaceId, language]);
   
   const handleEditorDidMount: OnMount = (editorInstance, monaco) => {
+    // Expose for Playwright E2E tests
+    if (typeof window !== 'undefined') {
+      (window as any).monaco = monaco;
+    }
     setEditor(editorInstance);
     setMonacoInstance(monaco as MonacoInstance);
 
@@ -509,6 +560,7 @@ export default function CodeEditor({
           .join('\n')}
       </style>
       <Editor
+        path={filename}
         height="100%"
         language={language}
         theme="vs-dark"
@@ -545,11 +597,25 @@ export default function CodeEditor({
           },
           // Gate editing until the server sync completes. This prevents a joining user
           // from typing into an empty, not-yet-synced document (which would fork state).
-          readOnly,
+          readOnly: readOnly || !isSynced,
         }}
         onMount={handleEditorDidMount}
         onChange={(value) => onCodeChange?.(value || '')}
       />
+
+      {/* Syncing Overlay — purely visual. It must NOT capture pointer events:
+          editing is already gated via `readOnly || !isSynced`, so the overlay is
+          only a spinner. `pointer-events-none` lets clicks/selection pass through
+          to Monaco and prevents the overlay from ever blocking interaction if a
+          sync signal is briefly delayed. */}
+      {!isSynced && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[#1e1e1e]/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 p-6 rounded-xl bg-[#252526] border border-white/10 shadow-2xl">
+            <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#3b82f6] border-t-transparent" />
+            <span className="text-sm font-medium tracking-wide text-gray-300">Syncing with server...</span>
+          </div>
+        </div>
+      )}
 
       {/* Read-Only Badge */}
       {readOnly && (

@@ -27,6 +27,7 @@ import { WebSocketServer } from 'ws';
 import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import * as Y from 'yjs';
+import * as decoding from 'lib0/decoding';
 // @ts-ignore
 import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 import workspaceRoutes from './routes/workspace';
@@ -115,6 +116,7 @@ setPersistence({
       } else {
         log('📄 BIND', `⚠️ File NOT FOUND in DB for fileId=${fileId}`);
       }
+      (ydoc as any)._dbLoaded = true;
     } catch (err: any) {
       log('📄 BIND', `❌ DB error loading file: ${err.message}`);
     }
@@ -157,6 +159,12 @@ setPersistence({
     if (!match) return;
     const workspaceId = match[1]!;
     const fileId = match[2]!;
+
+    if (!(ydoc as any)._dbLoaded) {
+      log('🔒 CLOSE', `Skipped final save for doc=${docName} — document was not loaded from DB`);
+      return;
+    }
+
     try {
       const state = Buffer.from(Y.encodeStateAsUpdate(ydoc));
       const content = ydoc.getText('monaco').toString();
@@ -241,13 +249,31 @@ wss.on('connection', async (ws, req) => {
     log('🔌 WS', `✅ Authorized user="${decodedUser.username}" role=${role} doc="${docName}"`);
 
     // [SECURITY] CRDT Read-Only Enforcement for viewers
+    // We parse the Yjs protocol at the application layer rather than relying on brittle byte-sniffing.
     if (role === 'viewer') {
       log('🔌 WS', `Applying viewer read-only filter for ${decodedUser.username}`);
       const originalOn = ws.on.bind(ws);
       ws.on = (event: string, listener: any) => {
         if (event === 'message') {
           return originalOn(event, (msg: any, isBin: boolean) => {
-            if (isBin && msg.length > 1 && msg[0] === 0 && msg[1] !== 0) return; // Drop edits
+            if (isBin) {
+              try {
+                const decoder = decoding.createDecoder(new Uint8Array(msg));
+                const messageType = decoding.readVarUint(decoder);
+                // messageType 0 is Sync
+                if (messageType === 0) {
+                  const syncMessageType = decoding.readVarUint(decoder);
+                  // syncProtocol.messageYjsSyncStep2 = 1, syncProtocol.messageYjsUpdate = 2
+                  // Both of these carry document updates that modify state.
+                  if (syncMessageType === 1 || syncMessageType === 2) {
+                    return; // Drop edits from viewers
+                  }
+                }
+              } catch (err) {
+                // If decoding fails, it's a malformed packet; drop it to be safe.
+                return;
+              }
+            }
             listener(msg, isBin);
           });
         }

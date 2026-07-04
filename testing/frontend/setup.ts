@@ -33,4 +33,19 @@ if (typeof global.TextEncoder === 'undefined') {
   global.TextEncoder = TextEncoder;
   global.TextDecoder = TextDecoder;
 }
+// Mock global WebSocket to bypass Node.js/JSDOM Event target prototype mismatch bug
+class MockWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+  readyState = 3;
+  send() {}
+  close() {}
+  addEventListener() {}
+  removeEventListener() {}
+  dispatchEvent() { return true; }
+}
+global.WebSocket = MockWebSocket as any;
+
 HTMLCanvasElement.prototype.getContext = () => null;

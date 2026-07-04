@@ -612,8 +612,14 @@ function IdePage() {
             <div className="relative min-h-0 flex-1 bg-[#020202]/50">
               {activeFile ? (
                 <CodeEditor
+                  // Remount cleanly whenever the document identity changes. Each file
+                  // gets its own editor + Y.Doc + provider + sync handshake, which
+                  // eliminates the in-place model-swap / provider-reuse races that
+                  // left the editor empty or stuck "Syncing…" on file switches.
+                  key={`${workspaceId}:${activeFile.id}`}
                   workspaceId={workspaceId}
                   fileId={activeFile.id}
+                  filename={activeFile.name}
                   language={activeFile.language || 'javascript'}
                   currentUser={user}
                   readOnly={userRole === 'viewer'}
