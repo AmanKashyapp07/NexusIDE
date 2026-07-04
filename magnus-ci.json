@@ -1,6 +1,6 @@
 {
   "language": "Node.js",
-  "image": "node:22-bookworm",
+  "image": "mcr.microsoft.com/playwright:v1.49.1",
   "stages": {
     "setup": {
       "run": "npm install && npm --prefix backend install && npm --prefix frontend install"
