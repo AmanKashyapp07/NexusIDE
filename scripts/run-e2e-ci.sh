@@ -3,10 +3,7 @@
 set -e
 
 echo "=== 1. Installing System Dependencies (Postgres, Netcat, Docker CLI) ==="
-apt-get update && apt-get install -y postgresql postgresql-client netcat-openbsd curl
-curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.0.3.tgz | tar zx
-mv docker/docker /usr/local/bin/
-rm -rf docker
+apt-get update && apt-get install -y postgresql postgresql-client netcat-openbsd docker.io
 
 echo "=== 2. Starting PostgreSQL Service ==="
 service postgresql start
