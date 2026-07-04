@@ -72,7 +72,7 @@ jobs:
 
       - name: Install Playwright Browsers and System Dependencies
         run: |
-          npx playwright install --with-deps chromium
+          npm --prefix frontend exec -- playwright install --with-deps chromium
 
       - name: Run Backend Unit Tests
         env:
@@ -103,9 +103,9 @@ jobs:
 
       - name: Wait for Servers to be Ready
         run: |
-          echo "Waiting for Backend Server (port 3000)..."
+          echo "Waiting for Backend Server (port 4000)..."
           for i in {1..30}; do
-            if nc -z localhost 3000; then
+            if nc -z localhost 4000; then
               echo "Backend is up!"
               break
             fi
