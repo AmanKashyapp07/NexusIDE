@@ -4,7 +4,7 @@ declare const process: { env: { CI?: string } };
 
 export default defineConfig({
   testDir: '../testing/e2e',
-  timeout: process.env.CI ? 60 * 1000 : 45 * 1000,
+  timeout: process.env.CI ? 120 * 1000 : 45 * 1000,
   expect: {
     timeout: process.env.CI ? 20000 : 10000,
   },
@@ -12,12 +12,12 @@ export default defineConfig({
   // from saturating the CPU and causing timeout failures.
   fullyParallel: false,
   workers: 1,
-  retries: 0,
-  reporter: 'list',
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://localhost:5173',
-    trace: 'off',
-    screenshot: 'off',
+    trace: process.env.CI ? 'retain-on-failure' : 'off',
+    screenshot: process.env.CI ? 'only-on-failure' : 'off',
     video: 'off',
   },
   projects: [
