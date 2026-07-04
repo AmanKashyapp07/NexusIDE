@@ -285,14 +285,16 @@ test.describe('Collaborative Engine E2E Integration Suite', () => {
       bobPage.keyboard.type(bobInput),
     ]);
 
-    await alicePage.waitForTimeout(4000);
-
-    const aliceContent = await alicePage.locator('.monaco-editor').innerText();
-    const bobContent = await bobPage.locator('.monaco-editor').innerText();
-    expect(aliceContent.length).toBeGreaterThan(0);
-    expect(aliceContent).toContain('ALICE_WAS_HERE');
-    expect(aliceContent).toContain('BOB_WAS_HERE');
-    expect(aliceContent).toEqual(bobContent);
+    // Use Playwright auto-retry assertions to handle potential CPU/network latency
+    // when running the full test suite in resource-constrained environments.
+    await expect(async () => {
+      const aliceContent = await alicePage.locator('.monaco-editor').innerText();
+      const bobContent = await bobPage.locator('.monaco-editor').innerText();
+      expect(aliceContent.length).toBeGreaterThan(0);
+      expect(aliceContent).toContain('ALICE_WAS_HERE');
+      expect(aliceContent).toContain('BOB_WAS_HERE');
+      expect(aliceContent).toEqual(bobContent);
+    }).toPass({ timeout: 12000, intervals: [1000] });
   });
 
   // TEST 6: Collaborative File Renaming & Connection Stability

@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import CodeEditor from '../components/Editor/CodeEditor';
-import IdePage from '../pages/IdePage';
-import { ToastProvider } from '../components/Toast/Toast';
+import CodeEditor from '../../frontend/src/components/Editor/CodeEditor';
+import IdePage from '../../frontend/src/pages/IdePage';
+import { ToastProvider } from '../../frontend/src/components/Toast/Toast';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 // --- MOCKS ---

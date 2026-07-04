@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
   test: {
@@ -6,11 +7,19 @@ export default defineConfig({
     globals: false,
     testTimeout: 15000,
     hookTimeout: 15000,
-    // Run all test files in a single worker so the vi.mock hoisting
-    // and shared mockQuery state don't cross-contaminate between files.
     fileParallelism: false,
-    include: ['src/tests/**/*.test.ts'],
-    exclude: ['node_modules/**'],
+    include: ['../testing/backend/**/*.test.ts'],
+    exclude: ['**/node_modules/**', 'node_modules/**', '../testing/backend/node_modules/**'],
     reporters: ['verbose'],
+  },
+  resolve: {
+    alias: {
+      'y-websocket': path.resolve(__dirname, 'node_modules/y-websocket'),
+      'yjs': path.resolve(__dirname, 'node_modules/yjs'),
+      'ws': path.resolve(__dirname, 'node_modules/ws'),
+      'jsonwebtoken': path.resolve(__dirname, 'node_modules/jsonwebtoken'),
+      'socket.io-client': path.resolve(__dirname, 'node_modules/socket.io-client'),
+      'supertest': path.resolve(__dirname, 'node_modules/supertest'),
+    },
   },
 });

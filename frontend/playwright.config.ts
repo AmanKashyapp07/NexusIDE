@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 declare const process: { env: { CI?: string } };
 
 export default defineConfig({
-  testDir: './e2e',
+  testDir: '../testing/e2e',
   timeout: 45 * 1000,
   expect: {
     timeout: 10000,
@@ -16,9 +16,9 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:5173',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    trace: 'off',
+    screenshot: 'off',
+    video: 'off',
   },
   projects: [
     {
