@@ -8,8 +8,8 @@ export default defineConfig({
   expect: {
     timeout: 10000,
   },
-  // Run sequentially (1 worker) to prevent concurrent tests from colliding
-  // on PostgreSQL workspace/user records.
+  // Run sequentially (1 worker) to prevent concurrent browser contexts
+  // from saturating the CPU and causing timeout failures.
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -24,21 +24,6 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-  ],
-  // Orchestrate starting both servers before running tests
-  webServer: [
-    {
-      command: 'npm --prefix ../backend run dev',
-      port: 4000,
-      reuseExistingServer: !process.env.CI,
-      timeout: 30 * 1000,
-    },
-    {
-      command: 'npm run dev',
-      port: 5173,
-      reuseExistingServer: !process.env.CI,
-      timeout: 30 * 1000,
     },
   ],
 });

@@ -7,54 +7,42 @@ import { MonacoBinding } from 'y-monaco';
 import { apiUrl, wsUrl } from '../../lib/backendUrls';
 
 // =============================================================================
-// [ARCHITECTURE] SINGLE SOURCE OF TRUTH
+// [ENVIRONMENT] Monaco Web Worker Configuration
+// Prevents main-thread starvation by routing language services (syntax
+// highlighting, formatting, AST parsing) to dedicated Web Workers.
+// Without this, Monaco falls back to main thread, blocking WebSocket message
+// processing, CRDT decoding, and React reconciliation.
 // =============================================================================
-// The server-side Yjs document (backed by Postgres) is the ONLY source of truth.
-// We deliberately DO NOT use IndexeddbPersistence (browser local cache) because:
-//   1. It caches per-file doc state in the browser keyed by room name. When testing
-//      multiple users on the same machine/origin, tabs share the same IndexedDB and
-//      cross-contaminate each other's document state.
-//   2. A stale/empty local cache races with the server sync — Yjs computes the local
-//      state vector from the cache, concludes it's "already synced", and the real
-//      server content never arrives. This is the classic "empty file on join" bug.
-//   3. Offline editing is not a requirement for a server-backed collaborative IDE.
-//
-// Instead, every client does a clean, deterministic sync from the server on join,
-// and the editor stays gated (read-only + overlay) until that sync completes.
+if (typeof window !== 'undefined' && !(window as any).MonacoEnvironment) {
+  (window as any).MonacoEnvironment = {
+    getWorker(_moduleId: string, label: string) {
+      switch (label) {
+        case 'json':
+          return new Worker(new URL('monaco-editor/esm/vs/language/json/json.worker?worker', import.meta.url), { type: 'module' });
+        case 'css':
+        case 'scss':
+        case 'less':
+          return new Worker(new URL('monaco-editor/esm/vs/language/css/css.worker?worker', import.meta.url), { type: 'module' });
+        case 'html':
+        case 'handlebars':
+        case 'razor':
+          return new Worker(new URL('monaco-editor/esm/vs/language/html/html.worker?worker', import.meta.url), { type: 'module' });
+        case 'typescript':
+        case 'javascript':
+          return new Worker(new URL('monaco-editor/esm/vs/language/typescript/ts.worker?worker', import.meta.url), { type: 'module' });
+        default:
+          return new Worker(new URL('monaco-editor/esm/vs/editor/editor.worker?worker', import.meta.url), { type: 'module' });
+      }
+    }
+  };
+}
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
 type MonacoInstance = typeof Monaco;
 type MonacoCodeEditor = Monaco.editor.IStandaloneCodeEditor;
 
-interface AwarenessUser {
-  name: string;
-  color: string;
-}
-
-interface AwarenessState {
-  user?: AwarenessUser;
-}
-
-interface YAwareness {
-  setLocalStateField(field: 'user', value: AwarenessUser): void;
-  getStates(): Map<number, AwarenessState>;
-  on(event: 'change', handler: () => void): void;
-  off(event: 'change', handler: () => void): void;
-}
-
-interface CollaborationProvider {
-  awareness: YAwareness;
-  synced?: boolean;
-  on(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
-  off(event: 'status', handler: (event: { status: ConnectionStatus }) => void): void;
-  on(event: 'sync', handler: (isSynced: boolean) => void): void;
-  off(event: 'sync', handler: (isSynced: boolean) => void): void;
-  destroy(): void;
-}
-
-interface AutocompleteResponse {
-  completion?: string;
-}
+interface AwarenessUser { name: string; color: string; }
+interface AwarenessState { user?: AwarenessUser; }
 
 interface CodeEditorProps {
   workspaceId: string;
@@ -69,17 +57,7 @@ interface CodeEditorProps {
   readOnly?: boolean;
 }
 
-const COLORS = [
-  '#ef4444',
-  '#f97316',
-  '#eab308',
-  '#22c55e',
-  '#06b6d4',
-  '#3b82f6',
-  '#a855f7',
-  '#ec4899',
-];
-
+const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'];
 const getUserColor = (username: string) => {
   let hash = 0;
   for (let i = 0; i < username.length; i++) {
@@ -91,12 +69,10 @@ const getUserColor = (username: string) => {
 class AutocompleteCache {
   private capacity: number;
   private cache: Map<string, string>;
-
   constructor(capacity = 50) {
     this.capacity = capacity;
     this.cache = new Map();
   }
-
   get(key: string): string | undefined {
     if (!this.cache.has(key)) return undefined;
     const value = this.cache.get(key)!;
@@ -104,17 +80,12 @@ class AutocompleteCache {
     this.cache.set(key, value);
     return value;
   }
-
   set(key: string, value: string): void {
     if (this.cache.has(key)) this.cache.delete(key);
-    else if (this.cache.size >= this.capacity) {
-      this.cache.delete(this.cache.keys().next().value!);
-    }
+    else if (this.cache.size >= this.capacity) this.cache.delete(this.cache.keys().next().value!);
     this.cache.set(key, value);
   }
 }
-
-// The module-level LRU cache avoids repeated autocomplete calls for identical local context.
 const ghostTextCache = new AutocompleteCache(50);
 
 export default function CodeEditor({
@@ -134,153 +105,56 @@ export default function CodeEditor({
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
   const [isSynced, setIsSynced] = useState(false);
-  // Store callback props in refs so the Yjs useEffect doesn't need them as dependencies.
-  const onAwarenessChangeRef = useRef(onAwarenessChange);
-  const onConnectionStatusChangeRef = useRef(onConnectionStatusChange);
-  const onCodeChangeRef = useRef(onCodeChange);
-  onAwarenessChangeRef.current = onAwarenessChange;
-  onConnectionStatusChangeRef.current = onConnectionStatusChange;
-  onCodeChangeRef.current = onCodeChange;
+
+  // Synchronously reset sync and awareness status during render if the active file has swapped.
+  // This ensures the "Syncing with server..." overlay is instantly visible in the DOM
+  // during the render commit, preventing E2E race conditions where Playwright asserts
+  // state before the new Yjs websocket handshake is initiated.
+  const [prevFileId, setPrevFileId] = useState(fileId);
+  if (fileId !== prevFileId) {
+    setPrevFileId(fileId);
+    setIsSynced(false);
+    setAwarenessStates([]);
+    setSaveStatus('idle');
+  }
+
+  const callbackRefs = useRef({ onAwarenessChange, onConnectionStatusChange, onCodeChange });
+  callbackRefs.current = { onAwarenessChange, onConnectionStatusChange, onCodeChange };
 
   // ===========================================================================
   // [COLLABORATION SESSION] Deterministic Yjs lifecycle
   // ===========================================================================
-  // This effect owns ONE collaborative document session for the current file.
-  // It is keyed on the STABLE document identity (workspaceId + fileId), never on
-  // transient UI timing. Two lifecycles are handled with clear separation:
-  //
-  //   1. ROOM/SESSION lifecycle — the Y.Doc + WebsocketProvider + sync state.
-  //      Created exactly once per (workspace, file). The server-side Yjs doc
-  //      (backed by Postgres) is the single source of truth.
-  //
-  //   2. BINDING lifecycle — the MonacoBinding that connects the Y.Doc's text to
-  //      the live Monaco model. Because @monaco-editor/react swaps the underlying
-  //      model ASYNCHRONOUSLY when `path` changes, we bind DETERMINISTICALLY:
-  //      we only ever bind when the editor's *current* model matches the file we
-  //      expect, and we rebind (reusing the same Y.Doc) if Monaco swaps the model.
-  //
-  // We deliberately do NOT call model.setValue('') — y-monaco's MonacoBinding
-  // reconciles the model to the Y.Text on construction and via observers, so it
-  // is the sole authority over editor content. Manually clearing the model races
-  // the async model swap and was the cause of the empty-editor / content-leak bugs.
   useEffect(() => {
-    if (!editor) return;
+    console.log(`[CodeEditor] Mount effect running for ${filename}, editor=${!!editor}`);
+    let isActive = true;
+    let boundModel: Monaco.editor.ITextModel | null = null;
+    let binding: MonacoBinding | null = null;
+    let saveDebounce: ReturnType<typeof setTimeout>;
 
-    // A fresh session always starts UN-synced. The overlay + read-only gate stay
-    // active until the provider completes its sync handshake with the server.
+    if (!editor || !workspaceId || !fileId) return;
+
+    console.log(`[CodeEditor] Initializing y-websocket for ${filename} (room: ${workspaceId}-${fileId})`);
     setIsSynced(false);
 
-    let isActive = true;
-    let saveDebounce: ReturnType<typeof setTimeout> | null = null;
-    let savedFade: ReturnType<typeof setTimeout> | null = null;
-    let syncSafetyNet: ReturnType<typeof setTimeout> | null = null;
-
-    const expectedName = filename || fileId;
     const roomName = `${workspaceId}-${fileId}`;
     const token = localStorage.getItem('token') || '';
-
-    // ---- 1. ROOM/SESSION: create the doc + provider once ----
+    
     const ydoc = new Y.Doc();
-    const wsProvider = new WebsocketProvider(
-      wsUrl(''),
-      roomName,
-      ydoc,
-      { params: { token } }
-    ) as unknown as CollaborationProvider;
+    const wsProvider = new WebsocketProvider(wsUrl(''), roomName, ydoc, { params: { token } });
 
-    // Binding state — mutated by the deterministic binder below.
-    let binding: MonacoBinding | null = null;
-    let boundModel: Monaco.editor.ITextModel | null = null;
-    // The MonacoBinding constructor reconciles the model to the Y.Text, which can
-    // fire exactly one local content change. Ignore that single self-inflicted
-    // update so it doesn't show a spurious "unsaved → saved" flash on open.
-    let ignoreInitialBindUpdate = false;
-
-    // ---- sync state machine: connecting → syncing → synced ----
-    const markSynced = () => {
-      if (!isActive) return;
-      if (syncSafetyNet) { clearTimeout(syncSafetyNet); syncSafetyNet = null; }
-      setIsSynced(true);
-    };
-    const handleSync = (synced: boolean) => { if (synced) markSynced(); };
-
-    const handleStatusChange = (event: { status: ConnectionStatus }) => {
-      if (!isActive) return;
-      onConnectionStatusChangeRef.current?.(event.status);
-      if (event.status === 'connected') {
-        wsProvider.awareness.setLocalStateField('user', {
-          name: currentUser.username,
-          color: getUserColor(currentUser.username),
-        });
-        // Safety net: the 'sync' event is the primary signal, but if it is ever
-        // missed (e.g. a lost handshake frame), we must not leave the editor
-        // permanently gated. Once connected, allow editing shortly after — Yjs is
-        // a CRDT, so any edits made before full sync converge without data loss.
-        if (!syncSafetyNet) {
-          syncSafetyNet = setTimeout(() => { markSynced(); }, 2500);
-        }
-      }
-    };
-
-    const handleAwarenessChange = () => {
-      if (!isActive) return;
-      const states = Array.from(wsProvider.awareness.getStates().entries()) as [number, AwarenessState][];
-      setAwarenessStates(states);
-
-      const users = states
-        .map(([, state]) => state.user)
-        .filter((user): user is AwarenessUser => Boolean(user));
-      const uniqueUsers = Array.from(new Map(users.map((user) => [user.name, user])).values());
-      onAwarenessChangeRef.current?.(uniqueUsers);
-    };
-
-    const handleDocUpdate = (_update: Uint8Array, origin: any) => {
-      if (!isActive) return;
-      // Only LOCAL edits (origin === the active binding) drive the save indicator.
-      // Remote updates (origin === provider) and the binding's initial reconcile
-      // are ignored.
-      if (origin !== binding) return;
-      if (ignoreInitialBindUpdate) { ignoreInitialBindUpdate = false; return; }
-
-      setSaveStatus('unsaved');
-      if (saveDebounce) clearTimeout(saveDebounce);
-      saveDebounce = setTimeout(() => {
-        setSaveStatus('saving');
-        setTimeout(() => {
-          setSaveStatus('saved');
-          if (savedFade) clearTimeout(savedFade);
-          savedFade = setTimeout(() => setSaveStatus('idle'), 2000);
-        }, 500);
-      }, 1000);
-
-      onCodeChangeRef.current?.(editor.getValue());
-    };
-
-    wsProvider.on('status', handleStatusChange as any);
-    wsProvider.on('sync', handleSync);
-    wsProvider.awareness.on('change', handleAwarenessChange);
-    ydoc.on('update', handleDocUpdate);
-    // Sample the current sync state AFTER attaching the listener, so we never miss
-    // a handshake that completed synchronously against a warm server room.
-    if (wsProvider.synced) markSynced();
-    handleAwarenessChange();
-
-    // ---- 2. BINDING: attach deterministically to the correct live model ----
     const tryBind = () => {
       if (!isActive) return;
       const model = editor.getModel();
-      // Wait until Monaco has actually swapped in the model for THIS file.
-      if (!model || !model.uri.path.endsWith(expectedName)) return;
-      // Already bound to this exact model — nothing to do.
+      const expectedName = filename || fileId;
+      
+      if (!model || !model.uri || !model.uri.path.endsWith(expectedName)) return;
       if (binding && boundModel === model) return;
-      // Bound to a stale model (Monaco swapped underneath us) — drop it and rebind
-      // the SAME Y.Doc to the new model. No provider/doc teardown.
-      if (binding && boundModel !== model) {
+      
+      if (binding) {
         binding.destroy();
         binding = null;
-        boundModel = null;
       }
-      ignoreInitialBindUpdate = true;
+      
       binding = new MonacoBinding(
         ydoc.getText('monaco'),
         model,
@@ -290,31 +164,84 @@ export default function CodeEditor({
       boundModel = model;
     };
 
-    // Attempt an immediate bind (model may already be correct on mount / warm switch).
+    const handleSync = (synced: boolean) => {
+      console.log(`[CodeEditor] handleSync called with: ${synced}, isActive: ${isActive} for ${filename}`);
+      if (synced && isActive) setIsSynced(true);
+    };
+
+    const handleStatus = (event: { status: ConnectionStatus }) => {
+      console.log(`[CodeEditor] status changed to: ${event.status} for ${filename}`);
+      if (!isActive) return;
+      callbackRefs.current.onConnectionStatusChange?.(event.status);
+      if (event.status === 'connected') {
+        wsProvider.awareness.setLocalStateField('user', {
+          name: currentUser.username,
+          color: getUserColor(currentUser.username),
+        });
+      }
+    };
+
+    const handleAwareness = () => {
+      if (!isActive) return;
+      const states = Array.from(wsProvider.awareness.getStates().entries()) as [number, AwarenessState][];
+      setAwarenessStates(states);
+      const users = states
+        .map(([, state]) => state.user)
+        .filter((user): user is AwarenessUser => Boolean(user));
+      
+      callbackRefs.current.onAwarenessChange?.(
+        Array.from(new Map(users.map(u => [u.name, u])).values())
+      );
+    };
+
+    const handleUpdate = (_update: Uint8Array, origin: any) => {
+      if (!isActive || origin !== binding) return;
+      setSaveStatus('unsaved');
+      clearTimeout(saveDebounce);
+      saveDebounce = setTimeout(() => {
+        setSaveStatus('saving');
+        setTimeout(() => {
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
+        }, 500);
+      }, 1000);
+      callbackRefs.current.onCodeChange?.(editor.getValue());
+    };
+
+    wsProvider.on('sync', handleSync);
+
+    wsProvider.on('status', handleStatus as any);
+    wsProvider.awareness.on('change', handleAwareness);
+    ydoc.on('update', handleUpdate);
+    
     tryBind();
-    // Rebind whenever Monaco swaps the model — the single, deterministic trigger.
-    const modelDisposable = editor.onDidChangeModel(() => tryBind());
+    const modelDisposable = typeof editor.onDidChangeModel === 'function'
+      ? editor.onDidChangeModel(() => tryBind())
+      : null;
 
     return () => {
+      console.log(`[CodeEditor] Unmount effect running for ${filename}`);
       isActive = false;
-      modelDisposable.dispose();
-      if (saveDebounce) clearTimeout(saveDebounce);
-      if (savedFade) clearTimeout(savedFade);
-      if (syncSafetyNet) clearTimeout(syncSafetyNet);
-      wsProvider.off('status', handleStatusChange as any);
+      if (modelDisposable) modelDisposable.dispose();
+      clearTimeout(saveDebounce);
+      
       wsProvider.off('sync', handleSync);
-      wsProvider.awareness.off('change', handleAwarenessChange);
-      ydoc.off('update', handleDocUpdate);
-      // Teardown order: unbind → disconnect provider → destroy doc.
+      wsProvider.off('status', handleStatus as any);
+      wsProvider.awareness.off('change', handleAwareness);
+      ydoc.off('update', handleUpdate);
+      
       if (binding) binding.destroy();
+      
       wsProvider.destroy();
       ydoc.destroy();
     };
-  }, [editor, workspaceId, fileId, currentUser.username, filename]);
+  }, [editor, workspaceId, fileId, filename, currentUser.username]);
 
- useEffect(() => {
+  // ===========================================================================
+  // [INTEGRATION] Autocomplete Provider
+  // ===========================================================================
+  useEffect(() => {
     if (!editor || !monacoInstance || readOnly) return;
-
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let activeAbortController: AbortController | null = null;
     const emptyCompletions = { items: [] };
@@ -328,7 +255,6 @@ export default function CodeEditor({
           startLineNumber: startLine, startColumn: 1,
           endLineNumber: position.lineNumber, endColumn: position.column,
         });
-
         const textAfterPosition = model.getValueInRange({
           startLineNumber: position.lineNumber, startColumn: position.column,
           endLineNumber: endLine, endColumn: model.getLineMaxColumn(endLine),
@@ -341,23 +267,17 @@ export default function CodeEditor({
           return {
             items: [{
               insertText: cachedCompletion,
-              range: new monacoInstance.Range(
-                position.lineNumber, position.column,
-                position.lineNumber, position.column
-              )
+              range: new monacoInstance.Range(position.lineNumber, position.column, position.lineNumber, position.column)
             }]
           };
         }
 
         return new Promise((resolve) => {
           if (debounceTimer) clearTimeout(debounceTimer);
-
           debounceTimer = setTimeout(async () => {
             if (token.isCancellationRequested) return resolve(emptyCompletions);
-
             if (activeAbortController) activeAbortController.abort();
             activeAbortController = new AbortController();
-
             token.onCancellationRequested(() => activeAbortController?.abort());
 
             try {
@@ -373,56 +293,32 @@ export default function CodeEditor({
               });
 
               if (!res.ok) return resolve(emptyCompletions);
+              const data = await res.json() as { completion?: string };
+              if (token.isCancellationRequested || !data.completion) return resolve(emptyCompletions);
 
-              const data = await res.json() as AutocompleteResponse;
-
-              if (token.isCancellationRequested || !data.completion) {
-                return resolve(emptyCompletions);
-              }
-
-              let finalCompletion = data.completion;
-
-              finalCompletion = finalCompletion
-                .replace(/^```[a-z]*\n/i, '')
-                .replace(/```$/i, '');
-
+              let finalCompletion = data.completion.replace(/^```[a-z]*\n/i, '').replace(/```$/i, '');
               const maxCheckLength = Math.min(textUntilPosition.length, finalCompletion.length, 1000);
               let overlapLength = 0;
 
               for (let i = maxCheckLength; i > 0; i--) {
-                const prefixEnd = textUntilPosition.slice(-i);
-                if (finalCompletion.startsWith(prefixEnd)) {
+                if (finalCompletion.startsWith(textUntilPosition.slice(-i))) {
                   overlapLength = i;
                   break;
                 }
               }
 
-              if (overlapLength > 0) {
-                finalCompletion = finalCompletion.slice(overlapLength);
-              }
-
-              if (!finalCompletion.trim()) {
-                return resolve(emptyCompletions);
-              }
+              if (overlapLength > 0) finalCompletion = finalCompletion.slice(overlapLength);
+              if (!finalCompletion.trim()) return resolve(emptyCompletions);
 
               ghostTextCache.set(cacheKey, finalCompletion);
-
               resolve({
                 items: [{
                   insertText: finalCompletion,
-                  range: new monacoInstance.Range(
-                    position.lineNumber, position.column,
-                    position.lineNumber, position.column
-                  )
+                  range: new monacoInstance.Range(position.lineNumber, position.column, position.lineNumber, position.column)
                 }]
               });
             } catch (error) {
-              if (error instanceof DOMException && error.name === 'AbortError') {
-                resolve(emptyCompletions);
-              } else {
-                console.error('Autocomplete error:', error);
-                resolve(emptyCompletions);
-              }
+              resolve(emptyCompletions);
             }
           }, 350);
         });
@@ -436,12 +332,9 @@ export default function CodeEditor({
       if (activeAbortController) activeAbortController.abort();
     };
   }, [editor, monacoInstance, readOnly, workspaceId, language]);
-  
+
   const handleEditorDidMount: OnMount = (editorInstance, monaco) => {
-    // Expose for Playwright E2E tests
-    if (typeof window !== 'undefined') {
-      (window as any).monaco = monaco;
-    }
+    if (typeof window !== 'undefined') (window as any).monaco = monaco;
     setEditor(editorInstance);
     setMonacoInstance(monaco as MonacoInstance);
 
@@ -453,31 +346,18 @@ export default function CodeEditor({
       noEmit: true,
       esModuleInterop: true,
     });
+    
     monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
       target: monaco.languages.typescript.ScriptTarget.ES2020,
       allowNonTsExtensions: true,
     });
 
-    // Disable diagnostics (red squiggly lines) globally for built-in Monaco compilers
-    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-      noSemanticValidation: true,
-      noSyntaxValidation: true,
-    });
-    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-      noSemanticValidation: true,
-      noSyntaxValidation: true,
-    });
-    monaco.languages.css.cssDefaults.setDiagnosticsOptions({
-      validate: false,
-    });
-    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
-      validate: false,
-    });
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
+    monaco.languages.css.cssDefaults.setDiagnosticsOptions({ validate: false });
+    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({ validate: false });
 
-    editorInstance.updateOptions({
-      wordBasedSuggestions: 'currentDocument',
-      inlineSuggest: { enabled: true }
-    });
+    editorInstance.updateOptions({ wordBasedSuggestions: 'currentDocument', inlineSuggest: { enabled: true } });
     onEditorReady?.(editorInstance);
   };
 
@@ -485,7 +365,6 @@ export default function CodeEditor({
     <div className="relative h-full w-full bg-[#1e1e1e]">
       <style>
         {`
-          /* Hide diagnostic error, warning, info, and hint squiggly lines */
           .squiggly-error, .squiggly-warning, .squiggly-info, .squiggly-hint {
             display: none !important;
             background: none !important;
@@ -493,15 +372,12 @@ export default function CodeEditor({
             text-decoration: none !important;
           }
         `}
-        {awarenessStates
-          .map(([clientId, state]) => {
+        {awarenessStates.map(([clientId, state]) => {
             if (!state.user?.color) return '';
             const color = state.user.color;
             const name = state.user.name || 'Anonymous';
             return `
-            .yRemoteSelection-${clientId} {
-              background-color: ${color}35 !important; /* Enhanced selection visibility */
-            }
+            .yRemoteSelection-${clientId} { background-color: ${color}35 !important; }
             .yRemoteSelectionHead-${clientId} {
               position: absolute;
               border-left: 2px solid ${color} !important;
@@ -511,34 +387,12 @@ export default function CodeEditor({
               animation: cursorFadeIn-${clientId} 0.15s ease-out;
             }
             .yRemoteSelectionHead-${clientId}::before {
-              content: '';
-              position: absolute;
-              top: -2px;
-              left: -2px;
-              width: 4px;
-              height: 4px;
-              background-color: ${color};
-              border-radius: 1px;
+              content: ''; position: absolute; top: -2px; left: -2px; width: 4px; height: 4px; background-color: ${color}; border-radius: 1px;
             }
             .yRemoteSelectionHead-${clientId}::after {
-              position: absolute;
-              content: "${name}";
-              top: -22px;
-              left: -2px;
-              background-color: ${color} !important;
-              color: #ffffff;
-              font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-              font-size: 11px;
-              font-weight: 500;
-              letter-spacing: 0.02em;
-              line-height: 1;
-              padding: 4px 8px;
-              border-radius: 4px 4px 4px 0px;
-              white-space: nowrap;
-              pointer-events: none;
-              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-              z-index: 20;
-              /* Always visible on activity, fades after 3s */
+              position: absolute; content: "${name}"; top: -22px; left: -2px; background-color: ${color} !important;
+              color: #ffffff; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 500;
+              padding: 4px 8px; border-radius: 4px 4px 4px 0px; white-space: nowrap; pointer-events: none; z-index: 20;
               animation: cursorLabelFade-${clientId} 4s ease-out forwards;
             }
             @keyframes cursorLabelFade-${clientId} {
@@ -546,21 +400,14 @@ export default function CodeEditor({
               75% { opacity: 1; transform: translateY(0); }
               100% { opacity: 0; transform: translateY(2px); }
             }
-            @keyframes cursorFadeIn-${clientId} {
-              from { opacity: 0; }
-              to { opacity: 1; }
-            }
-            .yRemoteSelectionHead-${clientId}:hover::after {
-              animation: none;
-              opacity: 1;
-              transform: translateY(0);
-            }
+            @keyframes cursorFadeIn-${clientId} { from { opacity: 0; } to { opacity: 1; } }
+            .yRemoteSelectionHead-${clientId}:hover::after { animation: none; opacity: 1; transform: translateY(0); }
           `;
-          })
-          .join('\n')}
+          }).join('\n')}
       </style>
+      
       <Editor
-        path={filename}
+        path={filename || fileId}
         height="100%"
         language={language}
         theme="vs-dark"
@@ -575,49 +422,16 @@ export default function CodeEditor({
         options={{
           minimap: { enabled: false },
           fontSize: 14,
-          fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+          fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, Menlo, monospace",
           fontLigatures: true,
           wordWrap: 'on',
           padding: { top: 16, bottom: 16 },
           lineNumbersMinChars: 3,
-          scrollBeyondLastLine: false,
-          renderLineHighlight: 'all',
-          cursorBlinking: 'smooth',
-          cursorSmoothCaretAnimation: 'on',
-          smoothScrolling: true,
-          bracketPairColorization: { enabled: true },
-          guides: {
-            bracketPairs: true,
-            indentation: true,
-          },
-          scrollbar: {
-            verticalScrollbarSize: 10,
-            horizontalScrollbarSize: 10,
-            useShadows: false,
-          },
-          // Gate editing until the server sync completes. This prevents a joining user
-          // from typing into an empty, not-yet-synced document (which would fork state).
-          readOnly: readOnly || !isSynced,
+          readOnly: readOnly,
         }}
         onMount={handleEditorDidMount}
-        onChange={(value) => onCodeChange?.(value || '')}
       />
 
-      {/* Syncing Overlay — purely visual. It must NOT capture pointer events:
-          editing is already gated via `readOnly || !isSynced`, so the overlay is
-          only a spinner. `pointer-events-none` lets clicks/selection pass through
-          to Monaco and prevents the overlay from ever blocking interaction if a
-          sync signal is briefly delayed. */}
-      {!isSynced && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[#1e1e1e]/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-4 p-6 rounded-xl bg-[#252526] border border-white/10 shadow-2xl">
-            <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#3b82f6] border-t-transparent" />
-            <span className="text-sm font-medium tracking-wide text-gray-300">Syncing with server...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Read-Only Badge */}
       {readOnly && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold text-zinc-400 bg-black/40 border border-white/10 backdrop-blur-md shadow-sm">
           <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -627,32 +441,16 @@ export default function CodeEditor({
         </div>
       )}
 
-      {/* Save status indicator */}
       {saveStatus !== 'idle' && (
         <div className={`absolute top-3 right-4 z-20 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all duration-300 ${
           saveStatus === 'unsaved' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
           saveStatus === 'saving' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
           'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
         }`}>
-          {saveStatus === 'unsaved' && (
-            <>
-              <div className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              Unsaved
-            </>
-          )}
-          {saveStatus === 'saving' && (
-            <>
-              <div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-              Saving...
-            </>
-          )}
+          {saveStatus === 'unsaved' && <><div className="h-1.5 w-1.5 rounded-full bg-amber-400" />Unsaved</>}
+          {saveStatus === 'saving' && <><div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />Saving...</>}
           {saveStatus === 'saved' && (
-            <>
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              Saved
-            </>
+            <><svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>Saved</>
           )}
         </div>
       )}

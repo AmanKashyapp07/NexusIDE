@@ -4,36 +4,33 @@ dotenv.config();
 // =============================================================================
 // [OBSERVABILITY] Debug Logger for Collaboration Engine
 // =============================================================================
-// All collaboration events are logged with timestamps and prefixes for fast debugging.
-// To disable in production, set LOG_LEVEL=silent in .env.
 const LOG_ENABLED = process.env.LOG_LEVEL !== 'silent';
 const _origLog = console.log;
-const _origError = console.error;
-const _origWarn = console.warn;
 
 function log(prefix: string, ...args: any[]) {
   if (!LOG_ENABLED) return;
-  const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+  const ts = new Date().toISOString().slice(11, 23);
   _origLog(`[${ts}] ${prefix}`, ...args);
 }
 
-// Suppress noisy dependency logs but keep our explicit log() calls working
 console.log = () => {}; console.error = () => {}; console.warn = () => {}; console.info = () => {};
 
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import * as Y from 'yjs';
+import * as syncProtocol from 'y-protocols/sync';
+import * as awarenessProtocol from 'y-protocols/awareness';
+import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-// @ts-ignore
-import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
+
 import workspaceRoutes from './routes/workspace';
 import authRoutes from './routes/auth';
 import { requireAuth } from './middleware/auth';
-import { setIO } from './socket';
+import { setIO, getIO } from './socket';
 import { getPool } from './db';
 import { warmPoolManager } from './sandbox/pool';
 import { handleTerminalConnection, syncFileToTerminal } from './terminal/terminalHandler';
@@ -44,152 +41,164 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Universal transparent routing for sandbox preview
-// This intercepts ANY stray absolute path requests (e.g. fetch('/api/message'), <script src="/main.js">)
-// originating from the preview iframe and automatically reroutes them into the sandbox container.
 app.use((req, res, next) => {
-  // Ignore requests already correctly routed to the workspace API
   if (req.path.startsWith('/api/workspace')) return next();
-  
   const referer = req.headers.referer;
   if (referer) {
     const match = referer.match(/\/api\/workspace\/([^\/]+)\/preview/);
     if (match) {
-      // Request originated from a workspace preview! Redirect to the sandbox proxy path.
       return res.redirect(`/api/workspace/${match[1]}/preview${req.originalUrl}`);
     }
   }
   next();
 });
 
-// REST HTTP Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/workspace', requireAuth, workspaceRoutes);
 
-// We wrap Express in a raw Node HTTP server so we can manually intercept protocol upgrades.
 const server = http.createServer(app);
 
 // =============================================================================
-// [ARCHITECTURE] CRDT PERSISTENCE LAYER (Yjs)
+// [ARCHITECTURE] DETERMINISTIC SYNCHRONIZATION ENGINE
 // =============================================================================
-// Why CRDT over OT? CRDTs are decentralized — peers can apply edits in any order and
-// math guarantees convergence. We store the Yjs state as BYTEA (binary) in Postgres
-// because it contains the full edit history and Lamport timestamps for conflict resolution.
-//
-// =============================================================================
-// [ARCHITECTURE] PERSISTENCE RULES
-// =============================================================================
-// 1. Yjs is the SINGLE SOURCE OF TRUTH for any file with an open editor session.
-// 2. DB saves are debounced (800ms) to avoid flooding Postgres on every keystroke.
-// 3. After DB save, we sync to container disk. The terminalHandler's write-cooldown
-//    ensures the watcher won't misinterpret our own disk write as an external change.
-// 4. On last client disconnect (writeState), we do a final authoritative save+sync.
-// 5. When a NEW client connects (bindState), we load from DB — this gives them the
-//    latest state even if another collaborator was editing while they were away.
 
-setPersistence({
-  bindState: async (docName: string, ydoc: Y.Doc) => {
-    const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
-    if (!match) {
-      log('📄 BIND', `Skipping non-file doc: ${docName}`);
-      return;
-    }
-    const workspaceId = match[1]!;
-    const fileId = match[2]!;
+class WSSharedDoc extends Y.Doc {
+  name: string;
+  workspaceId: string;
+  fileId: string;
+  awareness: awarenessProtocol.Awareness;
+  conns: Map<WebSocket, Set<number>>;
+  dbLoaded: boolean;
+  saveTimeout: NodeJS.Timeout | null;
+  isSaving: boolean;
 
-    log('📄 BIND', `New client joined doc=${docName} (workspace=${workspaceId.slice(0,8)}… file=${fileId.slice(0,8)}…)`);
+  constructor(name: string, workspaceId: string, fileId: string) {
+    super();
+    this.name = name;
+    this.workspaceId = workspaceId;
+    this.fileId = fileId;
+    this.awareness = new awarenessProtocol.Awareness(this);
+    this.awareness.setLocalState(null);
+    this.conns = new Map();
+    this.dbLoaded = false;
+    this.saveTimeout = null;
+    this.isSaving = false;
 
-    try {
-      const res = await getPool().query('SELECT content, yjs_state FROM files WHERE id = $1', [fileId]);
-      if (res.rows.length > 0) {
-        if (res.rows[0].yjs_state) {
-          const stateSize = res.rows[0].yjs_state.length;
-          Y.applyUpdate(ydoc, res.rows[0].yjs_state);
-          const textLen = ydoc.getText('monaco').toString().length;
-          log('📄 BIND', `Loaded yjs_state from DB (${stateSize} bytes → ${textLen} chars in doc)`);
-        } else if (res.rows[0].content) {
-          ydoc.getText('monaco').insert(0, res.rows[0].content);
-          log('📄 BIND', `Legacy fallback: inserted content (${res.rows[0].content.length} chars)`);
-        } else {
-          log('📄 BIND', `File exists in DB but has no content or yjs_state (empty file)`);
+    this.on('update', this.handleDocumentUpdate.bind(this));
+    
+    this.awareness.on('update', ({ added, updated, removed }: any, conn: WebSocket | null) => {
+      const changedClients = added.concat(updated, removed);
+      if (conn !== null) {
+        const connControlledIDs = this.conns.get(conn);
+        if (connControlledIDs !== undefined) {
+          added.forEach((clientID: number) => { connControlledIDs.add(clientID); });
+          removed.forEach((clientID: number) => { connControlledIDs.delete(clientID); });
         }
-      } else {
-        log('📄 BIND', `⚠️ File NOT FOUND in DB for fileId=${fileId}`);
       }
-      (ydoc as any)._dbLoaded = true;
-    } catch (err: any) {
-      log('📄 BIND', `❌ DB error loading file: ${err.message}`);
-    }
-
-    // Debounced persistence
-    let saveTimeout: NodeJS.Timeout | null = null;
-    let isSaving = false;
-    let updateCount = 0;
-
-    ydoc.on('update', () => {
-      updateCount++;
-      if (saveTimeout) clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(async () => {
-        if (isSaving) {
-          log('💾 SAVE', `Skipped (already saving) doc=${docName} updates=${updateCount}`);
-          return;
-        }
-        isSaving = true;
-        const batchedUpdates = updateCount;
-        updateCount = 0;
-        try {
-          const state = Buffer.from(Y.encodeStateAsUpdate(ydoc));
-          const content = ydoc.getText('monaco').toString();
-          log('💾 SAVE', `Persisting doc=${docName} updates=${batchedUpdates} contentLen=${content.length} stateSize=${state.length}`);
-          await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, fileId]);
-          log('💾 SAVE', `✅ DB write complete for ${fileId.slice(0,8)}…`);
-          syncFileToTerminal(workspaceId, fileId, content).catch((e) => {
-            log('💾 SYNC', `❌ Disk sync failed: ${e.message}`);
-          });
-        } catch (err: any) {
-          log('💾 SAVE', `❌ DB save error: ${err.message}`);
-        }
-        isSaving = false;
-      }, 800);
+      const awarenessUpdate = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients);
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 1);
+      encoding.writeVarUint8Array(encoder, awarenessUpdate);
+      const buff = encoding.toUint8Array(encoder);
+      this.conns.forEach((_, c) => this.send(c, buff));
     });
-  },
+  }
 
-  writeState: async (docName: string, ydoc: Y.Doc) => {
-    const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
-    if (!match) return;
-    const workspaceId = match[1]!;
-    const fileId = match[2]!;
-
-    if (!(ydoc as any)._dbLoaded) {
-      log('🔒 CLOSE', `Skipped final save for doc=${docName} — document was not loaded from DB`);
-      return;
-    }
-
+  send(conn: WebSocket, m: Uint8Array) {
+    if (conn.readyState !== WebSocket.CONNECTING && conn.readyState !== WebSocket.OPEN) return;
     try {
-      const state = Buffer.from(Y.encodeStateAsUpdate(ydoc));
-      const content = ydoc.getText('monaco').toString();
-      log('🔒 CLOSE', `Last client left doc=${docName} — final save (${content.length} chars, ${state.length} bytes)`);
-      await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, fileId]);
-      syncFileToTerminal(workspaceId, fileId, content).catch(() => {});
-      log('🔒 CLOSE', `✅ Final save complete for ${fileId.slice(0,8)}…`);
+      conn.send(m);
+    } catch (e) {
+      conn.close();
+    }
+  }
+
+  handleDocumentUpdate(update: Uint8Array, origin: any) {
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, 0);
+    syncProtocol.writeUpdate(encoder, update);
+    const message = encoding.toUint8Array(encoder);
+    this.conns.forEach((_, conn) => this.send(conn, message));
+
+    if (!this.dbLoaded) return;
+
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    this.saveTimeout = setTimeout(async () => {
+      if (this.isSaving) return;
+      this.isSaving = true;
+      try {
+        const state = Buffer.from(Y.encodeStateAsUpdate(this));
+        const content = this.getText('monaco').toString();
+        log('💾 SAVE', `Debounced save doc=${this.name} (${content.length} chars)`);
+        await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, this.fileId]);
+        syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
+      } catch (err: any) {
+        log('💾 SAVE', `❌ DB save error: ${err.message}`);
+      } finally {
+        this.isSaving = false;
+      }
+    }, 800);
+  }
+
+  async performFinalSave() {
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    try {
+      const state = Buffer.from(Y.encodeStateAsUpdate(this));
+      const content = this.getText('monaco').toString();
+      log('🔒 CLOSE', `Final save doc=${this.name} (${content.length} chars)`);
+      await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, this.fileId]);
+      syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
     } catch (err: any) {
       log('🔒 CLOSE', `❌ Final save error: ${err.message}`);
     }
   }
-});
+}
+
+// Centralized registry: Map of document names to Promises
+const docs = new Map<string, Promise<WSSharedDoc>>();
+const pendingConns = new Map<string, number>();
+
+async function getOrCreateDoc(docName: string): Promise<WSSharedDoc> {
+  if (docs.has(docName)) {
+    return docs.get(docName)!;
+  }
+
+  const loadPromise = (async () => {
+    const match = docName.match(/^([0-9a-fA-F-]{36})-([0-9a-fA-F-]{36})$/);
+    if (!match || !match[1] || !match[2]) throw new Error("Invalid doc name");
+    
+    const doc = new WSSharedDoc(docName, match[1], match[2]);
+    
+    try {
+      const res = await getPool().query('SELECT content, yjs_state FROM files WHERE id = $1', [doc.fileId]);
+      if (res.rows.length > 0) {
+        if (res.rows[0].yjs_state) {
+          Y.applyUpdate(doc, res.rows[0].yjs_state);
+        } else if (res.rows[0].content) {
+          doc.getText('monaco').insert(0, res.rows[0].content);
+        }
+      }
+      doc.dbLoaded = true;
+      log('📄 BIND', `Database loaded for doc=${docName}`);
+    } catch (err: any) {
+      log('📄 BIND', `❌ DB error loading file: ${err.message}`);
+    }
+    return doc;
+  })();
+
+  docs.set(docName, loadPromise);
+  return loadPromise;
+}
 
 // =============================================================================
 // [PROTOCOL MULTIPLEXING] THE UPGRADE EVENT
 // =============================================================================
-// INTERVIEW KEY: How do you serve REST, Socket.IO, and Raw WebSockets on Port 4000?
-// All WebSocket connections start as HTTP GET requests with an "Upgrade: websocket" header.
-// We intercept this at the TCP level. If the URL is Socket.IO, we ignore it (letting IO handle it).
-// Otherwise, we pass the socket to our raw `ws` server for Yjs, LSP, and Terminal streams.
+
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-  if (url.pathname.startsWith('/socket.io/')) return; // Yield to Socket.IO
+  if (url.pathname.startsWith('/socket.io/')) return; 
   wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
 });
 
@@ -200,104 +209,159 @@ wss.on('connection', async (ws, req) => {
   try {
     const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     
-    // Route 1 & 2: Stateful Docker Containers (Terminal & Language Server)
     if (url.pathname.startsWith('/terminal/')) return await handleTerminalConnection(ws, req);
     if (url.pathname.startsWith('/ws/lsp/')) return await handleLspConnection(ws, req);
 
-    // Route 3: Yjs Collaborative Editing
     const token = url.searchParams.get('token');
-    if (!token) {
-      log('🔌 WS', `Rejected: no token, path=${url.pathname}`);
-      return ws.close(4401, 'Unauthorized');
-    }
+    if (!token) return ws.close(4401, 'Unauthorized');
 
     let decodedUser: any;
     try { decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret'); } 
-    catch (e) {
-      log('🔌 WS', `Rejected: invalid token, path=${url.pathname}`);
-      return ws.close(4401, 'Invalid token');
-    }
+    catch (e) { return ws.close(4401, 'Invalid token'); }
 
     const docName = url.pathname.slice(1);
-    log('🔌 WS', `Connection from user="${decodedUser.username}" (${decodedUser.id?.slice(0,8)}…) doc="${docName}"`);
-
-    if (!docName || docName === 'default') return setupWSConnection(ws, req, { docName });
+    if (!docName || docName === 'default') return ws.close(4000, 'Invalid room format');
 
     const match = docName.match(/^([0-9a-fA-F-]{36})(-.*)?$/) || docName.match(/^workspace-([0-9a-fA-F-]{36})$/);
-    if (!match || !match[1]) {
-      log('🔌 WS', `Rejected: invalid room format "${docName}"`);
-      return ws.close(4000, 'Invalid room format');
-    }
+    if (!match || !match[1]) return ws.close(4000, 'Invalid room format');
+    
     const workspaceId = match[1];
 
     const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
-    if (!wsResult.rows.length) {
-      log('🔌 WS', `Rejected: workspace not found ${workspaceId}`);
-      return ws.close(4044, 'Workspace not found');
-    }
+    if (!wsResult.rows.length) return ws.close(4044, 'Workspace not found');
 
     let role = wsResult.rows[0].owner_id === decodedUser.id ? 'admin' : null;
     if (!role) {
       const collabRes = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, decodedUser.id]);
       role = collabRes.rows.length ? collabRes.rows[0].role : (wsResult.rows[0].is_public ? 'viewer' : null);
     }
-    if (!role) {
-      log('🔌 WS', `Rejected: forbidden user=${decodedUser.username} workspace=${workspaceId.slice(0,8)}…`);
-      return ws.close(4403, 'Forbidden');
-    }
+    if (!role) return ws.close(4403, 'Forbidden');
 
-    log('🔌 WS', `✅ Authorized user="${decodedUser.username}" role=${role} doc="${docName}"`);
+    let docRef: WSSharedDoc | null = null;
+    let docNameRef: string = docName;
+    let messageBuffer: Buffer[] | null = [];
 
-    // [SECURITY] CRDT Read-Only Enforcement for viewers
-    // We parse the Yjs protocol at the application layer rather than relying on brittle byte-sniffing.
-    if (role === 'viewer') {
-      log('🔌 WS', `Applying viewer read-only filter for ${decodedUser.username}`);
-      const originalOn = ws.on.bind(ws);
-      ws.on = (event: string, listener: any) => {
-        if (event === 'message') {
-          return originalOn(event, (msg: any, isBin: boolean) => {
-            if (isBin) {
-              try {
-                const decoder = decoding.createDecoder(new Uint8Array(msg));
-                const messageType = decoding.readVarUint(decoder);
-                // messageType 0 is Sync
-                if (messageType === 0) {
-                  const syncMessageType = decoding.readVarUint(decoder);
-                  // syncProtocol.messageYjsSyncStep2 = 1, syncProtocol.messageYjsUpdate = 2
-                  // Both of these carry document updates that modify state.
-                  if (syncMessageType === 1 || syncMessageType === 2) {
-                    return; // Drop edits from viewers
-                  }
-                }
-              } catch (err) {
-                // If decoding fails, it's a malformed packet; drop it to be safe.
-                return;
-              }
-            }
-            listener(msg, isBin);
-          });
+    const processMessage = (message: Buffer, targetDoc: WSSharedDoc) => {
+      try {
+        const decoder = decoding.createDecoder(new Uint8Array(message));
+        const messageType = decoding.readVarUint(decoder);
+        
+        log('🔌 WS', `processMessage type=${messageType} len=${message.length}`);
+
+        if (role === 'viewer' && messageType === 0) {
+          const syncMessageType = decoding.readVarUint(decoder);
+          if (syncMessageType === 1 || syncMessageType === 2) return; 
         }
-        return originalOn(event, listener);
-      };
-    }
 
-    ws.on('close', (code, reason) => {
-      log('🔌 WS', `Disconnected user="${decodedUser.username}" doc="${docName}" code=${code}`);
+        const processDecoder = decoding.createDecoder(new Uint8Array(message));
+        const type = decoding.readVarUint(processDecoder);
+
+        if (type === 0) {
+          log('🔌 WS', `${docNameRef} received sync message (length: ${message.length})`);
+          const encoder = encoding.createEncoder();
+          encoding.writeVarUint(encoder, 0);
+          syncProtocol.readSyncMessage(processDecoder, encoder, targetDoc, ws);
+          if (encoding.length(encoder) > 1) {
+            log('🔌 WS', `${docNameRef} sending sync response (length: ${encoding.length(encoder)})`);
+            targetDoc.send(ws, encoding.toUint8Array(encoder));
+          } else {
+            log('🔌 WS', `${docNameRef} no sync response needed`);
+          }
+        } else if (type === 1) {
+          awarenessProtocol.applyAwarenessUpdate(targetDoc.awareness, decoding.readVarUint8Array(processDecoder), ws);
+        }
+      } catch (err: any) {
+        log('🔌 WS', `Message processing error: ${err.message}`);
+      }
+    };
+
+    ws.on('message', (message: Buffer) => {
+      log('🔌 WS', `raw message received, docRef=${!!docRef} len=${message.length}`);
+      if (!docRef) {
+        messageBuffer?.push(message);
+      } else {
+        processMessage(message, docRef);
+      }
     });
 
-    setupWSConnection(ws, req, { docName });
+    ws.on('close', async () => {
+      if (!docRef) return;
+      const doc = docRef;
+      const controlledIds = doc.conns.get(ws);
+      doc.conns.delete(ws);
+      if (controlledIds) {
+        awarenessProtocol.removeAwarenessStates(doc.awareness, Array.from(controlledIds), null);
+      }
+      
+      if (doc.conns.size === 0 && (pendingConns.get(docNameRef) || 0) === 0) {
+        try {
+          await doc.performFinalSave();
+        } finally {
+          if (doc.conns.size === 0 && (pendingConns.get(docNameRef) || 0) === 0) {
+            docs.delete(docNameRef);
+            doc.destroy();
+            log('🔒 CLOSE', `Document memory reclaimed for doc=${docNameRef}`);
+          }
+        }
+      }
+    });
+
+    // Track pending connection to prevent cleanups from destroying this doc during load/await
+    pendingConns.set(docName, (pendingConns.get(docName) || 0) + 1);
+
+    let doc: WSSharedDoc;
+    try {
+      doc = await getOrCreateDoc(docName);
+    } finally {
+      const remaining = (pendingConns.get(docName) || 1) - 1;
+      if (remaining <= 0) {
+        pendingConns.delete(docName);
+      } else {
+        pendingConns.set(docName, remaining);
+      }
+    }
+    
+    docRef = doc;
+
+    if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      doc.conns.set(ws, new Set());
+      ws.emit('close');
+      return;
+    }
+
+    doc.conns.set(ws, new Set());
+    
+    // Sync Step 1
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, 0);
+    syncProtocol.writeSyncStep1(encoder, doc);
+    ws.send(encoding.toUint8Array(encoder));
+
+    const awarenessStates = doc.awareness.getStates();
+    if (awarenessStates.size > 0) {
+      const awarenessUpdate = awarenessProtocol.encodeAwarenessUpdate(doc.awareness, Array.from(awarenessStates.keys()));
+      const encoderAwareness = encoding.createEncoder();
+      encoding.writeVarUint(encoderAwareness, 1);
+      encoding.writeVarUint8Array(encoderAwareness, awarenessUpdate);
+      ws.send(encoding.toUint8Array(encoderAwareness));
+    }
+
+    if (messageBuffer) {
+      for (const msg of messageBuffer) {
+        processMessage(msg, docRef);
+      }
+      messageBuffer = null;
+    }
+
+
   } catch (error: any) {
-    log('🔌 WS', `❌ Error: ${error.message}`);
     ws.close(4500, 'Internal Server Error');
   }
 });
 
 // =============================================================================
-// [REAL-TIME ARCHITECTURE] SOCKET.IO (PRESENCE & WEBRTC SIGNALING)
+// [REAL-TIME ARCHITECTURE] SOCKET.IO
 // =============================================================================
-// INTERVIEW KEY: Why use Socket.IO here but raw WebSockets above?
-// Socket.IO provides built-in "Rooms" and pub/sub semantics, perfect for chat/presence.
-// The raw WebSockets above are required because Yjs and XTerm.js strictly expect standard binary WS streams.
 const io = new SocketIOServer(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 setIO(io);
 
@@ -308,8 +372,6 @@ io.use((socket, next) => {
   } catch { next(new Error('Auth error')); }
 });
 
-// [STATE MANAGEMENT] In-Memory Presence
-// Ephemeral state. It doesn't belong in Postgres because it changes constantly and is irrelevant if the server crashes.
 const workspacePresence = new Map<string, Map<string, any>>();
 const PRESENCE_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'];
 const getColor = (u: string) => PRESENCE_COLORS[Math.abs([...u].reduce((h, c) => c.charCodeAt(0) + ((h << 5) - h), 0)) % PRESENCE_COLORS.length];
@@ -317,7 +379,6 @@ const getColor = (u: string) => PRESENCE_COLORS[Math.abs([...u].reduce((h, c) =>
 const broadcastPresence = (wsId: string) => io.to(`presence-${wsId}`).emit('workspace-presence-update', Array.from(workspacePresence.get(wsId)?.values() || []));
 
 io.on('connection', (socket) => {
-  // Presence Events
   socket.on('join-workspace', ({ workspaceId }) => {
     if (!socket.data.user || !workspaceId) return;
     socket.data.presenceWorkspaceId = workspaceId;
@@ -334,16 +395,11 @@ io.on('connection', (socket) => {
     if (member) { member.activeFileId = activeFileId; broadcastPresence(wsId); }
   });
 
-  // File-tree broadcast: when one client creates/deletes a file, it asks the server
-  // to notify everyone else in the workspace to refresh their tree. This replaces the
-  // old workspace-level Yjs document — the single Socket.IO channel handles it now.
   socket.on('broadcast-file-tree', ({ workspaceId }) => {
     if (!socket.data.user || !workspaceId) return;
-    log('🌲 TREE', `Broadcasting file-tree-update to presence-${String(workspaceId).slice(0,8)}… (from ${socket.data.user.username})`);
     io.to(`presence-${workspaceId}`).emit('file-tree-update');
   });
 
-  // Typing indicator: relay to other users in the workspace (exclude sender)
   socket.on('user-typing', ({ workspaceId }) => {
     if (!socket.data.user || !workspaceId) return;
     socket.to(`presence-${workspaceId}`).emit('user-typing', { userId: socket.data.user.id });
@@ -360,11 +416,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // [NETWORK ARCHITECTURE] WebRTC Signaling Relay
-  // INTERVIEW KEY: Our server does NOT process audio data. We are simply a signaling broker.
-  // We relay SDP Offers, Answers, and ICE Candidates between peers. Once established, audio flows P2P, saving massive bandwidth.
   socket.on('join-voice-room', async ({ workspaceId }) => {
-    // Auth check omitted for brevity in summary, assumes identical logic to Yjs
     socket.join(workspaceId);
     socket.data.workspaceId = workspaceId;
     socket.to(workspaceId).emit('user-joined-voice', { socketId: socket.id, user: socket.data.user });
@@ -375,7 +427,6 @@ io.on('connection', (socket) => {
   socket.on('webrtc-answer', ({ answer, to }) => socket.to(to).emit('webrtc-answer', { answer, from: socket.id }));
   socket.on('webrtc-ice-candidate', ({ candidate, to }) => socket.to(to).emit('webrtc-ice-candidate', { candidate, from: socket.id }));
 
-  // Cleanup
   socket.on('disconnect', () => {
     if (socket.data.workspaceId) io.to(socket.data.workspaceId).emit('user-left-voice', socket.id);
     const wsId = socket.data.presenceWorkspaceId;
@@ -387,9 +438,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// =============================================================================
-// [LIFECYCLE] SERVER BOOT & GRACEFUL TEARDOWN
-// =============================================================================
 const PORT = process.env.PORT || 4000;
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => {
@@ -401,9 +449,6 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-// INTERVIEW KEY: Graceful Shutdown
-// Trapping SIGINT/SIGTERM ensures that if Kubernetes or Docker restarts the backend, 
-// we synchronously tear down all active Docker execution containers to prevent zombie resource leaks.
 const gracefulShutdown = async (signal: string) => {
   if (process.env.NODE_ENV !== 'test') {
     await Promise.all([
@@ -416,4 +461,4 @@ const gracefulShutdown = async (signal: string) => {
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-export { app, server };
+export { app, server, docs };

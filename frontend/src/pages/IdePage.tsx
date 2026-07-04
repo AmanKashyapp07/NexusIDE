@@ -29,7 +29,6 @@ interface EditorHandle {
   setValue(value: string): void;
 }
 
-// Helper to give a touch of color to files based on extension in the tab
 const getFileColor = (name: string) => {
   const lower = name.toLowerCase();
   if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text-blue-400';
@@ -60,11 +59,8 @@ function IdePage() {
   const handleConnectionStatusChange = useCallback((status: ConnectionStatus) => {
     setConnectionStatus((prevStatus) => {
       if (prevStatus !== status) {
-        if (status === 'connected') {
-          addToast('Editor synchronized with workspace.', 'success');
-        } else if (status === 'disconnected') {
-          addToast('Connection lost. Retrying...', 'error');
-        }
+        if (status === 'connected') addToast('Editor synchronized with workspace.', 'success');
+        else if (status === 'disconnected') addToast('Connection lost. Retrying...', 'error');
       }
       return status;
     });
@@ -78,24 +74,14 @@ function IdePage() {
   const navigate = useNavigate();
   const { workspaceId: urlWorkspaceId, fileId: urlFileId } = useParams<{ workspaceId: string, fileId: string }>();
 
-  // Keep a stable reference to `navigate`. react-router recreates the `navigate`
-  // function whenever the location changes; if we put it in effect dependency arrays
-  // it retriggers effects on every navigation, which previously caused an infinite
-  // disconnect/reconnect loop. We read the latest navigate through this ref instead.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
 
   const activeFile = useMemo(() => {
-    // If no fileId in the URL, default to the first file (initial load / empty URL)
-    if (!urlFileId) {
-      return files.find((file) => file.type === 'file') || null;
-    }
-    // If a fileId IS in the URL, only return it if it exists in the current files array.
-    // Do NOT fall back to firstFile when urlFileId is present — that would navigate B
-    // away from their current file during a file-tree refresh (e.g. when A creates a new
-    // file and the file-tree-update causes a brief re-fetch).
+    if (!urlFileId) return files.find((file) => file.type === 'file') || null;
     return files.find((file) => file.id === urlFileId && file.type === 'file') || null;
   }, [files, urlFileId]);
+  
   const activeFileId = activeFile?.id ?? null;
   
   const fetchFiles = useCallback(async (wsId: string) => {
@@ -113,42 +99,23 @@ function IdePage() {
     }
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Bootstrap: fetch the current user + workspace metadata + file tree.
-  // Depends ONLY on urlWorkspaceId (a stable string). We deliberately do NOT
-  // depend on `navigate` — that reference changes on every navigation and would
-  // re-run this effect, re-setting `user` and cascading into the socket effect.
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     const initWorkspace = async () => {
       const token = localStorage.getItem('token');
-      if (!token) {
-        navigateRef.current('/login');
-        return;
-      }
+      if (!token) return navigateRef.current('/login');
 
       try {
-        const userRes = await fetch(apiUrl('/auth/me'), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
+        const userRes = await fetch(apiUrl('/auth/me'), { headers: { Authorization: `Bearer ${token}` } });
         if (!userRes.ok) {
           localStorage.removeItem('token');
-          navigateRef.current('/login');
-          return;
+          return navigateRef.current('/login');
         }
 
         const userData = await userRes.json();
         setUser(userData.user);
 
-        const wsRes = await fetch(apiUrl(`/workspace/${urlWorkspaceId}`), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!wsRes.ok) {
-          navigateRef.current('/dashboard');
-          return;
-        }
+        const wsRes = await fetch(apiUrl(`/workspace/${urlWorkspaceId}`), { headers: { Authorization: `Bearer ${token}` } });
+        if (!wsRes.ok) return navigateRef.current('/dashboard');
 
         const wsData = await wsRes.json();
         setWorkspaceId(wsData.id);
@@ -157,59 +124,36 @@ function IdePage() {
 
         await fetchFiles(wsData.id);
       } catch (err) {
-        console.error(err);
         navigateRef.current('/login');
       }
     };
 
-    if (urlWorkspaceId) {
-      initWorkspace();
-    } else {
-      navigateRef.current('/dashboard');
-    }
+    if (urlWorkspaceId) initWorkspace();
+    else navigateRef.current('/dashboard');
   }, [urlWorkspaceId, fetchFiles]);
 
-  // ---------------------------------------------------------------------------
-  // Socket.IO — the SINGLE channel for presence + file-tree updates.
-  // Created exactly once per (workspace, user). Depends on user?.id (a stable
-  // string), never the user object, so it is not torn down on unrelated renders.
-  // There is NO workspace-level Yjs document anymore — file-tree changes are
-  // broadcast purely through this socket.
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!urlWorkspaceId || !user?.id) return;
 
     const token = localStorage.getItem('token') || '';
-    const socket = io(wsUrl('').replace(/^ws/, 'http'), {
-      auth: { token },
-    });
+    const socket = io(wsUrl('').replace(/^ws/, 'http'), { auth: { token } });
     presenceSocketRef.current = socket;
 
     socket.on('connect', () => {
       setConnectionStatus('connected');
       socket.emit('join-workspace', { workspaceId: urlWorkspaceId });
-      fetchFiles(urlWorkspaceId); // Sync file tree on connect/reconnect
+      fetchFiles(urlWorkspaceId); 
     });
 
-    socket.on('disconnect', () => {
-      setConnectionStatus('disconnected');
-    });
+    socket.on('disconnect', () => setConnectionStatus('disconnected'));
+    socket.on('workspace-presence-update', (users: CollaboratorPresence[]) => setActiveCollaborators(users));
+    socket.on('file-tree-update', () => fetchFiles(urlWorkspaceId));
 
-    socket.on('workspace-presence-update', (users: CollaboratorPresence[]) => {
-      setActiveCollaborators(users);
-    });
-
-    socket.on('file-tree-update', () => {
-      fetchFiles(urlWorkspaceId);
-    });
-
-    // Typing indicator: when another user types, show their dot for 2s
     socket.on('user-typing', ({ userId }: { userId: string }) => {
       setTypingUsers(prev => new Set(prev).add(userId));
-      // Clear previous timer for this user
       const existing = typingTimersRef.current.get(userId);
       if (existing) clearTimeout(existing);
-      // Auto-clear after 2s of no typing
+      
       typingTimersRef.current.set(userId, setTimeout(() => {
         setTypingUsers(prev => {
           const next = new Set(prev);
@@ -235,17 +179,10 @@ function IdePage() {
 
   useEffect(() => {
     if (files.length === 0) return;
-
-    // No file in the URL — auto-route to the first available file
     if (!urlFileId) {
       const firstFile = files.find(f => f.type === 'file');
-      if (firstFile) {
-        navigateRef.current(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
-      }
+      if (firstFile) navigateRef.current(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
     }
-    // urlFileId is set but not found in the current files array — this is a transient
-    // state during file-tree refreshes. Do nothing; wait for the next fetchFiles cycle.
-    // (Previously this fell back to firstFile via the useMemo, causing unwanted redirects.)
   }, [urlFileId, files, urlWorkspaceId]);
 
   const handleLogout = useCallback(() => {
@@ -253,13 +190,10 @@ function IdePage() {
     navigateRef.current('/login');
   }, []);
 
-  // Tell other collaborators to refresh their file tree. Goes through the single
-  // Socket.IO channel — the server re-broadcasts 'file-tree-update' to the room.
   const broadcastFileTreeUpdate = useCallback(() => {
     presenceSocketRef.current?.emit('broadcast-file-tree', { workspaceId: urlWorkspaceId });
   }, [urlWorkspaceId]);
 
-  // Typing indicator: emit to server when local user is typing (debounced to 500ms)
   const lastTypingEmit = useRef(0);
   const handleTypingActivity = useCallback(() => {
     const now = Date.now();
@@ -276,10 +210,7 @@ function IdePage() {
       const token = localStorage.getItem('token');
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/files`), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name, type, parent_id: parentId, language }),
       });
 
@@ -289,9 +220,7 @@ function IdePage() {
       setFiles((prev) => [...prev, newFile].sort((a, b) => a.name.localeCompare(b.name)));
       broadcastFileTreeUpdate();
 
-      if (type === 'file') {
-        navigateRef.current(`/ide/${urlWorkspaceId}/${newFile.id}`);
-      }
+      if (type === 'file') navigateRef.current(`/ide/${urlWorkspaceId}/${newFile.id}`);
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Failed to create file', 'error');
     }
@@ -308,10 +237,7 @@ function IdePage() {
       });
 
       setFiles((prev) => prev.filter((f) => f.id !== id));
-      if (activeFile?.id === id) {
-        editorRef.current?.setValue('');
-      }
-
+      if (activeFile?.id === id) editorRef.current?.setValue('');
       broadcastFileTreeUpdate();
     } catch (err) {
       console.error(err);
@@ -325,10 +251,7 @@ function IdePage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(errorText || 'Failed to export workspace');
-      }
+      if (!res.ok) throw new Error(await res.text() || 'Failed to export workspace');
       
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -340,9 +263,7 @@ function IdePage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('[Export Workspace Error]', err);
-      const message = err instanceof Error ? err.message : 'Unknown export error';
-      addToast(`Failed to export: ${message}`, 'error');
+      addToast(`Failed to export: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
     }
   }, [workspaceId, workspaceTitle, addToast]);
 
@@ -361,7 +282,6 @@ function IdePage() {
 
   const getFileBreadcrumbs = () => {
     if (!activeFile) return [];
-
     const path = [activeFile];
     let currentParentId = activeFile.parent_id;
     let depth = 0;
@@ -371,25 +291,18 @@ function IdePage() {
         path.unshift(parent);
         currentParentId = parent.parent_id;
         depth++;
-      } else {
-        break;
-      }
+      } else break;
     }
     return path;
   };
 
   return (
     <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#030303] text-zinc-300 font-sans selection:bg-indigo-500/30">
-      
-      {/* Background Texture & Glows */}
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:32px_32px]" />
       <div className="pointer-events-none absolute -left-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-indigo-500/10 blur-[120px]" />
       <div className="pointer-events-none absolute -bottom-1/4 -right-1/4 h-[600px] w-[600px] rounded-full bg-emerald-500/10 blur-[120px]" />
 
-      {/* Header Area */}
       <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-white/[0.04] bg-[#030303]/80 px-4 shadow-sm backdrop-blur-xl">
-        
-        {/* Left: Branding & Status */}
         <div className="flex items-center gap-4">
           <div className="group flex cursor-pointer items-center gap-3 transition-opacity hover:opacity-80" onClick={() => navigate('/dashboard')}>
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-inner">
@@ -412,14 +325,10 @@ function IdePage() {
           </div>
         </div>
 
-        {/* Right: Actions & Collaborators */}
         <div className="flex items-center gap-3">
           <VoiceChat workspaceId={workspaceId} user={user} />
-          
-          {/* Divider */}
           <div className="h-6 w-[1px] bg-white/[0.08] mx-2" />
 
-          {/* Active Collaborators Avatars */}
           {activeCollaborators.length > 0 && (
             <div className="relative flex items-center">
               <button 
@@ -436,9 +345,7 @@ function IdePage() {
                     >
                       {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
                       <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-[#030303] bg-emerald-500" />
-                      {typingUsers.has(c.userId) && (
-                        <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-blue-400 animate-ping" />
-                      )}
+                      {typingUsers.has(c.userId) && <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-blue-400 animate-ping" />}
                     </div>
                   ))}
                   {activeCollaborators.length > 3 && (
@@ -531,7 +438,6 @@ function IdePage() {
         </div>
       </header>
 
-      {/* Global Disconnect Overlay */}
       {connectionStatus !== 'connected' && (
         <div className="absolute inset-x-0 top-14 z-40 flex justify-center pointer-events-none">
           <div className="mt-2 flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-4 py-1.5 backdrop-blur-md shadow-lg pointer-events-auto">
@@ -543,10 +449,8 @@ function IdePage() {
         </div>
       )}
 
-      {/* Main Workspace Layout */}
       <div className="relative z-10 flex min-h-0 flex-1 gap-4 p-4 pt-4 pb-4 overflow-hidden">
         
-        {/* Sidebar Navigation */}
         <div
           style={{ width: `${sidebarWidth}px` }}
           className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.05] bg-[#0A0A0A]/60 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
@@ -562,15 +466,12 @@ function IdePage() {
           />
         </div>
 
-        {/* Editor & Terminal Area */}
         <main ref={mainSplitRef} className="flex min-h-0 flex-1 gap-4 overflow-hidden">
           
-          {/* Code Editor Panel */}
           <section
             style={{ width: `${editorWidth}%` }}
             className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.05] bg-[#0A0A0A]/60 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
           >
-            {/* Context/Breadcrumbs Bar */}
             <div className="flex h-11 shrink-0 items-center border-b border-white/[0.04] bg-[#050505]/40 px-4 backdrop-blur-md">
               {activeFile ? (
                 <div className="flex items-center text-xs font-medium text-zinc-400">
@@ -608,15 +509,14 @@ function IdePage() {
               )}
             </div>
 
-            {/* Monaco Container */}
             <div className="relative min-h-0 flex-1 bg-[#020202]/50">
               {activeFile ? (
                 <CodeEditor
-                  // Remount cleanly whenever the document identity changes. Each file
-                  // gets its own editor + Y.Doc + provider + sync handshake, which
-                  // eliminates the in-place model-swap / provider-reuse races that
-                  // left the editor empty or stuck "Syncing…" on file switches.
-                  key={`${workspaceId}:${activeFile.id}`}
+                  // [ARCHITECTURE] SEAMLESS IN-PLACE FILE SWITCHING
+                  // The `key={...}` prop has been explicitly removed. `CodeEditor.tsx` now
+                  // natively supports swapping files by firing its deterministic teardown 
+                  // inside the `useEffect` whenever `fileId` changes. Keeping it mounted
+                  // completely eliminates UI DOM thrashing and Playwright ghost editor references.
                   workspaceId={workspaceId}
                   fileId={activeFile.id}
                   filename={activeFile.name}
@@ -638,12 +538,10 @@ function IdePage() {
             </div>
           </section>
 
-          {/* Terminal Panel */}
           <section
             style={{ width: `calc(${100 - editorWidth}%)` }}
             className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.05] bg-[#0A0A0A]/60 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
           >
-            {/* Terminal Actions Bar */}
             <div className="flex h-11 shrink-0 items-center justify-between border-b border-white/[0.04] bg-[#050505]/40 px-4 backdrop-blur-md">
               <div className="flex items-center gap-2.5">
                 <TerminalSquare size={14} className="text-indigo-400" />
@@ -672,7 +570,6 @@ function IdePage() {
               </div>
             </div>
 
-            {/* Terminal Instance */}
             <div className="min-h-0 flex-1 bg-[#020202]/80">
               {workspaceId && (
                 <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} isVisible={true} />

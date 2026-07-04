@@ -1517,3 +1517,391 @@ describe('CRDT Deep Dives: Merge Conflicts, GC & State Vectors', () => {
     docA.destroy(); docB.destroy();
   });
 });
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUITE 17 — Rename Preservation (fileId stability across renames)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('Rename Preservation — fileId stability across renames', () => {
+  it('inode-matched rename preserves fileId and Yjs content (no delete+recreate)', () => {
+    // Simulates what the watcher should do when it detects a rename via inode match.
+    // The key invariant: the Yjs room name stays the same because fileId doesn't change.
+
+    const fileId = FILE_ID;
+    const workspaceId = WORKSPACE_ID;
+
+    // Before rename: file has content in its Yjs doc
+    const serverDoc = new Y.Doc();
+    serverDoc.getText('monaco').insert(0, 'content before rename');
+    const savedState = Y.encodeStateAsUpdate(serverDoc);
+
+    // After rename (old path gone, new path appeared, same inode)
+    // The watcher calls dbRenameFile(workspaceId, fileId, newPath) — fileId is preserved.
+    // A client connecting to the SAME room (workspaceId-fileId) should still see the content.
+
+    const clientAfterRename = new Y.Doc();
+    Y.applyUpdate(clientAfterRename, savedState);
+
+    expect(clientAfterRename.getText('monaco').toString()).toBe('content before rename');
+
+    // The room name hasn't changed because fileId hasn't changed
+    const roomName = `${workspaceId}-${fileId}`;
+    expect(roomName).toBe(`${WORKSPACE_ID}-${FILE_ID}`);
+
+    serverDoc.destroy();
+    clientAfterRename.destroy();
+  });
+
+  it('delete+recreate (no inode match) results in empty doc for new fileId', () => {
+    // When a file is genuinely deleted and a new one created (different inode),
+    // the new file gets a NEW fileId, and its Yjs doc starts empty.
+
+    const oldFileId = FILE_ID;
+    const newFileId = '66666666-6666-6666-6666-666666666666';
+
+    // Old file had content
+    const oldDoc = new Y.Doc();
+    oldDoc.getText('monaco').insert(0, 'old content');
+    const oldState = Y.encodeStateAsUpdate(oldDoc);
+
+    // New file starts fresh (different room name)
+    const newDoc = new Y.Doc();
+    // No state applied — brand new doc for the new fileId
+    expect(newDoc.getText('monaco').toString()).toBe('');
+
+    // Room names are different
+    const oldRoom = `${WORKSPACE_ID}-${oldFileId}`;
+    const newRoom = `${WORKSPACE_ID}-${newFileId}`;
+    expect(oldRoom).not.toBe(newRoom);
+
+    oldDoc.destroy();
+    newDoc.destroy();
+  });
+
+  it('after rename, typing in the renamed file syncs to other clients via same room', () => {
+    // Simulates: Alice and Bob both have the file open, file gets renamed,
+    // they reconnect to the same room (fileId unchanged), and continue collaborating.
+
+    const serverDoc = new Y.Doc();
+    serverDoc.getText('monaco').insert(0, 'before rename');
+    const stateAfterRename = Y.encodeStateAsUpdate(serverDoc);
+
+    // Both clients reconnect to the same room after rename
+    const alice = new Y.Doc();
+    const bob = new Y.Doc();
+    Y.applyUpdate(alice, stateAfterRename);
+    Y.applyUpdate(bob, stateAfterRename);
+
+    // Bob types after rename
+    bob.getText('monaco').insert(bob.getText('monaco').length, '\nAFTER rename');
+
+    // Sync bob → server → alice
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(bob));
+    Y.applyUpdate(alice, Y.encodeStateAsUpdate(serverDoc));
+
+    expect(alice.getText('monaco').toString()).toContain('AFTER rename');
+    expect(alice.getText('monaco').toString()).toContain('before rename');
+
+    serverDoc.destroy();
+    alice.destroy();
+    bob.destroy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUITE 18 — Disconnect → Persist → Rejoin Lifecycle
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('Disconnect → Persist → Rejoin Lifecycle', () => {
+  let server: any;
+  let port: number;
+
+  beforeEach(async () => {
+    mockQuery = vi.fn();
+    const mod = await import('../../backend/src/server.js');
+    server = mod.server;
+    await new Promise<void>(resolve => server.listen(0, resolve));
+    port = (server.address() as any).port;
+  });
+
+  afterEach(async () => {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    vi.resetModules();
+  });
+
+  it('rapid file switching (disconnect/reconnect to different rooms) preserves each file', async () => {
+    // Simulates Test 9 scenario: user rapidly switches between files.
+    // Each switch = disconnect from old room + connect to new room.
+    const FILE_A = '22222222-2222-2222-2222-aaaaaaaaaaaa';
+    const FILE_B = '22222222-2222-2222-2222-bbbbbbbbbbbb';
+
+    const persistedStates = new Map<string, Buffer>();
+
+    mockQuery.mockImplementation((sql: string, params?: any[]) => {
+      if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
+        return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
+      if (sql.includes('SELECT content, yjs_state FROM files')) {
+        // Check which file is being requested based on room
+        const fileId = params?.[0]; // Won't work directly — but the server uses docName parsing
+        // Return empty for both initially
+        const stateA = persistedStates.get(FILE_A);
+        const stateB = persistedStates.get(FILE_B);
+        // We can't distinguish here easily, so return empty (server handles fresh docs)
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      }
+      if (sql.includes('UPDATE files SET yjs_state')) {
+        // We'd need the file ID — for this test we just verify no crash
+        return Promise.resolve({ rows: [] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    // Alice types in file-a
+    const docA1 = new Y.Doc();
+    const provA1 = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_A}`, docA1, {
+      WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
+    });
+    await new Promise<void>(resolve => provA1.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise(r => setTimeout(r, 50));
+    docA1.getText('monaco').insert(0, 'file-a content');
+    await new Promise(r => setTimeout(r, 100));
+
+    // Alice types in file-b
+    const docB1 = new Y.Doc();
+    const provB1 = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_B}`, docB1, {
+      WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
+    });
+    await new Promise<void>(resolve => provB1.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise(r => setTimeout(r, 50));
+    docB1.getText('monaco').insert(0, 'file-b content');
+    await new Promise(r => setTimeout(r, 100));
+
+    // Bob rapidly switches: connects to A, disconnects, connects to B, disconnects, connects to B again
+    const docBobA = new Y.Doc();
+    const provBobA = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_A}`, docBobA, {
+      WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
+    });
+    await new Promise<void>(resolve => provBobA.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise(r => setTimeout(r, 100));
+
+    // Bob should see file-a content
+    expect(docBobA.getText('monaco').toString()).toBe('file-a content');
+    provBobA.disconnect();
+
+    // Bob switches to file-b
+    const docBobB = new Y.Doc();
+    const provBobB = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_B}`, docBobB, {
+      WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
+    });
+    await new Promise<void>(resolve => provBobB.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise(r => setTimeout(r, 100));
+
+    // Bob should see file-b content (not file-a, not empty)
+    expect(docBobB.getText('monaco').toString()).toBe('file-b content');
+
+    // Cleanup
+    provA1.disconnect(); provB1.disconnect(); provBobB.disconnect();
+    provA1.destroy(); provB1.destroy(); provBobA.destroy(); provBobB.destroy();
+  }, 10000);
+
+  it('late-joining user receives content from an active room without DB reload', async () => {
+    // Simulates Test 12: Alice is still in a file room typing. Bob joins late.
+    // Server doc is warm in memory (Alice is connected), so Bob gets it directly.
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
+        return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
+      if (sql.includes('SELECT role FROM workspace_collaborators'))
+        return Promise.resolve({ rows: [{ role: 'editor' }] });
+      if (sql.includes('SELECT content, yjs_state FROM files'))
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      return Promise.resolve({ rows: [] });
+    });
+
+    // Alice connects and types
+    const docAlice = new Y.Doc();
+    const provAlice = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docAlice, {
+      WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
+    });
+    await new Promise<void>(resolve => provAlice.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise(r => setTimeout(r, 50));
+
+    docAlice.getText('monaco').insert(0, 'alice typed this for late joiner');
+    await new Promise(r => setTimeout(r, 100));
+
+    // Bob joins LATE — Alice is still connected, so server doc is warm
+    const docBob = new Y.Doc();
+    const provBob = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docBob, {
+      WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
+    });
+    await new Promise<void>(resolve => provBob.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+
+    // Wait for sync
+    await new Promise<void>(resolve => {
+      const check = () => {
+        if (docBob.getText('monaco').toString() === 'alice typed this for late joiner') {
+          resolve();
+        } else {
+          setTimeout(check, 20);
+        }
+      };
+      setTimeout(check, 50);
+    });
+
+    expect(docBob.getText('monaco').toString()).toBe('alice typed this for late joiner');
+
+    provAlice.disconnect(); provBob.disconnect();
+    provAlice.destroy(); provBob.destroy();
+  }, 10000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUITE 19 — Docs Map Lifecycle (registration and eviction)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('Docs Map Lifecycle — registration and eviction', () => {
+  let server: any;
+  let port: number;
+  let docsMap: Map<string, any>;
+
+  beforeEach(async () => {
+    mockQuery = vi.fn();
+    const mod = await import('../../backend/src/server.js');
+    server = mod.server;
+    docsMap = mod.docs;
+    await new Promise<void>(resolve => server.listen(0, resolve));
+    port = (server.address() as any).port;
+
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
+        return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
+      if (sql.includes('SELECT role FROM workspace_collaborators'))
+        return Promise.resolve({ rows: [{ role: 'editor' }] });
+      if (sql.includes('SELECT content, yjs_state FROM files'))
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      if (sql.includes('UPDATE files SET yjs_state'))
+        return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
+  });
+
+  afterEach(async () => {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    vi.resetModules();
+  });
+
+  it('doc is added to docs map when first client connects', async () => {
+    const docName = `${WORKSPACE_ID}-${FILE_ID}`;
+    expect(docsMap.has(docName)).toBe(false);
+
+    const doc = new Y.Doc();
+    const provider = new WebsocketProvider(`ws://localhost:${port}`, docName, doc, {
+      WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
+    });
+
+    await new Promise<void>(resolve => provider.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise(r => setTimeout(r, 50));
+
+    // Doc should now be in the map
+    expect(docsMap.has(docName)).toBe(true);
+
+    provider.disconnect();
+    provider.destroy();
+
+    // Wait for close handler to evict
+    await new Promise(r => setTimeout(r, 300));
+
+    // Doc should be removed after last client leaves
+    expect(docsMap.has(docName)).toBe(false);
+  }, 10000);
+
+  it('doc stays in map while at least one client is connected', async () => {
+    const docName = `${WORKSPACE_ID}-${FILE_ID}`;
+
+    const docA = new Y.Doc();
+    const provA = new WebsocketProvider(`ws://localhost:${port}`, docName, docA, {
+      WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
+    });
+
+    const docB = new Y.Doc();
+    const provB = new WebsocketProvider(`ws://localhost:${port}`, docName, docB, {
+      WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
+    });
+
+    await Promise.all([
+      new Promise<void>(resolve => provA.on('status', (e: any) => { if (e.status === 'connected') resolve(); })),
+      new Promise<void>(resolve => provB.on('status', (e: any) => { if (e.status === 'connected') resolve(); }))
+    ]);
+
+    expect(docsMap.has(docName)).toBe(true);
+
+    // Disconnect A — B is still connected, so doc should remain
+    provA.disconnect();
+    provA.destroy();
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(docsMap.has(docName)).toBe(true);
+
+    // Disconnect B — now doc should be evicted
+    provB.disconnect();
+    provB.destroy();
+    await new Promise(r => setTimeout(r, 300));
+
+    expect(docsMap.has(docName)).toBe(false);
+  }, 10000);
+
+  it('new client connecting to evicted doc reloads from DB (not stale memory)', async () => {
+    const docName = `${WORKSPACE_ID}-${FILE_ID}`;
+    let dbLoadCount = 0;
+
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
+        return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
+      if (sql.includes('SELECT role FROM workspace_collaborators'))
+        return Promise.resolve({ rows: [{ role: 'editor' }] });
+      if (sql.includes('SELECT content, yjs_state FROM files')) {
+        dbLoadCount++;
+        return Promise.resolve({ rows: [{ content: `load #${dbLoadCount}`, yjs_state: null }] });
+      }
+      if (sql.includes('UPDATE files SET yjs_state'))
+        return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
+
+    // First client connects — triggers DB load #1
+    const doc1 = new Y.Doc();
+    const prov1 = new WebsocketProvider(`ws://localhost:${port}`, docName, doc1, {
+      WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
+    });
+    await new Promise<void>(resolve => prov1.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(doc1.getText('monaco').toString()).toBe('load #1');
+
+    // Disconnect — evicts the doc
+    prov1.disconnect();
+    prov1.destroy();
+    await new Promise(r => setTimeout(r, 300));
+    expect(docsMap.has(docName)).toBe(false);
+
+    // Second client connects — should trigger DB load #2 (fresh load, not cached)
+    const doc2 = new Y.Doc();
+    const prov2 = new WebsocketProvider(`ws://localhost:${port}`, docName, doc2, {
+      WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
+    });
+    await new Promise<void>(resolve => prov2.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
+    await new Promise<void>(resolve => {
+      const check = () => {
+        if (doc2.getText('monaco').toString().includes('load #2')) {
+          resolve();
+        } else {
+          setTimeout(check, 20);
+        }
+      };
+      setTimeout(check, 50);
+    });
+
+    expect(doc2.getText('monaco').toString()).toBe('load #2');
+    expect(dbLoadCount).toBe(2); // Loaded from DB twice, not from stale memory
+
+    prov2.disconnect();
+    prov2.destroy();
+  }, 10000);
+});

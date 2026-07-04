@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
 
+// Ensure unique timestamps across parallel test workers and successive calls
+const originalNow = Date.now;
+let lastTime = originalNow() * 100 + Number(process.env.TEST_WORKER_INDEX || 0);
+Date.now = () => {
+  const current = originalNow() * 100 + Number(process.env.TEST_WORKER_INDEX || 0);
+  lastTime = Math.max(current, lastTime + 1);
+  return lastTime;
+};
+
 test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
 
   test('executes shell commands, detects directory watch sync, and proxies dev server traffic with Ctrl+C teardown', async ({ page, context }) => {

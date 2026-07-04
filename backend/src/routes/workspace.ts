@@ -11,6 +11,7 @@ import { WORKSPACE_DATA_DIR } from '../sandbox/pool';
 import * as path from 'path';
 import { rmSync, existsSync } from 'fs';
 import { Mistral } from '@mistralai/mistralai';
+import { getIO } from '../socket';
 
 const router = Router();
 
@@ -218,6 +219,7 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
       if (r.rows.length) type === 'directory' ? syncFolderToTerminal(id, r.rows[0].path).catch(()=>{}) : syncFileToTerminal(id, newFile.rows[0].id, '').catch(()=>{});
     }).catch(()=>{});
 
+    getIO()?.to(`presence-${id}`).emit('file-tree-update');
     res.status(201).json(newFile.rows[0]);
   } catch (err: any) { res.status(err.code === '23505' ? 400 : 500).json({ error: err.code === '23505' ? 'Duplicate file name' : err.message }); }
 });
@@ -238,6 +240,7 @@ router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: 
     const pathResult = await getPool().query(`WITH RECURSIVE cte AS (SELECT id, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL UNION ALL SELECT f.id, (cte.path || '/' || f.name)::text FROM files f JOIN cte ON f.parent_id = cte.id WHERE f.workspace_id = $1) SELECT path FROM cte WHERE id = $2;`, [id, req.params.fileId]);
     await getPool().query('DELETE FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, id]);
     if (pathResult.rows.length) syncDeleteToTerminal(id, pathResult.rows[0].path).catch(()=>{});
+    getIO()?.to(`presence-${id}`).emit('file-tree-update');
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

@@ -6,8 +6,7 @@ import Docker from 'dockerode';
 import { Writable } from 'stream';
 import * as Y from 'yjs';
 import { getIO } from '../socket';
-// @ts-ignore
-import { docs } from 'y-websocket/bin/utils';
+import { docs } from '../server'; // Imported directly from our custom sync engine
 import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer, getRunningContainer } from '../sandbox/workspaceContainer';
 
 type TerminalRole = 'viewer' | 'editor' | 'admin';
@@ -17,12 +16,8 @@ const logDebug = (msg: string) => process.stdout.write(`[DEBUG] ${msg}\n`);
 // =============================================================================
 // [ARCHITECTURE] WRITE-COOLDOWN REGISTRY
 // =============================================================================
-// When the editor writes a file to the container disk, we record the write timestamp.
-// The watcher will skip any file whose mtime matches a recent write, preventing the
-// circular "write → detect → overwrite Yjs" feedback loop that causes vanishing text.
-
-const recentWrites = new Map<string, number>(); // key: `${workspaceId}/${relativePath}`, value: timestamp (ms)
-const WRITE_COOLDOWN_MS = 3000; // Ignore watcher changes within 3s of our own write
+const recentWrites = new Map<string, number>(); 
+const WRITE_COOLDOWN_MS = 3000; 
 
 function markFileAsWritten(workspaceId: string, relativePath: string): void {
   recentWrites.set(`${workspaceId}/${relativePath}`, Date.now());
@@ -33,24 +28,19 @@ function isInWriteCooldown(workspaceId: string, relativePath: string): boolean {
   const writeTime = recentWrites.get(key);
   if (!writeTime) return false;
   if (Date.now() - writeTime < WRITE_COOLDOWN_MS) return true;
-  recentWrites.delete(key); // Expired, clean up
+  recentWrites.delete(key); 
   return false;
 }
 
-// Check if a file has an active Yjs document open (meaning clients are editing it).
-// If it does, the watcher must NEVER overwrite its content — Yjs is the source of truth.
 function hasActiveYjsDoc(workspaceId: string, fileId: string): boolean {
   const docName = `${workspaceId}-${fileId}`;
-  return docs.has(docName);
+  return docs && docs.has(docName);
 }
 
 // =============================================================================
 // [CONFIGURATION] WATCHER EXCLUSIONS & LIMITS
 // =============================================================================
-
-const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024; // 1MB — skip files larger than this to prevent OOM
-
-// Directories to completely exclude from scanning (pruned in the `find` command itself)
+const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024; 
 const EXCLUDED_DIRS = ['node_modules', '.git', '.next', 'dist', 'build', '.cache', '__pycache__', '.venv', 'venv'];
 
 // =============================================================================
@@ -94,7 +84,6 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 
     container = await getOrCreateWorkspaceContainer(userId, workspaceId);
 
-    // Viewers get restricted bash
     const isViewer = userRole === 'viewer';
     const envVars = [
       'PS1=\\[\\033[1;35m\\]sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[1;32m\\]\\$\\[\\033[0m\\] ',
@@ -103,7 +92,6 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     ];
     if (isViewer) envVars.push('PATH=/viewer_bin');
 
-    // Git credential setup for admin users
     if (userRole === 'admin' && githubToken) {
       envVars.push(`GITHUB_TOKEN=${githubToken}`, `GIT_AUTHOR_NAME=${githubUsername}`, `GIT_AUTHOR_EMAIL=${githubEmail}`, `GIT_COMMITTER_NAME=${githubUsername}`, `GIT_COMMITTER_EMAIL=${githubEmail}`, `GIT_ASKPASS=/tmp/git-askpass`);
       const askpass = `#!/bin/sh\ncase "$1" in\n  *Username*|*username*) echo "git" ;;\n  *) echo "$GITHUB_TOKEN" ;;\nesac`;
@@ -121,11 +109,9 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     const exec = await container.exec({ Cmd: isViewer ? ['/bin/bash', '--restricted'] : ['/bin/bash'], Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true, WorkingDir: wsPath, Env: envVars });
     stream = await exec.start({ hijack: true, stdin: true, Tty: true });
 
-    // Start background file synchronization watcher
     const watcherTimeout = { current: null as NodeJS.Timeout | null };
     startTerminalWatcher(ws, container, workspaceId, watcherTimeout);
 
-    // Raw byte piping between browser WebSocket and container shell
     stream.on('data', (chunk: Buffer) => ws.readyState === WebSocket.OPEN && ws.send(chunk));
     ws.on('message', (data: any) => stream && !stream.destroyed && stream.writable && stream.write(Buffer.isBuffer(data) ? data : Buffer.from(data)));
 
@@ -147,11 +133,8 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 }
 
 // =============================================================================
-// [FILE SYNC] FORWARD (Editor/Yjs -> Container Disk)
+// [FILE SYNC] FORWARD
 // =============================================================================
-// This is the ONE-WAY OUT path: content flows from Yjs → DB → disk.
-// The watcher should never reverse this flow for files with active editors.
-
 async function getContainerForSync(workspaceId: string): Promise<Docker.Container | null> {
   try {
     const res = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [workspaceId]);
@@ -162,10 +145,6 @@ async function getContainerForSync(workspaceId: string): Promise<Docker.Containe
 
 const npmInstallTimeouts = new Map<string, NodeJS.Timeout>();
 
-/**
- * Writes file content from the editor to the container disk.
- * Uses safe argument passing (stdin pipe) to avoid shell injection.
- */
 export async function syncFileToTerminal(workspaceId: string, fileId: string, content: string): Promise<void> {
   try {
     const container = await getContainerForSync(workspaceId);
@@ -185,17 +164,13 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     const wsPath = `/workspaces/${workspaceId}`;
     const fullPath = `${wsPath}/${filePath}`;
 
-    // SAFE FILE WRITE: Use base64 encoding to transport content safely.
-    // This avoids all shell injection vectors — no filename interpolation in shell commands.
     const contentBase64 = Buffer.from(content, 'utf8').toString('base64');
     const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
 
-    // Use a two-step approach: mkdir with positional args, then base64 decode into file via stdin
     const mkdirExec = await container.exec({ Cmd: ['mkdir', '-p', dirPath] });
     await mkdirExec.start({ hijack: true, stdin: false });
     await new Promise(res => setTimeout(res, 50));
 
-    // Write content via stdin pipe to avoid any shell metacharacter issues
     const writeExec = await container.exec({
       Cmd: ['sh', '-c', `base64 -d > "${fullPath.replace(/"/g, '\\"')}"`],
       AttachStdin: true, AttachStdout: true, AttachStderr: true
@@ -203,10 +178,8 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     const writeStream = await writeExec.start({ hijack: true, stdin: true });
     writeStream.end(contentBase64);
 
-    // Mark this file as recently written so the watcher ignores the mtime change
     markFileAsWritten(workspaceId, filePath);
 
-    // Debounced npm install on package.json changes
     if (filePath === 'package.json') {
       if (npmInstallTimeouts.has(workspaceId)) clearTimeout(npmInstallTimeouts.get(workspaceId)!);
       npmInstallTimeouts.set(workspaceId, setTimeout(async () => {
@@ -230,11 +203,8 @@ export async function syncFolderToTerminal(wsId: string, folderPath: string): Pr
 }
 
 // =============================================================================
-// [STATE MANAGEMENT] REVERSE SYNC (Container -> DB/Yjs)
+// [STATE MANAGEMENT] REVERSE SYNC
 // =============================================================================
-// This handles EXTERNAL changes: files created/modified/deleted by terminal commands
-// (git clone, npm init, vim, etc.) where no active Yjs editor session exists.
-
 async function getWorkspaceFilesMap(workspaceId: string) {
   const res = await getPool().query(
     `WITH RECURSIVE cte AS (
@@ -267,7 +237,6 @@ async function dbCreateFile(workspaceId: string, relativePath: string, type: 'fi
       [workspaceId, name, type, parentId, lang, content]
     );
 
-    // Create initial Yjs state for new files
     if (res.rows[0]?.id && type === 'file') {
       const ydoc = new Y.Doc();
       ydoc.getText('monaco').insert(0, content);
@@ -285,20 +254,34 @@ async function dbCreateFile(workspaceId: string, relativePath: string, type: 'fi
 }
 
 /**
- * Updates a file's content in the DB. ONLY called for files WITHOUT an active Yjs doc.
- * For files with active editors, Yjs handles all state — we never touch them here.
+ * Handles filesystem renames seamlessly without breaking fileIds.
  */
+async function dbRenameFile(workspaceId: string, fileId: string, newRelativePath: string) {
+  const parts = newRelativePath.split('/');
+  const name = parts.pop() || '';
+  const parentPath = parts.join('/');
+  let parentId: string | null = null;
+  
+  if (parentPath) {
+    const map = await getWorkspaceFilesMap(workspaceId);
+    parentId = map.pathToId.get(parentPath) || null;
+    if (!parentId) {
+      parentId = await dbCreateFile(workspaceId, parentPath, 'directory', '') || null;
+    }
+  }
+  
+  const lang = name.match(/\.(js|ts|tsx|jsx|mjs)$/) ? 'javascript' : name.match(/\.py$/) ? 'python' : name.match(/\.cpp$/) ? 'cpp' : name.match(/\.c$/) ? 'c' : name.match(/\.html$/) ? 'html' : name.match(/\.css$/) ? 'css' : name.match(/\.java$/) ? 'java' : name.match(/\.json$/) ? 'json' : name.match(/\.md$/) ? 'markdown' : 'text';
+
+  await getPool().query('UPDATE files SET name = $1, parent_id = $2, language = $3 WHERE id = $4', [name, parentId, lang, fileId]);
+}
+
 async function dbUpdateFileExternal(workspaceId: string, fileId: string, content: string) {
-  // Double-check: if this file has an active Yjs doc, do NOT overwrite it
   if (hasActiveYjsDoc(workspaceId, fileId)) return;
 
   const ydoc = new Y.Doc();
   ydoc.getText('monaco').insert(0, content);
   await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [Buffer.from(Y.encodeStateAsUpdate(ydoc)), content, fileId]);
   ydoc.destroy();
-
-  // If a Yjs doc gets opened AFTER this update (e.g., user opens the file),
-  // the persistence layer's bindState will load the latest state from DB. No race.
 }
 
 async function dbDeleteFile(fileId: string) {
@@ -329,20 +312,11 @@ async function readContainerFileContent(container: Docker.Container, workspaceId
 }
 
 // =============================================================================
-// [ARCHITECTURE] FS POLLING LOOP (Redesigned)
+// [ARCHITECTURE] FS POLLING LOOP
 // =============================================================================
-// The watcher detects EXTERNAL file system changes (from terminal commands) and
-// syncs them to the DB. It follows strict rules:
-//
-// 1. NEVER touch files with an active Yjs document (those are owned by the editor)
-// 2. NEVER touch files in write-cooldown (we just wrote them, ignore the mtime bump)
-// 3. Skip files larger than MAX_FILE_SIZE_BYTES (prevents OOM)
-// 4. Exclude heavy directories at the `find` command level (prevents CPU spikes)
-// 5. Only scan to maxdepth 5 (reasonable project depth)
-
 function startTerminalWatcher(ws: WebSocket, container: Docker.Container, workspaceId: string, watcherTimeout: { current: NodeJS.Timeout | null }) {
   logDebug(`[Watcher] Initializing watcher for workspace: ${workspaceId}`);
-  let lastState = new Map<string, { path: string; mtime: number; size: number; isDir: boolean }>();
+  let lastState = new Map<string, { path: string; mtime: number; size: number; isDir: boolean; inode: string }>();
   let isFirstScan = true;
 
   const runScan = async () => {
@@ -353,62 +327,56 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
     try {
       const wsPath = `/workspaces/${workspaceId}`;
 
-      // Build the find command with proper directory exclusions (pruned early, no traversal)
       const pruneArgs = EXCLUDED_DIRS.flatMap(dir => ['-name', dir, '-prune', '-o']);
+      // Notice the added %i to retrieve the Unix Inode for tracking renames
       const findCmd = [
         'find', wsPath, '-mindepth', '1', '-maxdepth', '5',
         ...pruneArgs,
-        '-exec', 'stat', '-c', '%Y %s %F %n', '{}', ';'
+        '-exec', 'stat', '-c', '%Y %s %F %i %n', '{}', ';'
       ];
 
       const stream = await (await container.exec({ Cmd: findCmd, AttachStdout: true, AttachStderr: true })).start({ hijack: true });
       const rawOutput = await new Promise<string>((res) => {
         let out = '';
         const w = new Writable({ write(c, _, cb) { out += c.toString(); cb(); } });
-        const errW = new Writable({ write(_, __, cb) { cb(); } }); // discard stderr
+        const errW = new Writable({ write(_, __, cb) { cb(); } });
         container.modem.demuxStream(stream, w, errW);
         stream.on('end', () => res(out));
         stream.on('error', () => res(''));
       });
 
-      logDebug(`[Watcher] Raw scan output for ${workspaceId}: [${rawOutput.trim()}]`);
-
       const currentFiles = new Map<string, any>();
       const wsPathPrefix = `${wsPath}/`;
 
       rawOutput.replace(/\r/g, '').split('\n').forEach(line => {
-        const match = line.match(/^(\d+)\s+(\d+)\s+(.*?)\s+(\/workspaces\/.*)$/);
-        if (match && match[4]?.startsWith(wsPathPrefix)) {
-          const relPath = match[4].substring(wsPathPrefix.length).trim();
-          if (!relPath || relPath.startsWith('.') || relPath.includes('/.')) return; // Skip dotfiles
+        // Parse the stat string: mtime size type inode path
+        const match = line.match(/^(\d+)\s+(\d+)\s+(.*?)\s+(\d+)\s+(\/workspaces\/.*)$/);
+        if (match && match[5]?.startsWith(wsPathPrefix)) {
+          const relPath = match[5].substring(wsPathPrefix.length).trim();
+          if (!relPath || relPath.startsWith('.') || relPath.includes('/.')) return; 
           const size = parseInt(match[2]!, 10);
           const isDir = match[3]!.includes('directory');
-          // Skip files exceeding size limit (prevents OOM when loading large files into memory)
+          const inode = match[4]!;
           if (!isDir && size > MAX_FILE_SIZE_BYTES) return;
-          currentFiles.set(relPath, { path: relPath, mtime: parseInt(match[1]!, 10), size, isDir });
+          currentFiles.set(relPath, { path: relPath, mtime: parseInt(match[1]!, 10), size, isDir, inode });
         }
       });
 
-      logDebug(`[Watcher] Parsed current files for ${workspaceId}: ${JSON.stringify(Array.from(currentFiles.keys()))}`);
-
       if (isFirstScan) {
-        // On first scan, just establish baseline — don't sync anything
         const { fileDetails } = await getWorkspaceFilesMap(workspaceId);
         fileDetails.forEach((detail, path) => {
           lastState.set(path, {
             path,
             mtime: currentFiles.get(path)?.mtime || 0,
             size: currentFiles.get(path)?.size || 0,
-            isDir: detail.type === 'directory'
+            isDir: detail.type === 'directory',
+            inode: currentFiles.get(path)?.inode || '0'
           });
         });
-        // Also add files that exist on disk but not in DB (to track them)
         for (const [path, entry] of currentFiles) {
           if (!lastState.has(path)) lastState.set(path, entry);
         }
         isFirstScan = false;
-        logDebug(`[Watcher] First scan baseline established for ${workspaceId}. Tracked files count: ${lastState.size}`);
-
         if (ws.readyState === WebSocket.OPEN) watcherTimeout.current = setTimeout(runScan, 1500);
         return;
       }
@@ -416,26 +384,59 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
       let changed = false;
       const { pathToId, fileDetails } = await getWorkspaceFilesMap(workspaceId);
 
-      // Process Deletions: files that were in last scan but are gone now
+      // 1. Separate all deletions and additions
+      const deletedPaths = new Set<string>();
       for (const [path] of lastState.entries()) {
-        if (!currentFiles.has(path)) {
-          const fileId = pathToId.get(path);
-          logDebug(`[Watcher] File deletion detected for path: ${path}, ID: ${fileId}`);
-          if (fileId) {
-            // Don't delete from DB if the file has an active Yjs doc
-            // (the editor is open — maybe user is about to recreate it)
-            if (!hasActiveYjsDoc(workspaceId, fileId)) {
-              await dbDeleteFile(fileId);
-              logDebug(`[Watcher] Deleted file from DB: ${path}`);
-              changed = true;
-            }
+        if (!currentFiles.has(path)) deletedPaths.add(path);
+      }
+
+      const addedEntries = new Map<string, any>();
+      for (const [path, current] of currentFiles.entries()) {
+        if (!lastState.has(path)) addedEntries.set(path, current);
+      }
+
+      // 2. Cross-reference by inode to detect Renames
+      for (const [newPath, current] of addedEntries.entries()) {
+        let renameOldPath: string | null = null;
+        for (const oldPath of deletedPaths) {
+          const last = lastState.get(oldPath);
+          if (last && last.inode !== '0' && last.inode === current.inode) {
+            renameOldPath = oldPath;
+            break;
           }
-          lastState.delete(path);
+        }
+
+        if (renameOldPath) {
+          const fileId = pathToId.get(renameOldPath);
+          if (fileId) {
+            logDebug(`[Watcher] Rename detected via inode: ${renameOldPath} -> ${newPath}`);
+            await dbRenameFile(workspaceId, fileId, newPath);
+            changed = true;
+            
+            // Remove from processing queues to prevent delete/recreate
+            deletedPaths.delete(renameOldPath);
+            addedEntries.delete(newPath);
+            lastState.delete(renameOldPath);
+            lastState.set(newPath, current);
+          }
         }
       }
 
-      // Process Additions & Modifications
-      // Sort: directories first, then by depth (shallowest first) for proper parent creation
+      // 3. Process absolute Deletions
+      for (const path of deletedPaths) {
+        const fileId = pathToId.get(path);
+        logDebug(`[Watcher] File deletion detected for path: ${path}, ID: ${fileId}`);
+        if (fileId) {
+          if (!hasActiveYjsDoc(workspaceId, fileId)) {
+            await dbDeleteFile(fileId);
+            logDebug(`[Watcher] Deleted file from DB: ${path}`);
+            changed = true;
+          }
+        }
+        lastState.delete(path);
+      }
+
+      // 4. Process genuine Additions & Modifications
       const sortedEntries = [...currentFiles.entries()].sort(([aPath, aVal], [bPath, bVal]) => {
         if (aVal.isDir && !bVal.isDir) return -1;
         if (!aVal.isDir && bVal.isDir) return 1;
@@ -443,13 +444,10 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
       });
 
       for (const [path, current] of sortedEntries) {
-        const last = lastState.get(path);
-
-        if (!last) {
-          // NEW file/directory detected on disk
+        if (addedEntries.has(path)) {
+          // New file/dir detected on disk
           logDebug(`[Watcher] Addition detected for path: ${path}`);
           if (fileDetails.has(path)) {
-            // Already in DB, just track it
             lastState.set(path, current);
             continue;
           }
@@ -462,33 +460,32 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
             lastState.set(path, current);
             changed = true;
           }
-        } else if (!current.isDir && (current.mtime !== last.mtime || current.size !== last.size)) {
-          // MODIFIED file detected on disk
-          const fileId = pathToId.get(path);
-          logDebug(`[Watcher] Modification detected for file path: ${path}, ID: ${fileId}`);
-          if (!fileId) { lastState.set(path, current); continue; }
-
-          // CRITICAL: Skip if this file has an active Yjs editor session.
-          // The editor owns this file's state — the watcher must not interfere.
-          if (hasActiveYjsDoc(workspaceId, fileId)) {
-            lastState.set(path, current); // Update mtime tracking but don't sync content
-            continue;
-          }
-
-          // CRITICAL: Skip if we recently wrote this file to disk (our own write bouncing back)
-          if (isInWriteCooldown(workspaceId, path)) {
+        } else {
+          // Existing file/dir
+          const last = lastState.get(path);
+          if (last && !current.isDir && (current.mtime !== last.mtime || current.size !== last.size)) {
+            const fileId = pathToId.get(path);
+            logDebug(`[Watcher] Modification detected for file path: ${path}, ID: ${fileId}`);
+            if (!fileId) { lastState.set(path, current); continue; }
+  
+            if (hasActiveYjsDoc(workspaceId, fileId)) {
+              lastState.set(path, current); 
+              continue;
+            }
+  
+            if (isInWriteCooldown(workspaceId, path)) {
+              lastState.set(path, current);
+              continue;
+            }
+  
+            const content = current.size > 0 ? await readContainerFileContent(container, workspaceId, path) : '';
+            if (fileDetails.get(path)?.content !== content) {
+              await dbUpdateFileExternal(workspaceId, fileId, content);
+              logDebug(`[Watcher] Updated file content in DB for modified path: ${path}`);
+              changed = true;
+            }
             lastState.set(path, current);
-            continue;
           }
-
-          // It's a genuine external change (terminal command modified this file)
-          const content = current.size > 0 ? await readContainerFileContent(container, workspaceId, path) : '';
-          if (fileDetails.get(path)?.content !== content) {
-            await dbUpdateFileExternal(workspaceId, fileId, content);
-            logDebug(`[Watcher] Updated file content in DB for modified path: ${path}`);
-            changed = true;
-          }
-          lastState.set(path, current);
         }
       }
 
