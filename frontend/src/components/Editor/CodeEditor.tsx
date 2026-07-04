@@ -6,36 +6,9 @@ import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { apiUrl, wsUrl } from '../../lib/backendUrls';
 
-// =============================================================================
-// [ENVIRONMENT] Monaco Web Worker Configuration
-// Prevents main-thread starvation by routing language services (syntax
-// highlighting, formatting, AST parsing) to dedicated Web Workers.
-// Without this, Monaco falls back to main thread, blocking WebSocket message
-// processing, CRDT decoding, and React reconciliation.
-// =============================================================================
-if (typeof window !== 'undefined' && !(window as any).MonacoEnvironment) {
-  (window as any).MonacoEnvironment = {
-    getWorker(_moduleId: string, label: string) {
-      switch (label) {
-        case 'json':
-          return new Worker(new URL('monaco-editor/esm/vs/language/json/json.worker?worker', import.meta.url), { type: 'module' });
-        case 'css':
-        case 'scss':
-        case 'less':
-          return new Worker(new URL('monaco-editor/esm/vs/language/css/css.worker?worker', import.meta.url), { type: 'module' });
-        case 'html':
-        case 'handlebars':
-        case 'razor':
-          return new Worker(new URL('monaco-editor/esm/vs/language/html/html.worker?worker', import.meta.url), { type: 'module' });
-        case 'typescript':
-        case 'javascript':
-          return new Worker(new URL('monaco-editor/esm/vs/language/typescript/ts.worker?worker', import.meta.url), { type: 'module' });
-        default:
-          return new Worker(new URL('monaco-editor/esm/vs/editor/editor.worker?worker', import.meta.url), { type: 'module' });
-      }
-    }
-  };
-}
+// NOTE: Monaco Web Worker configuration lives in main.tsx (set globally before
+// Monaco initializes). Routing language services to workers prevents main-thread
+// starvation that would otherwise stall the Yjs sync handshake under load.
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
 type MonacoInstance = typeof Monaco;
@@ -104,7 +77,6 @@ export default function CodeEditor({
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
-  const [isSynced, setIsSynced] = useState(false);
 
   // Synchronously reset sync and awareness status during render if the active file has swapped.
   // This ensures the "Syncing with server..." overlay is instantly visible in the DOM
@@ -113,7 +85,6 @@ export default function CodeEditor({
   const [prevFileId, setPrevFileId] = useState(fileId);
   if (fileId !== prevFileId) {
     setPrevFileId(fileId);
-    setIsSynced(false);
     setAwarenessStates([]);
     setSaveStatus('idle');
   }
@@ -125,16 +96,12 @@ export default function CodeEditor({
   // [COLLABORATION SESSION] Deterministic Yjs lifecycle
   // ===========================================================================
   useEffect(() => {
-    console.log(`[CodeEditor] Mount effect running for ${filename}, editor=${!!editor}`);
     let isActive = true;
     let boundModel: Monaco.editor.ITextModel | null = null;
     let binding: MonacoBinding | null = null;
     let saveDebounce: ReturnType<typeof setTimeout>;
 
     if (!editor || !workspaceId || !fileId) return;
-
-    console.log(`[CodeEditor] Initializing y-websocket for ${filename} (room: ${workspaceId}-${fileId})`);
-    setIsSynced(false);
 
     const roomName = `${workspaceId}-${fileId}`;
     const token = localStorage.getItem('token') || '';
@@ -149,6 +116,20 @@ export default function CodeEditor({
       
       if (!model || !model.uri || !model.uri.path.endsWith(expectedName)) return;
       if (binding && boundModel === model) return;
+
+      // [SYNC ORDERING GUARD]
+      // MonacoBinding's constructor calls monacoModel.setValue(ytext.toString())
+      // whenever the two differ. If we bind a freshly-created (empty) Y.Doc to a
+      // Monaco model that was cached with content from a prior visit (rapid file
+      // switching keeps CodeEditor mounted, so Monaco reuses the model by URI),
+      // the binding would wipe the cached content to "" before the server sync
+      // repopulates Y.Text — producing a transient/empty editor (Test 9).
+      // Defer binding until the server sync has hydrated Y.Text; handleSync
+      // re-invokes tryBind once the doc is authoritative.
+      const ytext = ydoc.getText('monaco');
+      if (!wsProvider.synced && ytext.length === 0 && model.getValue().length > 0) {
+        return;
+      }
       
       if (binding) {
         binding.destroy();
@@ -156,7 +137,7 @@ export default function CodeEditor({
       }
       
       binding = new MonacoBinding(
-        ydoc.getText('monaco'),
+        ytext,
         model,
         new Set([editor]),
         wsProvider.awareness as any
@@ -165,12 +146,14 @@ export default function CodeEditor({
     };
 
     const handleSync = (synced: boolean) => {
-      console.log(`[CodeEditor] handleSync called with: ${synced}, isActive: ${isActive} for ${filename}`);
-      if (synced && isActive) setIsSynced(true);
+      if (synced && isActive) {
+        // Y.Text is now hydrated from the server — safe to bind even if the
+        // cached Monaco model had prior content (they will now match/merge).
+        tryBind();
+      }
     };
 
     const handleStatus = (event: { status: ConnectionStatus }) => {
-      console.log(`[CodeEditor] status changed to: ${event.status} for ${filename}`);
       if (!isActive) return;
       callbackRefs.current.onConnectionStatusChange?.(event.status);
       if (event.status === 'connected') {
@@ -220,7 +203,6 @@ export default function CodeEditor({
       : null;
 
     return () => {
-      console.log(`[CodeEditor] Unmount effect running for ${filename}`);
       isActive = false;
       if (modelDisposable) modelDisposable.dispose();
       clearTimeout(saveDebounce);

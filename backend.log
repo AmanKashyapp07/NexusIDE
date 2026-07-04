@@ -22,10 +22,11 @@
 [13:30:45.780] 🔌 WS processMessage type=1 len=75
 [13:30:45.780] 🔌 WS raw message received, docRef=true len=4
 [13:30:45.781] 🔌 WS processMessage type=0 len=4
-[13:30:45.781] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc received sync message (length: 4)
-[13:30:45.782] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc sending sync response (length: 5)
-[13:30:45.782] 🔌 WS raw message received, docRef=true len=75
-[13:30:45.785] 🔌 WS processMessage type=1 len=75
+[13:30:45.781] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88:25:58 PM [tsx] change in ./src/server.ts Restarting...
+8:26:03 PM [tsx] Process didn't exit in 5s. Force killing...
+8:26:11 PM [tsx] change in ./src/server.ts Process hasn't exited. Killing process...
+8:43:43 PM [tsx] change in ./src/server.ts Process hasn't exited. Killing process...
+5
 [13:30:45.785] 🔌 WS raw message received, docRef=true len=5
 [13:30:45.786] 🔌 WS processMessage type=0 len=5
 [13:30:45.786] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc received sync message (length: 5)
@@ -225,27 +226,41 @@
 [13:30:46.096] 🔌 WS raw message received, docRef=true len=24
 [13:30:46.096] 🔌 WS processMessage type=0 len=24
 [13:30:46.096] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc received sync message (length: 24)
-[13:30:46.096] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc no sync response needed
-[13:30:46.096] 🔌 WS raw message received, docRef=true len=265
-[13:30:46.096] 🔌 WS processMessage type=1 len=265
-[13:30:46.097] 🔌 WS raw message received, docRef=true len=24
-[13:30:46.099] 🔌 WS processMessage type=0 len=24
-[13:30:46.099] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc received sync message (length: 24)
-[13:30:46.100] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc no sync response needed
-[13:30:46.100] 🔌 WS raw message received, docRef=true len=265
-[13:30:46.100] 🔌 WS processMessage type=1 len=265
-[13:30:46.103] 🔌 WS raw message received, docRef=true len=24
-[13:30:46.103] 🔌 WS processMessage type=0 len=24
-[13:30:46.104] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc received sync message (length: 24)
-[13:30:46.104] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc no sync response needed
-[13:30:46.104] 🔌 WS raw message received, docRef=true len=265
-[13:30:46.104] 🔌 WS processMessage type=1 len=265
-[13:30:46.113] 🔌 WS raw message received, docRef=true len=31
-[13:30:46.113] 🔌 WS processMessage type=0 len=31
-[13:30:46.113] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc received sync message (length: 31)
-[13:30:46.114] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc no sync response needed
-[13:30:46.114] 🔌 WS raw message received, docRef=true len=265
-[13:30:46.114] 🔌 WS processMessage type=1 len=265
+[13:30:46.096] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd8:25:58 PM [tsx] change in ./src/server.ts Rerunning...
+c◇ injected env (8) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+node:events:502
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+    at listenInCluster (node:net:1965:12)
+    at Server.listen (node:net:2067:7)
+    at jwt (/Users/amankashyap/Documents/sandbox/backend/src/server.ts:446:10)
+    at Object.<anonymous> (/Users/amankashyap/Documents/sandbox/backend/src/server.ts:465:56)
+    at Module._compile (node:internal/modules/cjs/loader:1521:14)
+    at Object.transformer (/Users/amankashyap/Documents/sandbox/backend/node_modules/tsx/dist/register-BOkp8V6j.cjs:9:3176)
+    at Module.load (node:internal/modules/cjs/loader:1266:32)
+    at Module._load (node:internal/modules/cjs/loader:1091:12)
+    at cjsLoader (node:internal/modules/esm/translators:298:15)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1944:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v20.20.0
+8:26:11 PM [tsx] change in ./src/server.ts Rerunning...
+c◇ injected env (8) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+[14:56:13.264] 🚀 BOOT Server listening on port 4000
+[14:56:13.290] 🚀 BOOT ✅ DB Connected
+8:43:43 PM [tsx] change in ./src/server.ts Restarting...
+8:43:48 PM [tsx] Process didn't exit in 5s. Force killing...
+�� WS processMessage type=1 len=265
 [13:30:46.117] 🔌 WS raw message received, docRef=true len=26
 [13:30:46.117] 🔌 WS processMessage type=0 len=26
 [13:30:46.117] 🔌 WS ed302a19-31b5-48c4-a36c-baef6e186800-12ce8fec-ee07-4e61-8bd9-71e88834e7cc received sync message (length: 26)
@@ -3109,3 +3124,7 @@
 [13:35:53.465] 🔌 WS processMessage type=1 len=14
 [13:35:53.474] 🔒 CLOSE Final save doc=2ff9e7a6-81a0-4a8c-a505-3a0607cfccc9-5e841762-27d4-4b74-95a3-b2465fbfd840 (38 chars)
 [13:35:53.477] 🔒 CLOSE Document memory reclaimed for doc=2ff9e7a6-81a0-4a8c-a505-3a0607cfccc9-5e841762-27d4-4b74-95a3-b2465fbfd840
+8:25:58 PM [tsx] change in ./src/server.ts Restarting...
+8:26:03 PM [tsx] Process didn't exit in 5s. Force killing...
+8:26:11 PM [tsx] change in ./src/server.ts Process hasn't exited. Killing process...
+8:43:43 PM [tsx] change in ./src/server.ts Process hasn't exited. Killing process...

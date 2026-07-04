@@ -227,26 +227,27 @@ wss.on('connection', async (ws, req) => {
     
     const workspaceId = match[1];
 
-    const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
-    if (!wsResult.rows.length) return ws.close(4044, 'Workspace not found');
-
-    let role = wsResult.rows[0].owner_id === decodedUser.id ? 'admin' : null;
-    if (!role) {
-      const collabRes = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, decodedUser.id]);
-      role = collabRes.rows.length ? collabRes.rows[0].role : (wsResult.rows[0].is_public ? 'viewer' : null);
-    }
-    if (!role) return ws.close(4403, 'Forbidden');
-
+    // -------------------------------------------------------------------------
+    // [CRITICAL] Attach the message listener + buffer BEFORE any async work.
+    //
+    // y-websocket clients send their SyncStep1 immediately on WS `open`. If the
+    // server only attaches `ws.on('message')` AFTER its auth/doc-load awaits,
+    // that SyncStep1 arrives during the gap and is dropped by the `ws` library
+    // (emitted to zero listeners). The server then never replies with SyncStep2,
+    // so the client's `synced` never flips true and its `sync` event never fires
+    // — leaving the editor unbound/empty. This manifests intermittently under
+    // rapid reconnection (rapid file switching). Buffering from the very start
+    // and replaying once the doc is ready guarantees no initial message is lost.
+    // -------------------------------------------------------------------------
+    let role: string | null = null;
     let docRef: WSSharedDoc | null = null;
-    let docNameRef: string = docName;
+    const docNameRef: string = docName;
     let messageBuffer: Buffer[] | null = [];
 
     const processMessage = (message: Buffer, targetDoc: WSSharedDoc) => {
       try {
         const decoder = decoding.createDecoder(new Uint8Array(message));
         const messageType = decoding.readVarUint(decoder);
-        
-        log('🔌 WS', `processMessage type=${messageType} len=${message.length}`);
 
         if (role === 'viewer' && messageType === 0) {
           const syncMessageType = decoding.readVarUint(decoder);
@@ -257,15 +258,11 @@ wss.on('connection', async (ws, req) => {
         const type = decoding.readVarUint(processDecoder);
 
         if (type === 0) {
-          log('🔌 WS', `${docNameRef} received sync message (length: ${message.length})`);
           const encoder = encoding.createEncoder();
           encoding.writeVarUint(encoder, 0);
           syncProtocol.readSyncMessage(processDecoder, encoder, targetDoc, ws);
           if (encoding.length(encoder) > 1) {
-            log('🔌 WS', `${docNameRef} sending sync response (length: ${encoding.length(encoder)})`);
             targetDoc.send(ws, encoding.toUint8Array(encoder));
-          } else {
-            log('🔌 WS', `${docNameRef} no sync response needed`);
           }
         } else if (type === 1) {
           awarenessProtocol.applyAwarenessUpdate(targetDoc.awareness, decoding.readVarUint8Array(processDecoder), ws);
@@ -276,7 +273,6 @@ wss.on('connection', async (ws, req) => {
     };
 
     ws.on('message', (message: Buffer) => {
-      log('🔌 WS', `raw message received, docRef=${!!docRef} len=${message.length}`);
       if (!docRef) {
         messageBuffer?.push(message);
       } else {
@@ -305,6 +301,18 @@ wss.on('connection', async (ws, req) => {
         }
       }
     });
+
+    // Authorization (awaits). Any client messages arriving during these queries
+    // are safely captured by the buffering listener attached above.
+    const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
+    if (!wsResult.rows.length) return ws.close(4044, 'Workspace not found');
+
+    role = wsResult.rows[0].owner_id === decodedUser.id ? 'admin' : null;
+    if (!role) {
+      const collabRes = await getPool().query('SELECT role FROM workspace_collaborators WHERE workspace_id = $1 AND user_id = $2', [workspaceId, decodedUser.id]);
+      role = collabRes.rows.length ? collabRes.rows[0].role : (wsResult.rows[0].is_public ? 'viewer' : null);
+    }
+    if (!role) return ws.close(4403, 'Forbidden');
 
     // Track pending connection to prevent cleanups from destroying this doc during load/await
     pendingConns.set(docName, (pendingConns.get(docName) || 0) + 1);
