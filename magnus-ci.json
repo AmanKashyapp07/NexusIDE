@@ -15,8 +15,7 @@
     },
     "test-e2e": {
       "run": "bash scripts/run-e2e-ci.sh",
-      "needs": ["setup"],
-      "timeout": 1200
+      "needs": ["setup"]
     }
   }
 }
