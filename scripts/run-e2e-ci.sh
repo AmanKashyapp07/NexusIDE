@@ -28,7 +28,7 @@ export LOG_LEVEL="silent"
 export GEMINI_API_KEY="placeholder"
 export NVIDIA_API_KEY="placeholder"
 export MISTRAL_API_KEY="placeholder"
-export NODE_ENV="e2e"
+export NODE_ENV="test"
 export CI="true"
 
 npm --prefix backend run dev > backend.log 2>&1 &
@@ -37,7 +37,7 @@ npm --prefix frontend run dev > frontend.log 2>&1 &
 echo "=== 7. Waiting for Backend Server ==="
 backend_up=false
 for i in {1..30}; do
-  if nc -z localhost 4000; then
+  if nc -z localhost 3000; then
     echo "Backend is up!"
     backend_up=true
     break
