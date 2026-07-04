@@ -16,8 +16,7 @@ PGPASSWORD=password psql -h localhost -U user -d sandbox -f database/schema.sql
 echo "=== 4. Installing Playwright Chromium & System Dependencies ==="
 npx playwright install --with-deps chromium
 
-echo "=== 5. Building Sandboxed Developer Environment Container ==="
-docker build -t sandbox-dev-env:latest backend/
+# The backend automatically builds the sandbox-dev-env:latest terminal image dynamically on startup if it is missing.
 
 echo "=== 6. Launching Backend & Frontend Dev Servers ==="
 export DATABASE_URL="postgresql://user:password@localhost:5432/sandbox"
