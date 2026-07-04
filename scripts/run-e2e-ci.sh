@@ -3,10 +3,7 @@
 set -e
 
 echo "=== 1. Installing System Dependencies (Postgres, Netcat, Docker CLI) ==="
-apt-get update && apt-get install -y postgresql postgresql-client netcat-openbsd curl
-curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.0.3.tgz | tar zx
-mv docker/docker /usr/local/bin/
-rm -rf docker
+apt-get update && apt-get install -y postgresql postgresql-client netcat-openbsd docker.io
 
 echo "=== 2. Starting PostgreSQL Service ==="
 service postgresql start
@@ -17,9 +14,10 @@ su - postgres -c "createdb -O user sandbox"
 PGPASSWORD=password psql -h localhost -U user -d sandbox -f database/schema.sql
 
 echo "=== 4. Installing Playwright Chromium & System Dependencies ==="
-npm --prefix frontend exec -- playwright install --with-deps chromium
+npx playwright install --with-deps chromium
 
-# The backend automatically builds the sandbox-dev-env:latest terminal image dynamically on startup if it is missing.
+echo "=== 5. Building Sandboxed Developer Environment Container ==="
+docker build -t sandbox-dev-env:latest backend/
 
 echo "=== 6. Launching Backend & Frontend Dev Servers ==="
 export DATABASE_URL="postgresql://user:password@localhost:5432/sandbox"
