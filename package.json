@@ -1,0 +1,10 @@
+{
+  "name": "sandbox-root",
+  "private": true,
+  "scripts": {
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend test",
+    "test:e2e": "npm --prefix frontend run test:e2e",
+    "test:all": "npm run test:backend && npm run test:frontend && npm run test:e2e"
+  }
+}
