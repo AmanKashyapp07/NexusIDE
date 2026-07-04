@@ -2,11 +2,27 @@
 # E2E test orchestration script for container-based CI engines (like MagnusCI)
 set -e
 
+# Trap exit to dump logs on failure
+dump_logs() {
+  local exit_code=$?
+  if [ $exit_code -ne 0 ]; then
+    echo "=== ERROR DETECTED: Dumping Backend Logs ==="
+    cat backend.log 2>/dev/null || true
+    echo "=== ERROR DETECTED: Dumping Frontend Logs ==="
+    cat frontend.log 2>/dev/null || true
+  fi
+  exit $exit_code
+}
+trap dump_logs EXIT
+
 echo "=== 1. Installing System Dependencies (Postgres, Netcat, Docker CLI) ==="
 apt-get update && apt-get install -y postgresql postgresql-client netcat-openbsd curl
 curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.0.3.tgz | tar zx
 mv docker/docker /usr/local/bin/
 rm -rf docker
+
+echo "=== 1b. Verifying Docker Daemon Connection ==="
+docker info || { echo "ERROR: Cannot connect to Docker daemon. Check socket permissions."; exit 1; }
 
 echo "=== 2. Starting PostgreSQL Service ==="
 service postgresql start
