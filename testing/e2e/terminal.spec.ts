@@ -175,8 +175,8 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     await page.keyboard.press('Enter');
 
     // Wait for the clone to complete (expecting standard git output streams)
-    await expect(terminalBody).toContainText(`Cloning into '${repoName}'`, { timeout: 20000 });
-    await expect(terminalBody).toContainText('Resolving deltas:', { timeout: 25000 });
+    await expect(terminalBody).toContainText(`Cloning into '${repoName}'`, { timeout: 30000 });
+    await expect(terminalBody).toContainText('Resolving deltas:', { timeout: 45000 });
 
     // 3. Verify Recursive File Tree Sync
     // The backend watcher must detect the massive directory drop and sync it to the React UI

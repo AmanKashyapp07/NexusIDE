@@ -130,6 +130,7 @@ export async function releaseWorkspaceContainer(userId: string, workspaceId: str
     if (ref.cleanupTimeout) {
       clearTimeout(ref.cleanupTimeout);
     }
+    const gracePeriod = process.env.NODE_ENV === 'test' || process.env.CI ? 5000 : 300000;
     ref.cleanupTimeout = setTimeout(async () => {
       const currentRef = activeWorkspaceContainers.get(key);
       if (currentRef && currentRef.refCount <= 0) {
@@ -137,7 +138,7 @@ export async function releaseWorkspaceContainer(userId: string, workspaceId: str
         await currentRef.container.remove({ force: true }).catch(() => {});
         warmPoolManager.releaseTerminalContainer(); // Notify the pool manager to scale down if needed
       }
-    }, 300000); // 5 minutes grace period
+    }, gracePeriod);
   }
 }
 
