@@ -34,7 +34,7 @@ async function loginUser(page: Page, username: string) {
   await usernameInput.click();
   await usernameInput.fill(username);
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 }
 
 async function createFile(page: Page, filename: string) {

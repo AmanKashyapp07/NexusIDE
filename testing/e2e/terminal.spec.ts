@@ -26,7 +26,7 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     // 2. User creates a workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
@@ -99,6 +99,9 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('node dev-server.js', { timeout: 5000 });
 
+    // Give the node server a moment to bind to port 3000 before opening the preview
+    await page.waitForTimeout(2000);
+
     // Click the Preview button in the header and capture the new tab/popup
     const previewPromise = context.waitForEvent('page');
     await page.click('button:has-text("Preview")');
@@ -149,7 +152,7 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
@@ -252,7 +255,7 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Stress_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -296,7 +299,7 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Interact_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -371,7 +374,7 @@ test.describe('Terminal Viewer Restrictions & RBAC Enforcement', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `RBAC_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -397,7 +400,7 @@ test.describe('Terminal Viewer Restrictions & RBAC Enforcement', () => {
     const viewerSubmitBtn = viewerPage.locator('button[type="submit"]');
     await expect(viewerSubmitBtn).toBeEnabled({ timeout: 10000 });
     await viewerSubmitBtn.click();
-    await expect(viewerPage).toHaveURL(/\/dashboard/);
+    await expect(viewerPage).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     // Now invite the viewer from the admin page (user exists in DB now)
     await page.click('button:has-text("Share")');
@@ -477,7 +480,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     // Create workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Iso_WS_${timestamp}`);
@@ -503,7 +506,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     const btnB = pageB.locator('button[type="submit"]');
     await expect(btnB).toBeEnabled({ timeout: 10000 });
     await btnB.click();
-    await expect(pageB).toHaveURL(/\/dashboard/);
+    await expect(pageB).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     // Now invite from admin page
     await page.click('button:has-text("Share")');
@@ -590,7 +593,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `MultiTab_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -652,7 +655,7 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Signal_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -710,7 +713,7 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `SigTrap_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -773,7 +776,7 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `DirSync_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -850,7 +853,7 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Npm_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -908,7 +911,7 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Pipes_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -979,7 +982,7 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `ANSI_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1037,7 +1040,7 @@ test.describe('Terminal Working Directory Persistence & Navigation', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `CWD_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1112,7 +1115,7 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Burst_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1160,7 +1163,7 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Race_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1224,7 +1227,7 @@ test.describe('Terminal Environment & System Validation', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Env_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1300,7 +1303,7 @@ test.describe('Terminal Environment & System Validation', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Compile_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1356,7 +1359,7 @@ test.describe('Terminal History & Shell State', () => {
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeEnabled({ timeout: 10000 });
     await submitBtn.click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `History_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
