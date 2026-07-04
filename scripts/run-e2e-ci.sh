@@ -33,22 +33,38 @@ npm --prefix backend run dev > backend.log 2>&1 &
 npm --prefix frontend run dev > frontend.log 2>&1 &
 
 echo "=== 7. Waiting for Backend Server ==="
+backend_up=false
 for i in {1..30}; do
   if nc -z localhost 3000; then
     echo "Backend is up!"
+    backend_up=true
     break
   fi
   sleep 1
 done
 
+if [ "$backend_up" = false ]; then
+  echo "ERROR: Backend server failed to start! Printing backend.log:"
+  cat backend.log
+  exit 1
+fi
+
 echo "=== 8. Waiting for Frontend Server ==="
+frontend_up=false
 for i in {1..30}; do
   if nc -z localhost 5173; then
     echo "Frontend is up!"
+    frontend_up=true
     break
   fi
   sleep 1
 done
+
+if [ "$frontend_up" = false ]; then
+  echo "ERROR: Frontend server failed to start! Printing frontend.log:"
+  cat frontend.log
+  exit 1
+fi
 
 echo "=== 9. Running E2E Integration Tests ==="
 npm run test:e2e
