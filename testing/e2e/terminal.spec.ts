@@ -192,13 +192,50 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     await repoFolder.click();
     await page.waitForTimeout(1000);
 
-    // Click README.md to load into Monaco
-    const readmeFile = page.locator('.ide-scrollbar').getByText('README.md', { exact: true }).first();
-    if (await readmeFile.isVisible()) {
-      await readmeFile.click();
-      await page.waitForSelector('.monaco-editor', { timeout: 15000 });
-      await expect(page.locator('.monaco-editor')).not.toBeEmpty();
-    }
+    // Click aman.js to load into Monaco
+    const amanFile = page.locator('.ide-scrollbar').getByText('aman.js', { exact: true }).first();
+    await expect(amanFile).toBeVisible({ timeout: 15000 });
+    await amanFile.click();
+    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await expect(page.locator('.monaco-editor')).not.toBeEmpty();
+
+    // 5. Setup Git Configuration
+    // Must be set before any commit operations can succeed
+    await terminalTextarea.focus();
+    await page.keyboard.type('git config --global user.email "admin@example.com" && git config --global user.name "Admin User" && git config --global core.pager cat', { delay: 10 });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1000);
+
+    // 6. Test Git Branching
+    await page.keyboard.type('git checkout -b feature/collaborative-edit', { delay: 10 });
+    await page.keyboard.press('Enter');
+    await expect(terminalBody).toContainText("Switched to a new branch 'feature/collaborative-edit'", { timeout: 10000 });
+
+    // 7. Make a code change (edit aman.js)
+    await page.keyboard.type('echo "console.log(\'edited from collaborative IDE\');" >> aman.js', { delay: 10 });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1000);
+
+    // 8. Test Git Status
+    await page.keyboard.type('git status', { delay: 10 });
+    await page.keyboard.press('Enter');
+    await expect(terminalBody).toContainText('modified:   aman.js', { timeout: 10000 });
+
+    // 9. Test Git Add & Commit
+    await page.keyboard.type('git add aman.js && git commit -m "test: commit change from collaborative IDE"', { delay: 10 });
+    await page.keyboard.press('Enter');
+    // Git commit prints "1 file changed" or similar summary line
+    await expect(terminalBody).toContainText('1 file changed', { timeout: 15000 });
+
+    // 10. Verify Git Log history update
+    await page.keyboard.type('git log -n 1', { delay: 10 });
+    await page.keyboard.press('Enter');
+    await expect(terminalBody).toContainText('test: commit change from collaborative IDE', { timeout: 10000 });
+
+    // 11. Test switching branch back
+    await page.keyboard.type('git checkout main', { delay: 10 });
+    await page.keyboard.press('Enter');
+    await expect(terminalBody).toContainText("Switched to branch 'main'", { timeout: 10000 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════════

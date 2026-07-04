@@ -1,3 +1,4 @@
+import './disable-logs.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -13,7 +14,6 @@ function log(prefix: string, ...args: any[]) {
   _origLog(`[${ts}] ${prefix}`, ...args);
 }
 
-console.log = () => {}; console.error = () => {}; console.warn = () => {}; console.info = () => {};
 
 import express from 'express';
 import http from 'http';

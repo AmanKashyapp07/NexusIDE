@@ -1,0 +1,135 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sandbox
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js v20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Root and Subproject Dependencies
+        run: |
+          npm install
+          npm --prefix backend install
+          npm --prefix frontend install
+
+      - name: Install PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Initialize Database Schema
+        env:
+          PGPASSWORD: password
+        run: |
+          psql -h localhost -U user -d sandbox -f database/schema.sql
+
+      - name: Build Terminal Environment Image
+        run: |
+          docker build -t sandbox-dev-env:latest - <<'EOF'
+          FROM alpine:3.20
+          RUN apk add --no-cache nodejs npm python3 py3-pip g++ gcc make libc-dev git curl bash tree jq zip unzip sqlite py3-numpy py3-pandas py3-requests py3-scipy py3-scikit-learn py3-matplotlib py3-beautifulsoup4
+          RUN npm install -g typescript typescript-language-server pyright lodash axios express moment uuid chalk tailwindcss @tailwindcss/cli ts-node nodemon dotenv cors
+          RUN ARCH=$(uname -m) && \
+              if [ "$ARCH" = "x86_64" ]; then npm install -g @tailwindcss/oxide-linux-x64-musl; \
+              elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then npm install -g @tailwindcss/oxide-linux-arm64-musl; fi
+          ENV NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules
+          RUN mkdir -p /viewer_bin && ln -s /bin/busybox /viewer_bin/ls && ln -s /bin/busybox /viewer_bin/cat && ln -s /bin/busybox /viewer_bin/echo && ln -s /bin/busybox /viewer_bin/pwd && ln -s /bin/busybox /viewer_bin/clear && ln -s /bin/busybox /viewer_bin/grep
+          WORKDIR /app
+          EOF
+
+      - name: Install Playwright Browsers and System Dependencies
+        run: |
+          npx playwright install --with-deps chromium
+
+      - name: Run Backend Unit Tests
+        env:
+          DATABASE_URL: "postgresql://user:password@localhost:5432/sandbox"
+          JWT_SECRET: "ci_jwt_secret"
+          LOG_LEVEL: "silent"
+        run: |
+          npm run test:backend
+
+      - name: Run Frontend Unit Tests
+        run: |
+          npm run test:frontend
+
+      - name: Start Development Servers
+        env:
+          DATABASE_URL: "postgresql://user:password@localhost:5432/sandbox"
+          JWT_SECRET: "ci_jwt_secret"
+          LOG_LEVEL: "silent"
+          GEMINI_API_KEY: "placeholder"
+          NVIDIA_API_KEY: "placeholder"
+          MISTRAL_API_KEY: "placeholder"
+        run: |
+          # Start Backend in the background
+          npm --prefix backend run dev &
+          
+          # Start Frontend in the background
+          npm --prefix frontend run dev &
+
+      - name: Wait for Servers to be Ready
+        run: |
+          echo "Waiting for Backend Server (port 3000)..."
+          for i in {1..30}; do
+            if nc -z localhost 3000; then
+              echo "Backend is up!"
+              break
+            fi
+            sleep 1
+          done
+
+          echo "Waiting for Frontend Server (port 5173)..."
+          for i in {1..30}; do
+            if nc -z localhost 5173; then
+              echo "Frontend is up!"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run E2E Integration Tests
+        env:
+          DATABASE_URL: "postgresql://user:password@localhost:5432/sandbox"
+          JWT_SECRET: "ci_jwt_secret"
+          LOG_LEVEL: "silent"
+        run: |
+          npm run test:e2e
+
+      - name: Upload Playwright Test Report Artifacts on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
