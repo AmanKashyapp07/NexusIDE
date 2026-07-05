@@ -1312,4 +1312,256 @@ test.describe('Terminal History & Shell State', () => {
     // Both outputs should be visible — just verify the original worked
     await expect(terminalBody).toContainText('LAST_COMMAND_TEST', { timeout: 5000 });
   });
+
+  test('runs standard Node React Express server replica and serves live preview', async ({ page, context }) => {
+    const timestamp = Date.now();
+    const username = `FullProj_${timestamp}`;
+    const workspaceTitle = `FullProj_WS_${timestamp}`;
+
+    // 1. User logs in
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(username);
+    
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled({ timeout: 10000 });
+    await submitBtn.click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    // 2. User creates a workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
+    await page.click('button:has-text("Create Now")');
+
+    // Wait for redirect to IDE and bootstrap
+    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    const ideUrl = page.url();
+    const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+    await page.waitForSelector('text=Select a file from the explorer to begin.');
+
+    // Locate terminal components
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    const terminalBody = page.locator('.xterm');
+
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    // 3. Write a mock React/Express server script listening on port 3000
+    const serverScript = `
+const http = require('http');
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.end('<h1>Express Backend Active</h1><p>React Mock Frontend Mounted</p>');
+});
+server.listen(3000, () => {
+  console.log('Server listening on port 3000');
+});
+`;
+
+    // Create app.js file via terminal
+    await terminalTextarea.focus();
+    await page.keyboard.type(`cat << 'EOF' > app.js\n${serverScript}\nEOF\n`, { delay: 10 });
+    await page.waitForTimeout(1500);
+
+    // 4. Start the server in the background
+    await page.keyboard.type('node app.js &\n', { delay: 10 });
+    await expect(terminalBody).toContainText('Server listening on port 3000', { timeout: 10000 });
+
+    // 5. Query and open the live preview
+    const token = await page.evaluate(() => localStorage.getItem('token') || '');
+    
+    // Open a new tab in the same context to fetch the preview URL
+    const previewPage = await context.newPage();
+    await previewPage.goto(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${token}`);
+    
+    // Assert target contents are served via proxy
+    await expect(previewPage.locator('h1')).toHaveText('Express Backend Active', { timeout: 15000 });
+    await expect(previewPage.locator('p')).toContainText('React Mock Frontend Mounted', { timeout: 15000 });
+    
+    await previewPage.close();
+  });
+
+  test('runs split frontend and backend servers simultaneously and serves proxied live preview', async ({ page, context }) => {
+    const timestamp = Date.now();
+    const username = `SplitProj_${timestamp}`;
+    const workspaceTitle = `SplitProj_WS_${timestamp}`;
+
+    // 1. User logs in
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(username);
+    
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled({ timeout: 10000 });
+    await submitBtn.click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    // 2. User creates a workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
+    await page.click('button:has-text("Create Now")');
+
+    // Wait for redirect to IDE and bootstrap
+    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    const ideUrl = page.url();
+    const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+    await page.waitForSelector('text=Select a file from the explorer to begin.');
+
+    // Locate terminal components
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    const terminalBody = page.locator('.xterm');
+
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    // 3. Create backend and frontend directories and scripts
+    const backendScript = `
+const http = require('http');
+const server = http.createServer((req, res) => {
+  if (req.url === '/api/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', source: 'backend-api' }));
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+server.listen(5000, () => {
+  console.log('Backend listening on port 5000');
+});
+`;
+
+    const frontendScript = `
+const http = require('http');
+const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/api')) {
+    const proxyReq = http.request({
+      host: 'localhost',
+      port: 5000,
+      path: req.url,
+      method: req.method,
+      headers: req.headers
+    }, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    });
+    req.pipe(proxyReq);
+  } else {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!DOCTYPE html><html><body><h1>React Frontend</h1><div id=\\"status\\">Connecting to API...</div><script>fetch(\\"/api/status\\").then(r => r.json()).then(data => { document.getElementById(\\"status\\").innerText = \\"Connected to: \\" + data.source; }).catch(err => { document.getElementById(\\"status\\").innerText = \\"Error: \\" + err.message; });</script></body></html>');
+  }
+});
+server.listen(3000, () => {
+  console.log('Frontend dev server listening on port 3000');
+});
+`;
+
+    await terminalTextarea.focus();
+    await page.keyboard.type('mkdir -p backend frontend\n', { delay: 10 });
+    await page.waitForTimeout(500);
+
+    // Write scripts
+    await page.keyboard.type(`cat << 'EOF' > backend/server.js\n${backendScript}\nEOF\n`, { delay: 10 });
+    await page.waitForTimeout(1000);
+    await page.keyboard.type(`cat << 'EOF' > frontend/dev-server.js\n${frontendScript}\nEOF\n`, { delay: 10 });
+    await page.waitForTimeout(1000);
+
+    // 4. Run both backend and frontend servers in background
+    await page.keyboard.type('node backend/server.js &\n', { delay: 10 });
+    await expect(terminalBody).toContainText('Backend listening on port 5000', { timeout: 10000 });
+
+    await page.keyboard.type('node frontend/dev-server.js &\n', { delay: 10 });
+    await expect(terminalBody).toContainText('Frontend dev server listening on port 3000', { timeout: 10000 });
+
+    // 5. Query and open live preview from backend port 4000
+    const token = await page.evaluate(() => localStorage.getItem('token') || '');
+    const previewPage = await context.newPage();
+    await previewPage.goto(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${token}`);
+
+    // Verify HTML content from frontend dev server
+    await expect(previewPage.locator('h1')).toHaveText('React Frontend', { timeout: 15000 });
+    // Verify client-side JS successfully fetched backend status through proxy
+    await expect(previewPage.locator('#status')).toHaveText('Connected to: backend-api', { timeout: 15000 });
+
+    await previewPage.close();
+  });
+
+  test('admin clones repo, commits, leaves, returns and makes new changes with correct git status', async ({ page }) => {
+    const timestamp = Date.now();
+    const username = `GitFlow_${timestamp}`;
+    const workspaceTitle = `GitFlow_WS_${timestamp}`;
+
+    // 1. User logs in
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(username);
+    
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled({ timeout: 10000 });
+    await submitBtn.click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    // 2. User creates a workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
+    await page.click('button:has-text("Create Now")');
+
+    // Wait for redirect to IDE and bootstrap
+    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    const ideUrl = page.url();
+    const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+    await page.waitForSelector('text=Select a file from the explorer to begin.');
+
+    // Locate terminal components
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    const terminalBody = page.locator('.xterm');
+
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    // Set up git user configurations to prevent git commit prompt errors
+    await terminalTextarea.focus();
+    await page.keyboard.type('git config --global user.email "test@example.com" && git config --global user.name "Tester"\n', { delay: 10 });
+    await page.waitForTimeout(500);
+
+    // 3. Clone the repo
+    await page.keyboard.type('git clone https://github.com/AmanKashyapp07/github-test-ci.git\n', { delay: 10 });
+    await page.waitForTimeout(8000); // Allow sufficient time for the git clone download to finish
+    await page.keyboard.type('ls -la\n', { delay: 10 });
+    await expect(terminalBody).toContainText('github-test-ci', { timeout: 10000 });
+
+    // 4. Navigate, make first edit and commit
+    await page.keyboard.type('cd github-test-ci && echo "first_edit" >> README.md && git add README.md && git commit -m "first commit"\n', { delay: 10 });
+    await page.waitForTimeout(1500);
+
+    // Verify git status shows clean tree
+    await page.keyboard.type('git status\n', { delay: 10 });
+    await expect(terminalBody).toContainText('nothing to commit, working tree clean', { timeout: 5000 });
+
+    // 5. Leave the workspace (navigate to dashboard)
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    // 6. Come back to the workspace IDE
+    await page.goto(ideUrl);
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+
+    // Locate new terminal instances
+    const terminalTextarea2 = page.locator('.xterm-helper-textarea');
+    const terminalBody2 = page.locator('.xterm');
+    await expect(terminalBody2).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    // 7. Navigate back to the repo, make second edit, and run git status
+    await terminalTextarea2.focus();
+    await page.keyboard.type('cd github-test-ci && echo "second_edit" >> README.md && git status\n', { delay: 10 });
+    await expect(terminalBody2).toContainText('modified:   README.md', { timeout: 10000 });
+  });
+
 });
