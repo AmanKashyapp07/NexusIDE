@@ -36,6 +36,7 @@ import { warmPoolManager } from './sandbox/pool';
 import { handleTerminalConnection, syncFileToTerminal } from './terminal/terminalHandler';
 import { handleLspConnection } from './terminal/lspHandler';
 import { cleanupAllWorkspaceContainers, releaseWorkspaceContainer } from './sandbox/workspaceContainer';
+import { getDocsMap } from './docsRegistry.js';
 
 const app = express();
 app.use(cors());
@@ -158,7 +159,7 @@ class WSSharedDoc extends Y.Doc {
 }
 
 // Centralized registry: Map of document names to Promises
-const docs = new Map<string, Promise<WSSharedDoc>>();
+const docs = getDocsMap();
 const pendingConns = new Map<string, number>();
 
 async function getOrCreateDoc(docName: string): Promise<WSSharedDoc> {
