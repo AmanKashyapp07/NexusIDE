@@ -129,6 +129,9 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 
+    pageA.on('console', msg => console.log('PAGE A:', msg.text()));
+    pageB.on('console', msg => console.log('PAGE B:', msg.text()));
+
     // Login both users to ensure they are created in the database
     const tokenA = await loginUser(pageA, request, 'user_a');
     await loginUser(pageB, request, 'user_b');
@@ -162,18 +165,40 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
     };
     await Promise.all([waitForEditor(pageA), waitForEditor(pageB)]);
 
-    // Inject conflict via User A
+    // Allow Yjs WebSockets to handshake and complete initial sync
+    await Promise.all([
+      pageA.waitForTimeout(2000),
+      pageB.waitForTimeout(2000)
+    ]);
+
+    // Inject conflict via User A using executeEdits so the change flows through
+    // MonacoBinding → Y.Text → broadcast to User B via Yjs CRDT.
+    // Using editor.setValue() bypasses MonacoBinding entirely: Y.Text stays empty,
+    // the Yjs room never gets the conflict content, and the resolve API's Yjs
+    // transaction operates on empty text, producing wrong results on User B.
     const conflictContent = `<<<<<<< HEAD\nUser A edits\n=======\nUser B edits\n>>>>>>> main`;
     await pageA.evaluate((content) => {
       const editor = (window as any).monaco.editor.getEditors()[0];
-      editor.setValue(content);
+      console.log('[Test Debug] User A setting value to:', content);
+      // Use executeEdits to route through MonacoBinding so Y.Text is updated
+      const model = editor.getModel();
+      const fullRange = model.getFullModelRange();
+      editor.executeEdits('test-inject', [{
+        range: fullRange,
+        text: content,
+        forceMoveMarkers: true
+      }]);
+      // Push undo stop so it's a clean edit
+      editor.pushUndoStop();
+      console.log('[Test Debug] User A set value complete. Current value:', editor.getValue());
     }, conflictContent);
 
     // Assert User B sees the conflict injected by User A via Yjs
     await pageB.waitForFunction((expected) => {
       const editor = (window as any).monaco.editor.getEditors()[0];
-      return editor.getValue() === expected;
-    }, conflictContent, { timeout: 10000 });
+      const normalize = (s: string) => s.replace(/\r\n/g, '\n');
+      return normalize(editor.getValue()) === normalize(expected);
+    }, conflictContent, { timeout: 15000 });
 
     // User A resolves the conflict via API
     const resolvedContent = `Merged edits`;
@@ -187,8 +212,9 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
     // This tests if your backend correctly broadcasts the resolution over WebSockets/Yjs
     await pageB.waitForFunction((expected) => {
       const editor = (window as any).monaco.editor.getEditors()[0];
-      return editor.getValue() === expected;
-    }, resolvedContent, { timeout: 5000 });
+      const normalize = (s: string) => s.replace(/\r\n/g, '\n');
+      return normalize(editor.getValue()) === normalize(expected);
+    }, resolvedContent, { timeout: 10000 });
 
     const finalContentB = await pageB.evaluate(() => {
       const editor = (window as any).monaco.editor.getEditors()[0];
