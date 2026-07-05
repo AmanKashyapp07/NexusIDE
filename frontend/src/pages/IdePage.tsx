@@ -54,6 +54,9 @@ function IdePage() {
   const [terminalKey, setTerminalKey] = useState(0);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Jump-to-member: userId of the collaborator whose cursor we want to jump to.
+  // Set when the user clicks an avatar; cleared by CodeEditor via onJumpComplete.
+  const [jumpToUserId, setJumpToUserId] = useState<string | null>(null);
   const { addToast } = useToast();
 
   const handleConnectionStatusChange = useCallback((status: ConnectionStatus) => {
@@ -339,9 +342,19 @@ function IdePage() {
                   {activeCollaborators.slice(0, 3).map((c, i) => (
                     <div
                       key={c.userId}
-                      className="relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#030303] text-[10px] font-bold text-white shadow-sm transition-transform group-hover:-translate-y-0.5"
+                      className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-2 border-[#030303] text-[10px] font-bold text-white shadow-sm transition-transform group-hover:-translate-y-0.5 hover:scale-110 hover:z-20"
                       style={{ backgroundColor: c.color || '#6366f1', zIndex: 10 - i }}
-                      title={c.username}
+                      title={`Jump to ${c.username}'s cursor`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (c.activeFileId) {
+                          if (c.activeFileId !== activeFileId) {
+                            navigate(`/ide/${urlWorkspaceId}/${c.activeFileId}`);
+                          }
+                          setJumpToUserId(c.userId);
+                          setIsActiveMembersOpen(false);
+                        }
+                      }}
                     >
                       {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
                       <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-[#030303] bg-emerald-500" />
@@ -368,8 +381,11 @@ function IdePage() {
                       <button
                         key={c.userId}
                         onClick={() => {
-                          if (c.activeFileId && c.activeFileId !== activeFileId) {
-                            navigate(`/ide/${workspaceId}/${c.activeFileId}`);
+                          if (c.activeFileId) {
+                            if (c.activeFileId !== activeFileId) {
+                              navigate(`/ide/${workspaceId}/${c.activeFileId}`);
+                            }
+                            setJumpToUserId(c.userId);
                             setIsActiveMembersOpen(false);
                           }
                         }}
@@ -526,6 +542,8 @@ function IdePage() {
                   onEditorReady={(editor) => { editorRef.current = editor; }}
                   onConnectionStatusChange={handleConnectionStatusChange}
                   onCodeChange={handleTypingActivity}
+                  jumpToUserId={jumpToUserId}
+                  onJumpComplete={() => setJumpToUserId(null)}
                 />
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-4 text-zinc-500">
