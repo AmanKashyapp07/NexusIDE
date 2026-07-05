@@ -173,7 +173,7 @@ test.describe('Collaborative Engine Part 1 (Tests 1-8)', () => {
     await bobPage.locator('.ide-scrollbar').getByText('presence.js').click();
     await waitForEditorModel(bobPage, 'presence.js');
 
-    const bobAvatar = alicePage.locator(`header [title="Bob_Pres_${timestamp}"]`);
+    const bobAvatar = alicePage.locator(`header [title*="Bob_Pres_${timestamp}"]`);
     await expect(bobAvatar).toBeVisible({ timeout: 10000 });
 
     await focusEditor(bobPage);

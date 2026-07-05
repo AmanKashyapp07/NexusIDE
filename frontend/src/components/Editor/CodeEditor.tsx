@@ -14,8 +14,8 @@ type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
 type MonacoInstance = typeof Monaco;
 type MonacoCodeEditor = Monaco.editor.IStandaloneCodeEditor;
 
-interface AwarenessUser { name: string; color: string; }
-interface AwarenessState { user?: AwarenessUser; }
+interface AwarenessUser { name: string; color: string; id?: string; }
+interface AwarenessState { user?: AwarenessUser; selection?: { anchor: unknown; head: unknown }; }
 
 interface CodeEditorProps {
   workspaceId: string;
@@ -28,6 +28,10 @@ interface CodeEditorProps {
   onAwarenessChange?: (users: AwarenessUser[]) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
   readOnly?: boolean;
+  // Jump-to-member: set to a userId to scroll the editor to that user's cursor.
+  // IdePage clears it via onJumpComplete once the jump is executed.
+  jumpToUserId?: string | null;
+  onJumpComplete?: () => void;
 }
 
 const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'];
@@ -72,11 +76,18 @@ export default function CodeEditor({
   onAwarenessChange,
   onConnectionStatusChange,
   readOnly = false,
+  jumpToUserId = null,
+  onJumpComplete,
 }: CodeEditorProps) {
   const [editor, setEditor] = useState<MonacoCodeEditor | null>(null);
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
+
+  // Ref to the live WebsocketProvider — needed by the jump effect which runs
+  // outside the collaboration useEffect closure.
+  const wsProviderRef = useRef<WebsocketProvider | null>(null);
+  const ydocRef = useRef<Y.Doc | null>(null);
 
   // Synchronously reset sync and awareness status during render if the active file has swapped.
   // This ensures the "Syncing with server..." overlay is instantly visible in the DOM
@@ -108,6 +119,11 @@ export default function CodeEditor({
     
     const ydoc = new Y.Doc();
     const wsProvider = new WebsocketProvider(wsUrl(''), roomName, ydoc, { params: { token } });
+
+    // Expose provider + doc via refs so the jump effect can read awareness state
+    // without being part of this effect's dependency array.
+    wsProviderRef.current = wsProvider;
+    ydocRef.current = ydoc;
 
     const tryBind = () => {
       if (!isActive) return;
@@ -160,6 +176,7 @@ export default function CodeEditor({
         wsProvider.awareness.setLocalStateField('user', {
           name: currentUser.username,
           color: getUserColor(currentUser.username),
+          id: currentUser.id,
         });
       }
     };
@@ -204,6 +221,8 @@ export default function CodeEditor({
 
     return () => {
       isActive = false;
+      wsProviderRef.current = null;
+      ydocRef.current = null;
       if (modelDisposable) modelDisposable.dispose();
       clearTimeout(saveDebounce);
       
@@ -218,6 +237,51 @@ export default function CodeEditor({
       ydoc.destroy();
     };
   }, [editor, workspaceId, fileId, filename, currentUser.username]);
+
+  // ===========================================================================
+  // [FEATURE] Jump-to-member cursor
+  // When jumpToUserId is set by IdePage (user clicked a member's avatar),
+  // find that member in the Yjs awareness state, decode their cursor relative
+  // position back to an absolute Monaco position, and scroll + move the caret.
+  // Read-only — never writes to awareness state, so it cannot race with cursor
+  // rendering or trigger spurious awareness change events.
+  // ===========================================================================
+  useEffect(() => {
+    if (!jumpToUserId || !editor || !wsProviderRef.current || !ydocRef.current) return;
+
+    const provider = wsProviderRef.current;
+    const ydoc = ydocRef.current;
+    const model = editor.getModel();
+    if (!model) return;
+
+    const ytext = ydoc.getText('monaco');
+    const states = provider.awareness.getStates();
+
+    for (const [, state] of states) {
+      const s = state as AwarenessState & { user?: AwarenessUser & { id?: string } };
+      // Match by userId stored in awareness (set as `id` in handleStatus above).
+      if (!s.user?.id || s.user.id !== jumpToUserId) continue;
+      if (!s.selection) continue;
+
+      // Decode the relative cursor position back to an absolute character offset.
+      const headAbs = Y.createAbsolutePositionFromRelativePosition(
+        s.selection.head as Y.RelativePosition,
+        ydoc
+      );
+      if (headAbs === null || headAbs.type !== ytext) continue;
+
+      const position = model.getPositionAt(headAbs.index);
+      // Smooth scroll to the target line, centering it in the viewport.
+      editor.revealPositionInCenter(position, 0 /* Smooth */);
+      editor.setPosition(position);
+      editor.focus();
+      break;
+    }
+
+    // Signal IdePage to clear jumpToUserId regardless of whether we found the
+    // cursor — avoids a stale jump re-triggering if the user switches files.
+    onJumpComplete?.();
+  }, [jumpToUserId, editor, onJumpComplete]);
 
   // ===========================================================================
   // [INTEGRATION] Autocomplete Provider
