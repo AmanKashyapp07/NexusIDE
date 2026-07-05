@@ -92,15 +92,18 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
 
     let lang: string | null = null;
     if (createState.type === 'file') {
-      lang = 'javascript';
       const nameLower = newFileName.toLowerCase();
       if (nameLower.endsWith('.py')) lang = 'python';
       else if (nameLower.endsWith('.cpp') || nameLower.endsWith('.cc') || nameLower.endsWith('.cxx')) lang = 'cpp';
       else if (nameLower.endsWith('.c') || nameLower.endsWith('.h')) lang = 'c';
       else if (nameLower.endsWith('.ts') || nameLower.endsWith('.tsx')) lang = 'typescript';
+      else if (nameLower.endsWith('.js') || nameLower.endsWith('.jsx')) lang = 'javascript';
       else if (nameLower.endsWith('.sh')) lang = 'bash';
       else if (nameLower.endsWith('.css')) lang = 'css';
       else if (nameLower.endsWith('.html')) lang = 'html';
+      else if (nameLower.endsWith('.json')) lang = 'json';
+      else if (nameLower.endsWith('.md')) lang = 'markdown';
+      else lang = 'plaintext';
     }
 
     onFileCreate(newFileName, createState.type, lang, createState.parentId);

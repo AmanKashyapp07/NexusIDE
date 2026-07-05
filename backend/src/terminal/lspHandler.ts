@@ -47,20 +47,32 @@ export async function handleLspConnection(ws: WebSocket, req: IncomingMessage): 
     workspaceId = wsId || '';
     const token = url.searchParams.get('token');
 
-    if (!workspaceId || !lang || !token) return ws.close(4000, 'Bad Request');
+    if (!workspaceId || !lang || !token) {
+      console.warn('[LSP Close]: Missing params. workspaceId:', workspaceId, 'lang:', lang, 'token:', !!token);
+      return ws.close(4000, 'Bad Request');
+    }
 
     // [SECURITY] Lazy Environment Evaluation
     // `JWT_SECRET` is read lazily here. If read at the module scope, ESM static imports hoist it 
     // before `server.ts` calls `dotenv.config()`, resulting in undefined secrets and broken auth.
     let decodedUser: any;
     try { decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback'); } 
-    catch { return ws.close(4401, 'Invalid token'); }
+    catch (e: any) { 
+      console.warn('[LSP Close]: JWT verification failed:', e.message);
+      return ws.close(4401, 'Invalid token'); 
+    }
     
     userId = String(decodedUser?.id || '');
-    if (!userId) return ws.close(4401, 'Invalid payload');
+    if (!userId) {
+      console.warn('[LSP Close]: No userId in token');
+      return ws.close(4401, 'Invalid payload');
+    }
 
     const wsResult = await getPool().query('SELECT owner_id, is_public FROM workspaces WHERE id = $1', [workspaceId]);
-    if (!wsResult.rows.length) return ws.close(4404, 'Not found');
+    if (!wsResult.rows.length) {
+      console.warn('[LSP Close]: Workspace not found in DB:', workspaceId);
+      return ws.close(4404, 'Not found');
+    }
     
     let userRole = wsResult.rows[0].owner_id === userId ? 'admin' : null;
     if (!userRole) {
@@ -71,11 +83,17 @@ export async function handleLspConnection(ws: WebSocket, req: IncomingMessage): 
     // [SECURITY] RBAC Resource Protection
     // Only Editors/Admins can spawn Language Servers. Viewers are blocked to prevent 
     // read-only visitors from consuming heavy CPU/RAM resources on the host server.
-    if (!userRole || userRole === 'viewer') return ws.close(4403, 'Editor required for LSP');
+    if (!userRole || userRole === 'viewer') {
+      console.warn('[LSP Close]: User not authorized. Role:', userRole);
+      return ws.close(4403, 'Editor required for LSP');
+    }
 
     const cmd = lang === 'python' ? ['pyright-langserver', '--stdio'] 
               : ['javascript', 'typescript'].includes(lang) ? ['typescript-language-server', '--stdio'] : null;
-    if (!cmd) return ws.close(4000, `Unsupported LSP: ${lang}`);
+    if (!cmd) {
+      console.warn('[LSP Close]: Unsupported LSP language:', lang);
+      return ws.close(4000, `Unsupported LSP: ${lang}`);
+    }
 
     const container = await getOrCreateWorkspaceContainer(userId, workspaceId);
     const exec = await container.exec({ Cmd: cmd, AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: false, WorkingDir: '/app' });
@@ -115,6 +133,7 @@ export async function handleLspConnection(ws: WebSocket, req: IncomingMessage): 
     ws.on('error', async () => { clearTimeout(idleTimeout); await cleanup(); });
 
   } catch (err: any) {
+    console.error('[LSP Connection Error]:', err);
     if (ws.readyState === WebSocket.OPEN) ws.close(1011, 'Server Error');
     await cleanup();
   }

@@ -1360,14 +1360,25 @@ server.listen(3000, () => {
 });
 `;
 
-    // Create app.js file via terminal
+    // Create app.js file via terminal using node -e with escaped content
+    // Avoids heredoc quoting issues with single quotes in the server script
     await terminalTextarea.focus();
-    await page.keyboard.type(`cat << 'EOF' > app.js\n${serverScript}\nEOF\n`, { delay: 10 });
+    const appJsContent = [
+      "const http = require('http');",
+      "const server = http.createServer((req, res) => {",
+      "  res.writeHead(200, { 'Content-Type': 'text/html' });",
+      "  res.end('<h1>Express Backend Active</h1><p>React Mock Frontend Mounted</p>');",
+      "});",
+      "server.listen(3000, () => { console.log('Server listening on port 3000'); });"
+    ].join('\\n');
+    await page.keyboard.type(`node -e "const fs=require('fs');fs.writeFileSync('app.js','${appJsContent}')"\n`, { delay: 10 });
     await page.waitForTimeout(1500);
 
     // 4. Start the server in the background
     await page.keyboard.type('node app.js &\n', { delay: 10 });
     await expect(terminalBody).toContainText('Server listening on port 3000', { timeout: 10000 });
+    // Give the server a moment to fully bind the port before proxying
+    await page.waitForTimeout(1000);
 
     // 5. Query and open the live preview
     const token = await page.evaluate(() => localStorage.getItem('token') || '');

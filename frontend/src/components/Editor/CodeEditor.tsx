@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { apiUrl, wsUrl } from '../../lib/backendUrls';
+import { useLspClient, type LspStatus } from '../../hooks/useLspClient';
 
 // NOTE: Monaco Web Worker configuration lives in main.tsx (set globally before
 // Monaco initializes). Routing language services to workers prevents main-thread
@@ -83,6 +84,21 @@ export default function CodeEditor({
   const [editor, setEditor] = useState<MonacoCodeEditor | null>(null);
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
+  const [lspStatus, setLspStatus] = useState<LspStatus>('off');
+
+  // ===========================================================================
+  // [FEATURE] LSP Client — real-time diagnostics, hover, completions
+  // ===========================================================================
+  useLspClient({
+    workspaceId,
+    fileId,
+    filename: filename ?? fileId,
+    language,
+    readOnly,
+    editor,
+    monacoInstance,
+    onStatusChange: setLspStatus,
+  });
 
 
   // Ref to the live WebsocketProvider — needed by the jump effect which runs
@@ -92,9 +108,10 @@ export default function CodeEditor({
 
   // Synchronously reset sync and awareness status during render if the active file has swapped.
   // This ensures the "Syncing with server..." overlay is instantly visible in the DOM
+  console.log('[CodeEditor Render] workspaceId:', workspaceId, 'fileId:', fileId, 'hasEditor:', !!editor);
+  const [prevFileId, setPrevFileId] = useState(fileId);
   // during the render commit, preventing E2E race conditions where Playwright asserts
   // state before the new Yjs websocket handshake is initiated.
-  const [prevFileId, setPrevFileId] = useState(fileId);
   if (fileId !== prevFileId) {
     setPrevFileId(fileId);
     setAwarenessStates([]);
@@ -122,6 +139,13 @@ export default function CodeEditor({
     // Expose provider + doc via refs so the jump effect can read awareness state
     // without being part of this effect's dependency array.
     wsProviderRef.current = wsProvider;
+
+    wsProvider.on('status', (event: any) => {
+      console.log(`[Yjs WS Status] room: ${roomName}, status: ${event.status}`);
+    });
+    wsProvider.on('connection-error', (event: any) => {
+      console.error(`[Yjs WS Connection Error] room: ${roomName}`, event);
+    });
     ydocRef.current = ydoc;
 
     const tryBind = () => {
@@ -151,6 +175,7 @@ export default function CodeEditor({
         binding = null;
       }
       
+      console.log(`[Yjs MonacoBinding] creating binding for room: ${roomName}, model length: ${model.getValue().length}, ytext length: ${ytext.length}`);
       binding = new MonacoBinding(
         ytext,
         model,
@@ -161,6 +186,8 @@ export default function CodeEditor({
     };
 
     const handleSync = (synced: boolean) => {
+      const ytext = ydoc.getText('monaco');
+      console.log(`[Yjs WS Sync Event] room: ${roomName}, synced: ${synced}, ytext length: ${ytext.length}`);
       if (synced && isActive) {
         // Y.Text is now hydrated from the server — safe to bind even if the
         // cached Monaco model had prior content (they will now match/merge).
@@ -387,6 +414,10 @@ export default function CodeEditor({
       allowNonTsExtensions: true,
     });
 
+    // Disable Monaco's built-in shallow type checker for TS/JS — the real
+    // tsserver LSP provides authoritative diagnostics via JSON-RPC instead.
+    // CSS/JSON have no LSP so we suppress their built-in validators too (they
+    // produce noisy false-positives in a multi-language sandbox context).
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
     monaco.languages.css.cssDefaults.setDiagnosticsOptions({ validate: false });
@@ -399,14 +430,6 @@ export default function CodeEditor({
   return (
     <div className="relative h-full w-full bg-[#1e1e1e]">
       <style>
-        {`
-          .squiggly-error, .squiggly-warning, .squiggly-info, .squiggly-hint {
-            display: none !important;
-            background: none !important;
-            border-bottom: none !important;
-            text-decoration: none !important;
-          }
-        `}
         {awarenessStates.map(([clientId, state]) => {
             if (!state.user?.color) return '';
             const color = state.user.color;
@@ -474,6 +497,28 @@ export default function CodeEditor({
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
           View Only
+        </div>
+      )}
+
+      {/* LSP status badge — shown bottom-right when language server is active */}
+      {lspStatus !== 'off' && !readOnly && ['typescript', 'javascript', 'typescriptreact', 'javascriptreact', 'python'].includes(language) && (
+        <div
+          data-testid="lsp-status-badge"
+          data-lsp-status={lspStatus}
+          className={`absolute bottom-3 right-3 z-20 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold backdrop-blur-md border transition-all ${
+            lspStatus === 'ready'
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              : lspStatus === 'connecting'
+              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+              : 'bg-red-500/10 text-red-400 border-red-500/20'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${
+            lspStatus === 'ready'      ? 'bg-emerald-400'
+            : lspStatus === 'connecting' ? 'bg-blue-400 animate-pulse'
+            : 'bg-red-400'
+          }`} />
+          {lspStatus === 'ready' ? 'LSP' : lspStatus === 'connecting' ? 'LSP…' : 'LSP ✕'}
         </div>
       )}
 
