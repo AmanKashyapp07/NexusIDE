@@ -286,7 +286,7 @@ wss.on('connection', async (ws, req) => {
       // In E2E tests (and production) where users only use the editor, containers
       // would accumulate indefinitely — causing CPU/RAM exhaustion on CI runners.
       if (decodedUser?.id && workspaceId) {
-        releaseWorkspaceContainer(decodedUser.id, workspaceId).catch(() => {});
+        releaseWorkspaceContainer(decodedUser.id, workspaceId)?.catch(() => {});
       }
 
       if (!docRef) return;
