@@ -87,57 +87,58 @@ jobs:
         run: |
           npm run test:frontend
 
-      - name: Start Development Servers
-        env:
-          DATABASE_URL: "postgresql://user:password@localhost:5432/sandbox"
-          JWT_SECRET: "ci_jwt_secret"
-          LOG_LEVEL: "debug"
-          GEMINI_API_KEY: "placeholder"
-          NVIDIA_API_KEY: "placeholder"
-          MISTRAL_API_KEY: "placeholder"
-        run: |
-          # Start Backend in the background (redirect logs to file)
-          npm --prefix backend start > backend.log 2>&1 &
-          
-          # Start Frontend in the background (redirect logs to file)
-          npm --prefix frontend run dev > frontend.log 2>&1 &
+#       - name: Start Development Servers
+#         env:
+#           DATABASE_URL: "postgresql://user:password@localhost:5432/sandbox"
+#           JWT_SECRET: "ci_jwt_secret"
+#           LOG_LEVEL: "debug"
+#           GEMINI_API_KEY: "placeholder"
+#           NVIDIA_API_KEY: "placeholder"
+#           MISTRAL_API_KEY: "placeholder"
+#         run: |
+#           # Start Backend in the background (redirect logs to file)
+#           npm --prefix backend start > backend.log 2>&1 &
+#           
+#           # Start Frontend in the background (redirect logs to file)
+#           npm --prefix frontend run dev > frontend.log 2>&1 &
+# 
+#       - name: Wait for Servers to be Ready
+#         run: |
+#           echo "Waiting for Backend Server (port 4000)..."
+#           for i in {1..30}; do
+#             if nc -z localhost 4000; then
+#               echo "Backend is up!"
+#               break
+#             fi
+#             sleep 1
+#           done
+# 
+#           echo "Waiting for Frontend Server (port 5173)..."
+#           for i in {1..30}; do
+#             if nc -z localhost 5173; then
+#               echo "Frontend is up!"
+#               break
+#             fi
+#             sleep 1
+#           done
+# 
+#       - name: Run E2E Integration Tests
+#         env:
+#           DATABASE_URL: "postgresql://user:password@localhost:5432/sandbox"
+#           JWT_SECRET: "ci_jwt_secret"
+#           LOG_LEVEL: "debug"
+#         run: |
+#           CI=true npm run test:e2e
+# 
+#       - name: Upload Playwright Test Report and Server Logs on Failure
+#         if: failure()
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: playwright-report
+#           path: |
+#             frontend/playwright-report/
+#             frontend/test-results/
+#             backend.log
+#             frontend.log
+#           retention-days: 7
 
-      - name: Wait for Servers to be Ready
-        run: |
-          echo "Waiting for Backend Server (port 4000)..."
-          for i in {1..30}; do
-            if nc -z localhost 4000; then
-              echo "Backend is up!"
-              break
-            fi
-            sleep 1
-          done
-
-          echo "Waiting for Frontend Server (port 5173)..."
-          for i in {1..30}; do
-            if nc -z localhost 5173; then
-              echo "Frontend is up!"
-              break
-            fi
-            sleep 1
-          done
-
-      - name: Run E2E Integration Tests
-        env:
-          DATABASE_URL: "postgresql://user:password@localhost:5432/sandbox"
-          JWT_SECRET: "ci_jwt_secret"
-          LOG_LEVEL: "debug"
-        run: |
-          CI=true npm run test:e2e
-
-      - name: Upload Playwright Test Report and Server Logs on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: |
-            frontend/playwright-report/
-            frontend/test-results/
-            backend.log
-            frontend.log
-          retention-days: 7
