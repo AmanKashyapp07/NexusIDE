@@ -11,6 +11,7 @@ import { io, type Socket } from 'socket.io-client';
 import { apiUrl, wsUrl } from '../lib/backendUrls';
 import SnapshotPanel from '../components/Snapshots/SnapshotPanel';
 import ConflictResolver from '../components/Conflict/ConflictResolver';
+import TimelapseReplayer from '../components/Editor/TimelapseReplayer';
 
 type UserRole = 'admin' | 'editor' | 'viewer';
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
@@ -61,6 +62,7 @@ function IdePage() {
   const [jumpToUserId, setJumpToUserId] = useState<string | null>(null);
   const [hasConflicts, setHasConflicts] = useState(false);
   const [showConflictResolver, setShowConflictResolver] = useState(false);
+  const [isViewingTimelapse, setIsViewingTimelapse] = useState(false);
   const { addToast } = useToast();
 
   const handleConnectionStatusChange = useCallback((status: ConnectionStatus) => {
@@ -213,13 +215,22 @@ function IdePage() {
     }
   }, [activeFileId, urlWorkspaceId]);
 
+  // 1. Handle auto-navigating to the first file if none is selected
   useEffect(() => {
     if (files.length === 0) return;
     if (!urlFileId) {
       const firstFile = files.find(f => f.type === 'file');
-      if (firstFile) navigateRef.current(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
+      if (firstFile) {
+        navigateRef.current(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
+      }
     }
   }, [urlFileId, files, urlWorkspaceId]);
+
+  // 2. ONLY close the timelapse when the user switches to a different file
+  useEffect(() => {
+    console.log('[TimelapseDebug] urlFileId changed. closing timelapse. urlFileId:', urlFileId);
+    setIsViewingTimelapse(false);
+  }, [urlFileId]);
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
@@ -557,32 +568,49 @@ function IdePage() {
           >
             <div className="flex h-11 shrink-0 items-center border-b border-white/[0.04] bg-[#050505]/40 px-4 backdrop-blur-md">
               {activeFile ? (
-                <div className="flex items-center text-xs font-medium text-zinc-400">
-                  {getFileBreadcrumbs().map((crumb, index, arr) => {
-                    const isLast = index === arr.length - 1;
-                    return (
-                      <div key={crumb.id} className="flex items-center">
-                        <div
-                          className={`flex items-center gap-1.5 rounded-md px-2 py-1 transition-all ${
-                            isLast ? 'text-zinc-100 bg-white/5 shadow-sm' : 'hover:bg-white/5 hover:text-zinc-200 cursor-pointer'
-                          }`}
-                          onClick={() => {
-                            if (!isLast && crumb.type === 'file') {
-                              navigate(`/ide/${urlWorkspaceId}/${crumb.id}`);
-                            }
-                          }}
-                        >
-                          {crumb.type === 'directory' ? (
-                            <Folder size={14} className="text-zinc-500" />
-                          ) : (
-                            <FileText size={14} className={getFileColor(crumb.name)} />
-                          )}
-                          <span>{crumb.name}</span>
+                <div className="flex flex-1 items-center justify-between">
+                  <div className="flex items-center text-xs font-medium text-zinc-400">
+                    {getFileBreadcrumbs().map((crumb, index, arr) => {
+                      const isLast = index === arr.length - 1;
+                      return (
+                        <div key={crumb.id} className="flex items-center">
+                          <div
+                            className={`flex items-center gap-1.5 rounded-md px-2 py-1 transition-all ${
+                              isLast ? 'text-zinc-100 bg-white/5 shadow-sm' : 'hover:bg-white/5 hover:text-zinc-200 cursor-pointer'
+                            }`}
+                            onClick={() => {
+                              if (!isLast && crumb.type === 'file') {
+                                navigate(`/ide/${urlWorkspaceId}/${crumb.id}`);
+                              }
+                            }}
+                          >
+                            {crumb.type === 'directory' ? (
+                              <Folder size={14} className="text-zinc-500" />
+                            ) : (
+                              <FileText size={14} className={getFileColor(crumb.name)} />
+                            )}
+                            <span>{crumb.name}</span>
+                          </div>
+                          {!isLast && <ChevronRight size={14} className="mx-0.5 text-zinc-700" />}
                         </div>
-                        {!isLast && <ChevronRight size={14} className="mx-0.5 text-zinc-700" />}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('[TimelapseDebug] Timelapse button clicked. Current state:', isViewingTimelapse, 'activeFile:', activeFile?.id);
+                      setIsViewingTimelapse(prev => !prev);
+                    }}
+                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                      isViewingTimelapse ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
+                    }`}
+                  >
+                    <History size={14} />
+                    Timelapse
+                  </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-xs font-medium text-zinc-600">
@@ -607,28 +635,39 @@ function IdePage() {
               </div>
             )}
 
-            <div className="relative min-h-0 flex-1 bg-[#020202]/50">
+            <div className="relative min-h-0 flex-1 bg-[#020202]/50 flex">
               {activeFile ? (
-                <CodeEditor
-                  // [ARCHITECTURE] SEAMLESS IN-PLACE FILE SWITCHING
-                  // The `key={...}` prop has been explicitly removed. `CodeEditor.tsx` now
-                  // natively supports swapping files by firing its deterministic teardown 
-                  // inside the `useEffect` whenever `fileId` changes. Keeping it mounted
-                  // completely eliminates UI DOM thrashing and Playwright ghost editor references.
-                  workspaceId={workspaceId}
-                  fileId={activeFile.id}
-                  filename={activeFile.name}
-                  language={activeFile.language || 'javascript'}
-                  currentUser={user}
-                  readOnly={userRole === 'viewer'}
-                  onEditorReady={(editor) => { editorRef.current = editor; }}
-                  onConnectionStatusChange={handleConnectionStatusChange}
-                  onCodeChange={handleTypingActivity}
-                  jumpToUserId={jumpToUserId}
-                  onJumpComplete={() => setJumpToUserId(null)}
-                />
+                <>
+                  <div className={`relative min-h-0 ${isViewingTimelapse ? 'hidden' : 'flex-1'}`}>
+                    <CodeEditor
+                      // [ARCHITECTURE] SEAMLESS IN-PLACE FILE SWITCHING
+                      workspaceId={workspaceId}
+                      fileId={activeFile.id}
+                      filename={activeFile.name}
+                      language={activeFile.language || 'javascript'}
+                      currentUser={user}
+                      readOnly={userRole === 'viewer'}
+                      onEditorReady={(editor) => { editorRef.current = editor; }}
+                      onConnectionStatusChange={handleConnectionStatusChange}
+                      onCodeChange={handleTypingActivity}
+                      jumpToUserId={jumpToUserId}
+                      onJumpComplete={() => setJumpToUserId(null)}
+                    />
+                  </div>
+                  {isViewingTimelapse && (
+                    <div className="relative flex flex-col flex-1 min-h-0 min-w-0">
+                      <TimelapseReplayer
+                        workspaceId={workspaceId}
+                        fileId={activeFile.id}
+                        filename={activeFile.name}
+                        language={activeFile.language || 'javascript'}
+                        onClose={() => setIsViewingTimelapse(false)}
+                      />
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-4 text-zinc-500">
+                <div className="flex h-full flex-col items-center justify-center gap-4 text-zinc-500 w-full">
                   <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/5 bg-white/[0.02]">
                     <Code2 className="h-8 w-8 text-zinc-600" />
                   </div>

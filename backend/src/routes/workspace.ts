@@ -489,6 +489,20 @@ router.get('/:id/files/:fileId/content', requireWorkspaceRole('viewer'), async (
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+router.get('/:id/files/:fileId/history', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+  try {
+    const result = await getPool().query('SELECT yjs_state FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
+    
+    const yjsState = result.rows[0].yjs_state;
+    if (!yjsState) return res.status(404).json({ error: 'No history found for this file' });
+    
+    // Return raw binary buffer so frontend can parse Yjs operations
+    res.set('Content-Type', 'application/octet-stream');
+    res.send(yjsState);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 router.put('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
   const workspaceId = req.params.id as string;
   const fileId = req.params.fileId as string;

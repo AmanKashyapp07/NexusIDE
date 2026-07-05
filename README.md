@@ -1,113 +1,105 @@
-# NexusIDE
+# NexusIDE: Collaborative Cloud IDE
 
 <div align="center">
 
-### Production-Ready Collaborative Cloud IDE
+### A Production-Ready Collaborative Cloud IDE
 
-Real-time collaboration • Docker Sandboxing • Persistent Terminals • AI Autocomplete • Language Server Protocol • GitHub Integration
+**Real-time Collaboration** • **Docker Sandboxing** • **Persistent Terminals** • **AI Autocomplete** • **Language Server Protocol** • **Git Merge Conflict Resolver**
 
-<p align="center">
-  <a href="https://github.com/AmanKashyapp07/sandbox-ide"><strong>View Repository</strong></a>
-  ·
-  <a href="https://github.com/AmanKashyapp07/sandbox-ide">Live Demo</a>
-  ·
-  <a href="https://github.com/AmanKashyapp07/sandbox-ide/issues">Report Issue</a>
-</p>
+[View Repository](https://github.com/AmanKashyapp07/sandbox-ide) · [Live Demo](https://github.com/AmanKashyapp07/sandbox-ide) · [Report Issue](https://github.com/AmanKashyapp07/sandbox-ide/issues)
 
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
-![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)
-![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
-> **Inspired by GitHub Codespaces and Replit, NexusIDE is a production-oriented cloud IDE that focuses on real-world infrastructure challenges such as collaborative editing, secure code execution, container lifecycle management, language intelligence, and distributed synchronization.**
+---
 
 </div>
 
----
+NexusIDE is an advanced browser-based collaborative development environment focusing on infrastructure-level challenges: distributed state synchronization, container lifecycle optimization, pseudo-terminal streaming, and secure code sandboxing. 
 
-# Table of Contents
-
-- Features
-- Architecture
-- Engineering Highlights
-- Technology Stack
-- Security
-- Performance Optimizations
-- Getting Started
-- Testing
-- Engineering Learnings
-- Future Improvements
-- License
+Unlike traditional compilation widgets, it models real cloud-IDE infrastructure, utilizing pre-warmed container pools, reference-counted container multiplexing, raw JSON-RPC language server streams, and transactional Yjs state restoration.
 
 ---
 
-# Features
-
-| Feature | Description |
-|----------|-------------|
-| Real-time Collaboration | Conflict-free collaborative editing using Yjs CRDTs |
-| Persistent Workspaces | Long-lived Docker development environments |
-| Interactive Terminal | xterm.js connected directly to Docker PTY |
-| AI Autocomplete | NVIDIA-powered Fill-in-the-Middle completion |
-| Language Intelligence | Pyright & TypeScript LSP integration |
-| GitHub Import | Import repositories through OAuth |
-| Live Collaboration | Presence indicators and multi-user editing |
-| Voice Collaboration | WebRTC signaling via Socket.IO |
-| File Synchronization | Editor ↔ Docker bidirectional synchronization |
-| Role Based Access | Secure Admin / Editor / Viewer permissions |
+## Table of Contents
+- [Core Features](#core-features)
+- [Systems Architecture](#systems-architecture)
+- [Tech Stack](#tech-stack)
+- [Deep-Dive Engineering Highlights](#deep-dive-engineering-highlights)
+- [Security & Isolation](#security--isolation)
+- [Performance Optimizations](#performance-optimizations)
+- [Repository Structure](#repository-structure)
+- [Getting Started](#getting-started)
+- [Testing Suite](#testing-suite)
+- [Engineering Learnings](#engineering-learnings)
 
 ---
 
-# Interview Summary
+## Core Features
 
-> **NexusIDE is a browser-based collaborative development environment that securely executes user code inside isolated Docker containers while supporting real-time CRDT editing, persistent terminals, language servers, GitHub integration, and AI-powered code completion.**
->
-> **The backend focuses on production engineering problems including container pooling, workspace multiplexing, binary CRDT persistence, PTY streaming, JSON-RPC language server bridging, and aggressive resource optimization.**
+| Feature | Engineering Description |
+| :--- | :--- |
+| **Real-time Collaboration** | Multi-user conflict-free editing utilizing Yjs CRDTs with presence indicators. |
+| **Persistent Workspaces** | Long-lived developer sandboxes; xterm.js terminals binding directly to Docker pseudo-terminals (PTY). |
+| **Workspace Snapshotting** | Flat tree snapshots (max 10 history points) stored in PostgreSQL with transactional live Yjs reload. |
+| **Git Conflict Resolver** | Interactive side-by-side collaborative resolve view supporting manual edits and auto-staging (`git add`). |
+| **AI Autocomplete** | Mistral AI-powered Fill-in-the-Middle (FIM) code suggestions using the Codestral API. |
+| **LSP Language Intelligence** | In-container Pyright and TypeScript Language Servers streamed via JSON-RPC over WebSockets. |
+| **Bidirectional Sync** | Dynamic synchronization between database files, live client editors, and container filesystems. |
+| **Granular RBAC** | Restricts actions dynamically based on workspace role permissions (`Admin`, `Editor`, `Viewer`). |
 
 ---
 
-# Architecture
+## Systems Architecture
 
 ```mermaid
 graph TD
     %% Browser Layer
-    A1[Monaco Editor]
-    A2[xterm.js Terminal]
-    A3[Yjs CRDT Client]
-    A4[Socket.IO Client]
+    subgraph Client [Browser Client Layer]
+        A1[Monaco Editor]
+        A2[xterm.js Terminal]
+        A3[Yjs CRDT Client]
+        A4[Socket.IO Client]
+    end
 
     %% Gateway Layer
-    B1[Express HTTP Server]
-    B2[Raw WebSockets Upgrade Handler]
-    B3[Socket.IO Event Gateway]
+    subgraph Gateway [Express & WebSocket Gateway]
+        B1[Express HTTP Server]
+        B2[Raw WebSockets Upgrade Handler]
+        B3[Socket.IO Event Gateway]
+    end
 
-    %% Business Logic
-    C1[GitHub Auth & OAuth Manager]
-    C2[Workspace Lifecycle Coordinator]
-    C3[LSP Stream Bridge]
-    C4[AI Autocomplete Engine]
-    C5[CRDT Sync Engine]
+    %% Business Logic Layer
+    subgraph Logic [Backend Engines]
+        C1[GitHub OAuth Manager]
+        C2[Workspace Lifecycle Coordinator]
+        C3[LSP Stream Bridge]
+        C4[Mistral AI Autocomplete Engine]
+        C5[CRDT Sync Engine]
+    end
 
     %% Resource Layer
-    D1[PostgreSQL Database]
-    D2[Docker Pool Manager]
-    D3[Active Workspace Containers]
-    D4[NVIDIA API Endpoint]
+    subgraph Infrastructure [Resource Infrastructure]
+        D1[(PostgreSQL Database)]
+        D2[Docker Pool Manager]
+        D3[Active Workspace Containers]
+        D4[Mistral AI Endpoint]
+    end
 
-    %% Client to Gateway Connections
+    %% Connections
     A1 <-->|JSON-RPC| B2
     A2 <-->|PTY Stream| B2
     A3 <-->|CRDT Sync Messages| B2
     A4 <-->|Voice Signaling / Presence / Tree Events| B3
 
-    %% Gateway to Logic Routing
     B1 -->|Import / Setup| C1
     B1 -->|REST Actions| C2
     B2 -->|Raw WebSocket Streams| C3 & C5
-    B1 -->|Autocomplete Prompting| C4
+    B1 -->|Autocomplete FIM| C4
 
-    %% Logic to Infrastructure / Resource Connections
     C1 & C2 <-->|Schema Operations| D1
     C2 -->|Control Loop / Provision| D2
     D2 -->|Pre-warmed Containers| D3
@@ -118,398 +110,173 @@ graph TD
 
 ---
 
-# Engineering Highlights
+## Tech Stack
 
-## Persistent Docker Workspaces
-
-Unlike traditional online compilers, every workspace owns a persistent development container.
-
-### Implemented
-
-- Interactive PTY bridge using xterm.js
-- Persistent shell sessions
-- Dynamic workspace allocation
-- Automatic workspace restoration
-
-### Optimization
-
-- Warm Docker container pools
-- Zero-latency terminal startup
-- Workspace reference counting
-- Multiple browser tabs share one container
-- Automatic idle hibernation after 30 minutes
+* **Frontend:** React, TypeScript, Tailwind CSS, Monaco Editor, xterm.js
+* **Backend:** Node.js, Express, Socket.IO, WS (WebSockets), Dockerode
+* **Database:** PostgreSQL
+* **Collaboration:** Yjs CRDTs (Conflict-free Replicated Data Types)
+* **AI Engine:** Mistral AI (Codestral FIM Completion)
+* **Language Intelligence:** Pyright (Python LSP), TypeScript Language Server (JS/TS LSP)
+* **Security & Auth:** JWT, GitHub OAuth, Docker sandboxed kernel namespaces
 
 ---
 
-## Real-Time Collaboration
+## Deep-Dive Engineering Highlights
 
-Built on **Yjs CRDTs** for conflict-free concurrent editing.
+<details>
+<summary><b>Persistent Docker Workspaces & PTY Streaming</b></summary>
+<br/>
 
-### Features
+Unlike lightweight web sandboxes that run code inside temporary browser workers, NexusIDE provides a fully isolated backend Linux environment.
+* **PTY Integration:** We bind xterm.js in the browser directly to a raw Unix pseudo-terminal (`/bin/bash` or `/bin/sh`) inside a sandbox container using `dockerode`. Input keystrokes and output terminal resizing events are packed as raw binary packets and piped dynamically via WebSockets.
+* **Warm Container Pools:** Booting a Docker container on-demand can take 800ms to 1.5s (cold start). We maintain a background pool manager that constantly keeps pre-warmed developer containers running in idle states, reducing container load latency down to **under 50ms**.
+* **Reference-Counted Multiplexing:** To prevent RAM exhaustion, multiple tabs opened by the same user to the same workspace share the same container. The system tracks references and schedules an idle container shutdown after 30 minutes of absolute inactivity.
+</details>
 
-- Binary CRDT persistence
-- State-vector synchronization
-- Incremental update propagation
-- Debounced database persistence
-- Presence synchronization
+<details>
+<summary><b>Yjs CRDT Real-Time Collaboration</b></summary>
+<br/>
 
-Result:
+Multiple collaborators can concurrently edit files without encountering merge conflicts.
+* **Distributed Synchronization:** Every keystroke is treated as an incremental CRDT operation. The browser uses Yjs to process edits locally and propagates compact state-update vectors to peers.
+* **Binary Database Persistence:** Yjs document states are serialized into binary blobs (`Buffer` updates) and stored in PostgreSQL using `BYTEA` fields.
+* **Debounced Writes:** To avoid database write bottlenecks, backend saves are debounced. Keystrokes update in-memory Yjs documents immediately, but persistence to PostgreSQL only occurs after 2 seconds of silence.
+</details>
 
-- No merge conflicts
-- Offline editing support
-- Eventual consistency
-- Low bandwidth synchronization
+<details>
+<summary><b>Git Merge Conflict Resolver</b></summary>
+<br/>
 
----
+Encountering standard Git merge conflicts (e.g. after a `git pull`) can break regular web editors. 
+* **Conflict Parsing:** We implemented a regex-based parser that scans files for standard Git conflict markers (`<<<<<<< HEAD`, `=======`, `>>>>>>>`). It maps them into separate, readable blocks containing current ("Ours") and incoming ("Theirs") changes.
+* **Resolving & Auto-Staging:** When users resolve conflicts through the split-screen UI, the backend updates the PostgreSQL database, pushes the transactional update to all connected Monaco sessions via `applyRestoredContentToLiveDocs`, and executes a dynamic `git add <filepath>` inside the workspace Docker container to automatically stage the resolved changes.
+</details>
 
-## Docker Sandboxing
+<details>
+<summary><b>Workspace History Snapshotting</b></summary>
+<br/>
 
-The execution environment is heavily isolated.
-
-### Resource Isolation
-
-- 1 GB RAM
-- 1.5 CPU cores
-- PID limits
-- Container networking isolation
-
-### File Hydration & Persistent Storage
-
-* **Current Implementation:** Workspace files are physically persisted on the host server's disk (`backend/workspace_data/`) and mapped into the container using **Docker Bind Mounts**. This simulates enterprise Persistent Block Storage (like AWS EBS), eliminating the need to repeatedly stream tarballs from the database into a temporary RAM filesystem. This results in instant container hydration and native SSD speeds for massive operations like `npm install`.
-* **Future Deployment Storage Strategy:** When deploying this project to a production cloud environment:
-  * **Single Instance Deployment:** The host-side `workspace_data/` directory will be backed by a dedicated **Persistent Block Storage Volume** (such as AWS EBS or GCP Persistent Disk) attached to the host Virtual Machine, ensuring workspace data survives host crashes or VM upgrades.
-  * **Multi-Node Cluster Deployment (Kubernetes / AWS ECS):** The directory will mount a **Shared Network Filesystem** (such as AWS EFS, GCP Filestore, or NFS) to allow containers running on different servers to access the same workspace volume seamlessly.
-
----
-
-## Language Server Bridge
-
-Instead of embedding language servers inside the frontend, NexusIDE launches language servers inside the user's Docker workspace.
-
-Supported:
-
-- Pyright
-- TypeScript Language Server
-
-Communication uses JSON-RPC packets streamed through Raw WebSockets into Docker exec streams.
+Allows time-traveling history checkpoints without storing duplicate workspaces.
+* **Flattened DB Storage:** Rather than replicating the entire workspace DB rows, we use a recursive Common Table Expression (CTE) to flatten the active file tree structure into a path-to-content map inside the `snapshot_files` database table.
+* **Seamless State Restoring:** When an admin restores a snapshot, the backend modifies PostgreSQL files, runs Yjs transactions to push the restored content directly to active sessions (preserving WebSocket connections), and re-syncs the workspace container.
+* **Eviction Policies:** A PostgreSQL trigger automatically evicts the oldest snapshot once a workspace exceeds 10 snapshots, keeping database bloat bounded.
+</details>
 
 ---
 
-## Bidirectional File Synchronization
+## Security & Isolation
 
-Editor changes automatically synchronize with Docker while terminal-created files immediately appear inside the frontend explorer.
-
-Synchronization includes
-
-- File creation
-- File deletion
-- Rename detection
-- Live explorer updates
-
----
-
-# Technology Stack
-
-| Layer | Technologies |
-|--------|--------------|
-| Frontend | React, TypeScript, Tailwind CSS, Monaco Editor, xterm.js |
-| Backend | Node.js, Express, Socket.IO, ws, Dockerode |
-| Database | PostgreSQL |
-| Collaboration | Yjs CRDT |
-| AI | NVIDIA API |
-| Language Intelligence | Pyright, TypeScript Language Server |
-| Authentication | JWT, GitHub OAuth |
-| Infrastructure | Docker Engine API |
-
-## NVIDIA API Notes
-
-- Configure `NVIDIA_API_KEY` and optionally `NVIDIA_AUTOCOMPLETE_MODEL`.
-- The autocomplete path uses NVIDIA's chat-completions endpoint at `https://integrate.api.nvidia.com/v1/chat/completions`.
-- Rate limits and quotas are account- and model-dependent on NVIDIA's side; this project does not enforce its own AI quota.
-- If the key or quota is unavailable, the backend returns a clear error (`503` for missing key, `401`/`429`/`5xx` depending on upstream behavior).
+Security is a primary focus when executing arbitrary user code:
+* **Resource Limits:** Docker containers are configured with strict resource boundaries (`1GB RAM`, `1.5 CPU cores`, and `500 PIDs limit` to prevent fork bombs).
+* **Write Isolation:** Sandboxes have no root permissions. System commands are aliased or limited to user-safe binaries.
+* **Network Isolation:** Workspaces are joined to an isolated internal Docker bridge network with egress controls to block access to the internal network.
+* **Granular RBAC Enforcer:** REST and socket gateways validate incoming requests against `workspace_collaborators` roles:
+  - `Admin`: Full write, snapshots, collaborator management.
+  - `Editor`: Code editing, terminal commands, directory creation.
+  - `Viewer`: Read-only code viewing (cannot write, interact with terminals, or modify settings).
 
 ---
 
-# Security
+## Performance Optimizations
 
-- Docker container isolation
-- JWT authentication
-- Workspace authorization
-- Role-based permissions
-- Environment variable secret management
-- Resource limiting
-- Dynamic port exposure
-- Network isolation
-- Protected REST endpoints
-- Protected WebSocket handlers
+* **SQL Optimizer (UNION vs OR):** Splitting dashboard workspace scans into a `UNION` instead of `owner_id = $1 OR user_id = $1` allows the PostgreSQL optimizer to run targeted index scans rather than falling back to a full-table scan.
+* **Streamed Export Piping:** Exporters stream zip archives using recursive CTE queries, piping the compression directly to the response socket without writing intermediate zip files to host disks.
+* **Docker Bind Mounts:** Physical files reside on the host system under `workspace_data/` and mount directly to the sandboxes, avoiding complex file transfers and database pulls.
 
 ---
 
-# Performance Optimizations
-
-| Optimization | Purpose |
-|--------------|---------|
-| Warm Docker Pool | Eliminate container startup latency |
-| Workspace Multiplexing | One container shared across multiple tabs |
-| Docker Bind Mounts | Instant zero-hydration startup & native SSD speeds |
-| Binary CRDT Storage | Reduce synchronization overhead |
-| Debounced Database Writes | Prevent excessive writes |
-| AFK Heartbeat | Automatic idle cleanup |
-| State Vector Sync | Transfer only missing CRDT operations |
-
----
-
-# Repository Structure
+## Repository Structure
 
 ```
-frontend/
-│
-├── components/
-├── pages/
-├── hooks/
-├── services/
-
-backend/
-│
-├── routes/
-├── websocket/
-├── docker/
-├── lsp/
-├── github/
-├── collaboration/
-
-database/
-│
-├── schema.sql
-
-shared/
-│
-├── types/
-├── utils/
+nexus-ide/
+├── backend/
+│   ├── src/
+│   │   ├── routes/              # HTTP REST Controllers (Workspaces, Files, Auth)
+│   │   ├── sandbox/             # Docker container pools & orchestrations
+│   │   ├── terminal/            # WebSocket PTY & LSP handlers
+│   │   ├── utils/               # Parsing utilities (Conflict Parser)
+│   │   └── server.ts            # Entrypoint & raw WS handler
+├── frontend/
+│   ├── src/
+│   │   ├── components/          # Shared components (ConflictResolver, SnapshotPanel)
+│   │   ├── pages/               # IdePage, Dashboard, Login pages
+│   │   ├── hooks/               # Custom React hooks (voice chat, sockets)
+│   │   └── lib/                 # Utility connections
+├── database/
+│   └── schema.sql               # Database schemas & triggers
+└── testing/
+    └── e2e/                     # Playwright integration & collaborative tests
 ```
 
 ---
 
-# Getting Started
+## Getting Started
 
-## Prerequisites
+### Prerequisites
+* Node.js v20+
+* PostgreSQL v14+
+* Docker Engine
 
-- Node.js 20+
-- PostgreSQL 14+
-- Docker Engine
-- GitHub OAuth Application
-
----
-
-## Installation
-
-Clone repository
-
-```bash
-git clone https://github.com/AmanKashyapp07/sandbox-ide.git
-cd sandbox-ide
-```
-
-Initialize database
-
+### 1. Database Setup
+Create a PostgreSQL database named `sandbox` and initialize the schema:
 ```bash
 createdb sandbox
-
 psql -d sandbox -f database/schema.sql
 ```
 
-Configure environment
-
+### 2. Configure Environment Variables
+Create a `.env` file in `backend/`:
 ```env
 PORT=4000
+DATABASE_URL=postgresql://postgres:password@localhost:5432/sandbox
+JWT_SECRET=super_secret_jwt_key
 
-DATABASE_URL=postgresql://username@localhost:5432/sandbox
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
 
-JWT_SECRET=...
-
-GITHUB_CLIENT_ID=...
-
-GITHUB_CLIENT_SECRET=...
-
-NVIDIA_API_KEY=...
-
-NVIDIA_AUTOCOMPLETE_MODEL=meta/llama-3.1-8b-instruct
+MISTRAL_API_KEY=your_mistral_api_key
+MISTRAL_AUTOCOMPLETE_MODEL=codestral-latest
 ```
 
-Install dependencies
-
+### 3. Install Dependencies
+Run installation commands for both projects:
 ```bash
-cd backend
-npm install
+# Install backend packages
+cd backend && npm install
 
-cd ../frontend
-npm install
+# Install frontend packages
+cd ../frontend && npm install
 ```
 
-Start backend
-
+### 4. Run Development Servers
 ```bash
-cd backend
-
-npm run dev
-```
-
-Start frontend
-
-```bash
-cd frontend
-
-npm run dev
-```
-
----
-
----
-
-# Testing
-
-NexusIDE has a comprehensive, multi-layer test suite that validates everything from individual units to full real-browser multi-user collaboration flows. All 4 suites run against the actual production code — nothing is mocked at the infrastructure level.
-
----
-
-## Test Suites Overview
-
-| Suite | Tool | Scope | Files |
-|-------|------|-------|-------|
-| **Backend Unit Tests** | Vitest | Auth routes, workspace CRUD, collaborator permissions, CRDT persistence | `backend/src/tests/` |
-| **Frontend Component Tests** | Vitest + React Testing Library | CodeEditor Yjs lifecycle, provider creation/teardown, awareness, role enforcement | `frontend/src/tests/` |
-| **E2E Collaboration Tests** | Playwright | Full multi-user CRDT editing, presence, file tree sync, role transitions, CRDT stress | `frontend/e2e/collaboration.spec.ts` |
-| **E2E Terminal Tests** | Playwright | PTY session, command execution, npm run dev, restart, viewer restrictions | `frontend/e2e/terminal.spec.ts` |
-
----
-
-## Running the Tests
-
-### Backend Unit Tests
-
-```bash
-cd backend
-npm test
-```
-
-Tests cover:
-- `POST /auth/test-login` — user creation and JWT issuance
-- `GET /auth/me` — token verification and user hydration
-- `POST /workspace` — workspace creation with Docker container provisioning
-- `GET /workspace/:id` — authorization and role resolution for owner / collaborator / stranger
-- `POST /workspace/:id/collaborators` — invite flow with role assignment
-- `PATCH /workspace/:id/collaborators/:userId` — role update (admin only)
-- `DELETE /workspace/:id/collaborators/:userId` — remove collaborator (admin only)
-- CRDT document persistence and state-vector sync
-
-### Frontend Component Tests
-
-```bash
-cd frontend
-npm test
-```
-
-Tests cover:
-- `CodeEditor` mounts a `WebsocketProvider` per `(workspaceId, fileId)` room
-- Provider is torn down and recreated when `fileId` changes (file switch)
-- `MonacoBinding` is not created until the Yjs sync is complete
-- Editor is `readOnly` for `viewer` role and fully editable for `editor`/`admin`
-- Awareness state is correctly broadcast and cleaned up on unmount
-- Remote cursor widgets are added and removed on peer join/leave
-
-### E2E Collaboration Suite (Playwright)
-
-> Requires both backend and frontend dev servers to be running.
-
-```bash
-# Terminal 1
+# Start Backend (Listening on http://localhost:4000)
 cd backend && npm run dev
 
-# Terminal 2
-cd frontend && npm run dev
-
-# Terminal 3 — run the suite
-cd frontend
-npx playwright test e2e/collaboration.spec.ts --reporter=list
+# Start Frontend (Listening on http://localhost:5173)
+cd ../frontend && npm run dev
 ```
 
-| # | Test | What it validates |
-|---|------|-------------------|
-| 1 | Typing sync & role enforcement | Bidirectional CRDT sync between two users; editor→viewer downgrade blocks further writes |
-| 2 | File tree sync & rug-pull deletion | Peer sees new files instantly; active editor closes safely when file is deleted under it |
-| 3 | Presence & ghost cursor cleanup | Avatar appears in navbar; remote cursor renders in Monaco; both disappear on tab close |
-| 4 | Interactive terminal streaming | `node script.js` executes in each user's independent PTY; output streams correctly |
-| 5 | Simultaneous CRDT stress test | Both users fire concurrent keystrokes; documents converge to identical state via Yjs |
-| 6 | File rename & socket stability | `mv` via terminal creates new sidebar entry; WebSocket room stays live after rename |
+---
 
-### E2E Terminal Suite (Playwright)
+## Testing Suite
 
+NexusIDE features a comprehensive test suite validating full, real-browser collaboration flows. 
+
+* **Backend Unit Tests (Vitest):** Core REST paths, permissions, and database operations.
+* **Frontend Component Tests (Vitest):** Monaco loading, socket reconnect loops, and viewer role blockages.
+* **E2E Integration Tests (Playwright):** Simulated browser instances typing concurrently, triggering conflict resolutions, terminal execution checks, and snapshot time-travel.
+
+To run the Playwright test suite locally, ensure the development servers are up and execute:
 ```bash
-cd frontend
-npx playwright test e2e/terminal.spec.ts --reporter=list
+npx --prefix frontend playwright test ../testing/e2e/conflict.spec.ts
 ```
 
-Tests cover PTY lifecycle, command execution, `npm run dev` port detection, terminal restart, and viewer access restrictions.
-
 ---
 
-## E2E Test Design Philosophy
+## Engineering Learnings
 
-The E2E tests exercise the **full production stack** — real Chromium browsers, real HTTP/WebSocket connections to the backend, real PostgreSQL, and real Docker containers. No infrastructure is mocked.
-
-Key patterns used:
-
-- **`loginUser()` helper** — hydration-safe login that waits for the input to be stable before interacting, preventing React re-render race conditions.
-- **`createFile()` helper** — waits for the React tree to settle before clicking "New File", preventing the inline input from closing prematurely on re-renders.
-- **`page.keyboard.type()`** over `.fill()` inside Monaco — Monaco's `<textarea>` is permanently `readonly="true"` at the DOM level (key events are intercepted globally); `.fill()` always fails, `.keyboard.type()` works correctly.
-- **`waitForTimeout(2000)` after typing** — allows the 800 ms server debounce to flush CRDT changes to disk before terminal execution.
-
----
-
-# Engineering Learnings
-
-- CRDTs simplify distributed collaborative editing compared to Operational Transform.
-- Warm container pools dramatically reduce perceived startup latency.
-- Reference-counted container reuse significantly lowers infrastructure cost.
-- Language servers should execute inside the same filesystem visible to users.
-- Binary persistence minimizes storage and synchronization overhead.
-- Proper lifecycle management and graceful cleanup are essential for long-running container workloads.
-
----
-
-# Future Improvements
-
-- Kubernetes deployment
-- Horizontal container scaling
-- Redis Pub/Sub for distributed collaboration
-- Collaborative debugging
-- Workspace snapshots
-- Version history
-- Distributed LSP workers
-- Multi-region deployment
-
----
-
-# License
-
-Distributed under the MIT License.
-
----
-
-# Author
-
-**Aman Kashyap**
-
-IIIT Allahabad
-
-GitHub:
-https://github.com/AmanKashyapp07
-
-Repository:
-https://github.com/AmanKashyapp07/sandbox-ide
-
----
-
-### Project Goal
-
-NexusIDE was built to explore the systems engineering challenges behind modern cloud development environments. Rather than wrapping existing services, the project implements the underlying infrastructure—from collaborative synchronization and container orchestration to language intelligence and resource management—to demonstrate production-oriented backend and distributed systems design.
+* **CRDTs vs OT:** Implementing Yjs proved that state convergence is highly reliable, but debouncing updates is critical to scale database writes.
+* **Warm Pools:** Pre-warming Docker containers is mandatory to build interactive web tools. Instantiating resources asynchronously solves perceived startup delays.
+* **WebSocket Streams:** Pipelining standard JSON-RPC language server streams and standard I/O files directly through raw WebSocket connections simplifies backend routing significantly.
