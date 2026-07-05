@@ -132,6 +132,9 @@ class WSSharedDoc extends Y.Doc {
         log('💾 SAVE', `Debounced save doc=${this.name} (${content.length} chars)`);
         await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, this.fileId]);
         syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
+        // Notify all clients in this workspace that this file has been persisted.
+        // CodeEditor listens for this on the presence socket to show a real "Saved" confirmation.
+        getIO()?.to(`presence-${this.workspaceId}`).emit('file-saved', { fileId: this.fileId });
       } catch (err: any) {
         log('💾 SAVE', `❌ DB save error: ${err.message}`);
       } finally {

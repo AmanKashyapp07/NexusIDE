@@ -9,7 +9,7 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/workspaceContainer';
 import { WORKSPACE_DATA_DIR } from '../sandbox/pool';
 import * as path from 'path';
-import { rmSync, existsSync } from 'fs';
+import { rmSync, existsSync, cpSync } from 'fs';
 import { Mistral } from '@mistralai/mistralai';
 import { getIO } from '../socket';
 
@@ -127,6 +127,131 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
+// WORKSPACE SNAPSHOTTING (Time-Travel Branching)
+// =============================================================================
+
+// [ARCHITECTURE] Atomic Workspace Clone
+// Creates a full copy of the workspace: metadata, file tree (with remapped parent_ids),
+// CRDT state, and the host-side bind-mount directory. The requesting user becomes the
+// owner of the new snapshot workspace. Uses a single DB transaction to guarantee
+// consistency — if any step fails, nothing is committed.
+router.post('/:id/snapshot', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const sourceWorkspaceId = req.params.id as string;
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const pool = getPool();
+  console.log('[DEBUG-SNAPSHOT] Attempting to connect to database pool...');
+  const client = await pool.connect();
+  console.log('[DEBUG-SNAPSHOT] Connected to database pool.');
+
+  try {
+    console.log('[DEBUG-SNAPSHOT] BEGIN transaction');
+    await client.query('BEGIN');
+
+    // 1. Clone workspace record
+    console.log('[DEBUG-SNAPSHOT] Cloning workspace record for:', sourceWorkspaceId);
+    const wsResult = await client.query(
+      `INSERT INTO workspaces (owner_id, title, description, is_public)
+       SELECT $2, title || ' (Snapshot)', description, false
+       FROM workspaces WHERE id = $1
+       RETURNING id, title`,
+      [sourceWorkspaceId, userId]
+    );
+
+    if (!wsResult.rows.length) {
+      console.log('[DEBUG-SNAPSHOT] Source workspace not found, rollback.');
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Source workspace not found' });
+    }
+
+    const newWorkspaceId = wsResult.rows[0].id;
+    const newTitle = wsResult.rows[0].title;
+    console.log('[DEBUG-SNAPSHOT] Workspace record cloned successfully. New ID:', newWorkspaceId);
+
+    // 2. Clone files with remapped parent_id references
+    console.log('[DEBUG-SNAPSHOT] Creating temp mapping table...');
+    await client.query(`
+      CREATE TEMP TABLE id_map (old_id UUID, new_id UUID) ON COMMIT DROP;
+    `);
+
+    // Insert root-level files (parent_id IS NULL) first
+    console.log('[DEBUG-SNAPSHOT] Inserting root files...');
+    await client.query(`
+      WITH inserted AS (
+        INSERT INTO files (workspace_id, parent_id, name, type, content, yjs_state, language, size_bytes)
+        SELECT $2, NULL, name, type, content, yjs_state, language, size_bytes
+        FROM files WHERE workspace_id = $1 AND parent_id IS NULL
+        RETURNING id, name, type
+      )
+      INSERT INTO id_map (old_id, new_id)
+      SELECT f.id, inserted.id
+      FROM files f
+      JOIN inserted ON f.name = inserted.name AND f.type = inserted.type
+      WHERE f.workspace_id = $1 AND f.parent_id IS NULL;
+    `, [sourceWorkspaceId, newWorkspaceId]);
+
+    // Iteratively insert child levels until no more children remain.
+    let insertedCount = 1; // seed the loop
+    const MAX_DEPTH = 50; // safety guard against infinite loops
+    let depth = 0;
+
+    console.log('[DEBUG-SNAPSHOT] Starting child files clone loop...');
+    while (insertedCount > 0 && depth < MAX_DEPTH) {
+      depth++;
+      console.log('[DEBUG-SNAPSHOT] Copying child level depth:', depth);
+      const result = await client.query(`
+        WITH to_copy AS (
+          SELECT f.id AS old_id, f.name, f.type, f.content, f.yjs_state, f.language, f.size_bytes, m.new_id AS new_parent_id
+          FROM files f
+          JOIN id_map m ON f.parent_id = m.old_id
+          WHERE f.workspace_id = $1
+            AND NOT EXISTS (SELECT 1 FROM id_map existing WHERE existing.old_id = f.id)
+        ),
+        inserted AS (
+          INSERT INTO files (workspace_id, parent_id, name, type, content, yjs_state, language, size_bytes)
+          SELECT $2, tc.new_parent_id, tc.name, tc.type, tc.content, tc.yjs_state, tc.language, tc.size_bytes
+          FROM to_copy tc
+          RETURNING id, name, type, parent_id
+        )
+        INSERT INTO id_map (old_id, new_id)
+        SELECT tc.old_id, inserted.id
+        FROM to_copy tc
+        JOIN inserted ON tc.name = inserted.name AND tc.type = inserted.type AND tc.new_parent_id = inserted.parent_id;
+      `, [sourceWorkspaceId, newWorkspaceId]);
+
+      insertedCount = result.rowCount ?? 0;
+      console.log('[DEBUG-SNAPSHOT] Finished depth:', depth, 'inserted rows:', insertedCount);
+    }
+
+    console.log('[DEBUG-SNAPSHOT] COMMIT transaction');
+    await client.query('COMMIT');
+
+    // 3. Copy host-side workspace directory (bind-mount data)
+    console.log('[DEBUG-SNAPSHOT] Copying host-side directory...');
+    const sourceDir = path.join(WORKSPACE_DATA_DIR, sourceWorkspaceId);
+    const destDir = path.join(WORKSPACE_DATA_DIR, newWorkspaceId);
+
+    if (existsSync(sourceDir)) {
+      cpSync(sourceDir, destDir, { recursive: true });
+    }
+    console.log('[DEBUG-SNAPSHOT] cpSync complete.');
+
+    res.status(201).json({
+      id: newWorkspaceId,
+      title: newTitle,
+      message: 'Workspace snapshot created successfully',
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[Snapshot] Failed:', err.message);
+    res.status(500).json({ error: 'Failed to create snapshot' });
+  } finally {
+    client.release();
+  }
 });
 
 // =============================================================================

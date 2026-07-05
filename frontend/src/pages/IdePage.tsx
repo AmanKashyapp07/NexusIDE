@@ -6,7 +6,7 @@ import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import { useToast } from '../components/Toast/Toast';
 import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
-import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder, Activity, ChevronDown } from 'lucide-react';
+import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder, Activity, ChevronDown, GitBranch } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import { apiUrl, wsUrl } from '../lib/backendUrls';
 
@@ -270,6 +270,35 @@ function IdePage() {
     }
   }, [workspaceId, workspaceTitle, addToast]);
 
+  const [isSnapshotting, setIsSnapshotting] = useState(false);
+
+  const handleSnapshot = useCallback(async () => {
+    if (!workspaceId || isSnapshotting) return;
+    setIsSnapshotting(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(apiUrl(`/workspace/${workspaceId}/snapshot`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Snapshot failed' }));
+        throw new Error(data.error || 'Snapshot failed');
+      }
+
+      const data = await res.json();
+      addToast(`Snapshot created: "${data.title}"`, 'success');
+      // Navigate to the new snapshot workspace
+      navigateRef.current(`/ide/${data.id}`);
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to create snapshot', 'error');
+    } finally {
+      setIsSnapshotting(false);
+    }
+  }, [workspaceId, isSnapshotting, addToast]);
+
   if (!user || !workspaceId) {
     return (
       <div className="relative flex h-screen w-full items-center justify-center bg-[#050505] text-zinc-300">
@@ -442,6 +471,15 @@ function IdePage() {
             >
               <Download size={14} />
               Export
+            </button>
+            <button
+              onClick={handleSnapshot}
+              disabled={isSnapshotting}
+              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Create a snapshot (branch) of this workspace"
+            >
+              {isSnapshotting ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+              Snapshot
             </button>
             <button
               onClick={handleLogout}

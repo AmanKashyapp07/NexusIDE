@@ -192,6 +192,12 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await bobPage.keyboard.press('Enter');
     await expect(bobPage.locator('.xterm')).toContainText('restricted', { timeout: 15000 });
 
+    // Try running git command in Bob's terminal (should fail with command not found since PATH=/viewer_bin)
+    await bobTerminalTextarea.focus();
+    await bobPage.keyboard.type('git status', { delay: 10 });
+    await bobPage.keyboard.press('Enter');
+    await expect(bobPage.locator('.xterm')).toContainText('command not found', { timeout: 15000 });
+
     await bobPage.locator('.ide-scrollbar').getByText('viewer-test.js').click();
     await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
 
@@ -388,6 +394,125 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     // Expect the backend RBAC middleware to strictly reject the request
     expect(apiResponseStatus).toBe(403);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 8: Snapshotting and Branching Verification
+  // ═══════════════════════════════════════════════════════════════════════════════
+  test('8. performs atomic workspace snapshotting and instant branching verification', async ({ page }) => {
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+    const timestamp = Date.now();
+    const username = `SnapUser_${timestamp}`;
+    const workspaceTitle = `OriginalWS_${timestamp}`;
+
+    // 1. User logs in
+    await loginUser(page, username);
+
+    // 2. User creates a workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const ideUrl = page.url();
+    const originalWorkspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(page);
+
+    // Locate terminal components
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    const terminalBody = page.locator('.xterm');
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    // 3. Create a file structure and content in the workspace
+    await terminalTextarea.focus();
+    await page.keyboard.type('echo "initial content text" > hello.txt\n', { delay: 10 });
+    await page.waitForTimeout(4000); // Allow watcher to detect hello.txt
+
+    // 4. Open hello.txt in Monaco
+    const helloFile = page.locator('.ide-scrollbar').getByText('hello.txt');
+    await expect(helloFile).toBeVisible({ timeout: 10000 });
+    await helloFile.click();
+    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+
+    // 5. Append additional text to hello.txt via Monaco
+    await page.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      const model = ed.getModel();
+      model.setValue('initial content text and collaborative edits');
+    });
+
+    // Wait for the debounce save to finish
+    await page.waitForTimeout(3500);
+
+    // 6. Request snapshot via API directly and log response
+    console.log('[E2E] Triggering snapshot API call...');
+    const result = await page.evaluate(async (wsId) => {
+      const token = localStorage.getItem('token');
+      try {
+        const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const body = await res.json().catch(() => ({}));
+        return { status: res.status, body };
+      } catch (err: any) {
+        return { status: 500, error: err.message };
+      }
+    }, originalWorkspaceId);
+    
+    console.log('[E2E] Snapshot API response:', result);
+    expect(result.status).toBe(201);
+    const snapshotWorkspaceId = result.body.id;
+    expect(snapshotWorkspaceId).not.toBe(originalWorkspaceId);
+    
+    // Navigate to the new snapshot workspace URL
+    await page.goto(`${APP_URL}/ide/${snapshotWorkspaceId}`);
+
+    // Wait for new container to boot and workspace state load
+    await waitForBootComplete(page);
+
+    // 8. Verify the file list in snapshot workspace contains hello.txt
+    const helloFileInSnapshot = page.locator('.ide-scrollbar').getByText('hello.txt');
+    await expect(helloFileInSnapshot).toBeVisible({ timeout: 15000 });
+    await helloFileInSnapshot.click();
+    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+
+    // Check that editor content matches the parent workspace content
+    const valInSnapshot = await getEditorValue(page);
+    expect(valInSnapshot).toBe('initial content text and collaborative edits');
+
+    // 9. Verify the container filesystem data is copied over correctly
+    const terminalTextarea2 = page.locator('.xterm-helper-textarea');
+    const terminalBody2 = page.locator('.xterm');
+    await expect(terminalBody2).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    await terminalTextarea2.focus();
+    await page.keyboard.type('cat hello.txt\n', { delay: 10 });
+    await expect(terminalBody2).toContainText('initial content text and collaborative edits', { timeout: 10000 });
+
+    // 10. Perform edits in snapshot to verify isolation (does not modify original workspace)
+    await page.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      ed.getModel().setValue('changed in snapshot workspace');
+    });
+    await page.waitForTimeout(3500); // Allow save
+
+    // Navigate back to original workspace
+    await page.goto(ideUrl);
+    await waitForBootComplete(page);
+
+    // Open hello.txt in the original workspace
+    const helloFileInOriginal = page.locator('.ide-scrollbar').getByText('hello.txt');
+    await expect(helloFileInOriginal).toBeVisible({ timeout: 15000 });
+    await helloFileInOriginal.click();
+    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+
+    // Verify original content remains intact (isolation is maintained)
+    const valInOriginal = await getEditorValue(page);
+    expect(valInOriginal).toBe('initial content text and collaborative edits');
   });
 
 });
