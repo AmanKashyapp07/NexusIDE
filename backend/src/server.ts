@@ -35,7 +35,7 @@ import { getPool } from './db';
 import { warmPoolManager } from './sandbox/pool';
 import { handleTerminalConnection, syncFileToTerminal } from './terminal/terminalHandler';
 import { handleLspConnection } from './terminal/lspHandler';
-import { cleanupAllWorkspaceContainers } from './sandbox/workspaceContainer';
+import { cleanupAllWorkspaceContainers, releaseWorkspaceContainer } from './sandbox/workspaceContainer';
 
 const app = express();
 app.use(cors());
@@ -281,6 +281,14 @@ wss.on('connection', async (ws, req) => {
     });
 
     ws.on('close', async () => {
+      // Release the workspace container when the editor tab closes/navigates away.
+      // Without this, containers only get released when terminal/LSP sockets close.
+      // In E2E tests (and production) where users only use the editor, containers
+      // would accumulate indefinitely — causing CPU/RAM exhaustion on CI runners.
+      if (decodedUser?.id && workspaceId) {
+        releaseWorkspaceContainer(decodedUser.id, workspaceId).catch(() => {});
+      }
+
       if (!docRef) return;
       const doc = docRef;
       const controlledIds = doc.conns.get(ws);
