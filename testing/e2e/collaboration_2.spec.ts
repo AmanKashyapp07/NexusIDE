@@ -1,12 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const originalNow = Date.now;
-let lastTime = originalNow() * 100 + Number(process.env.TEST_WORKER_INDEX || 0);
-Date.now = () => {
-  const current = originalNow() * 100 + Number(process.env.TEST_WORKER_INDEX || 0);
-  lastTime = Math.max(current, lastTime + 1);
-  return lastTime;
-};
+
 
 const APP_URL = 'http://localhost:5173';
 
