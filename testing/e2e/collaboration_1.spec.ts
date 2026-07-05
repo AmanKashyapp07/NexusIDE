@@ -352,4 +352,83 @@ test.describe('Collaborative Engine Part 1 (Tests 1-8)', () => {
       expect(reconnectText.split(SENTINEL).length - 1).toBe(1);
     }).toPass({ timeout: 15000, intervals: [1000] });
   });
+
+  // ==========================================================================
+  // TEST 9: Jump-to-member cursor via avatar click
+  //
+  // Alice and Bob both have the same file open. Alice types several lines so
+  // her cursor is not on line 1. Bob clicks Alice's avatar in the header.
+  // The editor should scroll to Alice's cursor line — verified by reading back
+  // the Monaco editor's current cursor position via the JS API.
+  // ==========================================================================
+  test('9. clicking a member avatar jumps to their cursor position in the editor', async ({ page, context }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+
+    await loginUser(alicePage, `Alice_Jump_${timestamp}`);
+    await loginUser(bobPage, `Bob_Jump_${timestamp}`);
+
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Jump_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await createFile(alicePage, 'jump.js');
+    await waitForEditorModel(alicePage, 'jump.js');
+    await inviteUser(alicePage, `Bob_Jump_${timestamp}`, 'editor');
+
+    // Alice types enough lines so her cursor ends up well below line 1
+    await focusEditor(alicePage);
+    await alicePage.keyboard.type('// line 1\n// line 2\n// line 3\n// line 4\n// line 5\n', { delay: 10 });
+    // Alice's cursor is now on line 6
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('jump.js').click();
+    await waitForEditorModel(bobPage, 'jump.js');
+
+    // Wait for Bob to see Alice's content and awareness cursor to propagate
+    await expect(async () => {
+      const text = await getEditorValue(bobPage);
+      expect(text).toContain('line 5');
+    }).toPass({ timeout: 10000, intervals: [500] });
+
+    // Give awareness a moment to deliver Alice's cursor position to Bob's client
+    await bobPage.waitForTimeout(500);
+
+    // Explicitly set Bob's cursor to line 1, column 1 to guarantee a clean baseline
+    await bobPage.evaluate(() => {
+      const editors = (window as any).monaco?.editor?.getEditors();
+      if (editors && editors[0]) {
+        editors[0].setPosition({ lineNumber: 1, column: 1 });
+      }
+    });
+
+    // Bob's cursor starts on line 1 (just opened the file)
+    const bobCursorBefore = await bobPage.evaluate(() => {
+      const editors = (window as any).monaco?.editor?.getEditors();
+      return editors && editors[0] ? editors[0].getPosition() : null;
+    });
+    expect(bobCursorBefore?.lineNumber).toBeLessThanOrEqual(1);
+
+
+    // Bob clicks Alice's avatar in the header — the stacked avatar group
+    // Individual avatars have title="Jump to Alice_Jump_<ts>'s cursor"
+    const aliceAvatarTitle = `Jump to Alice_Jump_${timestamp}'s cursor`;
+    const aliceAvatar = bobPage.locator(`[title="${aliceAvatarTitle}"]`);
+    await expect(aliceAvatar).toBeVisible({ timeout: 10000 });
+    await aliceAvatar.click();
+
+    // After the jump, Bob's editor cursor should be at or near Alice's line (6)
+    await expect(async () => {
+      const bobCursorAfter = await bobPage.evaluate(() => {
+        const editors = (window as any).monaco?.editor?.getEditors();
+        return editors && editors[0] ? editors[0].getPosition() : null;
+      });
+      // Alice ended on line 6; cursor should have moved from line 1
+      expect(bobCursorAfter?.lineNumber).toBeGreaterThanOrEqual(5);
+    }).toPass({ timeout: 5000, intervals: [200] });
+  });
 });
