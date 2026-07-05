@@ -108,7 +108,6 @@ export default function CodeEditor({
 
   // Synchronously reset sync and awareness status during render if the active file has swapped.
   // This ensures the "Syncing with server..." overlay is instantly visible in the DOM
-  console.log('[CodeEditor Render] workspaceId:', workspaceId, 'fileId:', fileId, 'hasEditor:', !!editor);
   const [prevFileId, setPrevFileId] = useState(fileId);
   // during the render commit, preventing E2E race conditions where Playwright asserts
   // state before the new Yjs websocket handshake is initiated.
@@ -139,13 +138,6 @@ export default function CodeEditor({
     // Expose provider + doc via refs so the jump effect can read awareness state
     // without being part of this effect's dependency array.
     wsProviderRef.current = wsProvider;
-
-    wsProvider.on('status', (event: any) => {
-      console.log(`[Yjs WS Status] room: ${roomName}, status: ${event.status}`);
-    });
-    wsProvider.on('connection-error', (event: any) => {
-      console.error(`[Yjs WS Connection Error] room: ${roomName}`, event);
-    });
     ydocRef.current = ydoc;
 
     const tryBind = () => {
@@ -175,7 +167,6 @@ export default function CodeEditor({
         binding = null;
       }
       
-      console.log(`[Yjs MonacoBinding] creating binding for room: ${roomName}, model length: ${model.getValue().length}, ytext length: ${ytext.length}`);
       binding = new MonacoBinding(
         ytext,
         model,
@@ -186,8 +177,6 @@ export default function CodeEditor({
     };
 
     const handleSync = (synced: boolean) => {
-      const ytext = ydoc.getText('monaco');
-      console.log(`[Yjs WS Sync Event] room: ${roomName}, synced: ${synced}, ytext length: ${ytext.length}`);
       if (synced && isActive) {
         // Y.Text is now hydrated from the server — safe to bind even if the
         // cached Monaco model had prior content (they will now match/merge).

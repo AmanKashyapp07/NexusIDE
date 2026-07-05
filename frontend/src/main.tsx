@@ -1,4 +1,4 @@
-// import './disable-logs';
+import './disable-logs';
 import { createRoot } from 'react-dom/client';
 import { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';

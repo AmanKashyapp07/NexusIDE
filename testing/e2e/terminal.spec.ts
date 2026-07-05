@@ -1356,22 +1356,13 @@ const server = http.createServer((req, res) => {
   res.end('<h1>Express Backend Active</h1><p>React Mock Frontend Mounted</p>');
 });
 server.listen(3000, () => {
-  console.log('Server listening on port 3000');
+  console.log('Server ' + 'listening on port 3000');
 });
 `;
 
-    // Create app.js file via terminal using node -e with escaped content
-    // Avoids heredoc quoting issues with single quotes in the server script
+    // Create app.js file via terminal using heredoc
     await terminalTextarea.focus();
-    const appJsContent = [
-      "const http = require('http');",
-      "const server = http.createServer((req, res) => {",
-      "  res.writeHead(200, { 'Content-Type': 'text/html' });",
-      "  res.end('<h1>Express Backend Active</h1><p>React Mock Frontend Mounted</p>');",
-      "});",
-      "server.listen(3000, () => { console.log('Server listening on port 3000'); });"
-    ].join('\\n');
-    await page.keyboard.type(`node -e "const fs=require('fs');fs.writeFileSync('app.js','${appJsContent}')"\n`, { delay: 10 });
+    await page.keyboard.type(`cat << 'EOF' > app.js\n${serverScript}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1500);
 
     // 4. Start the server in the background
