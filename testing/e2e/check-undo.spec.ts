@@ -35,3 +35,4 @@ test('check monaco undo', async ({ page }) => {
   const valAfter = await page.evaluate(() => (window as any).monaco.editor.getEditors()[0].getModel().getValue());
   console.log("AFTER UNDO:", valAfter);
 });
+//
