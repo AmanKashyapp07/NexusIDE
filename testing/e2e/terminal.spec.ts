@@ -1564,4 +1564,45 @@ server.listen(3000, () => {
     await expect(terminalBody2).toContainText('modified:   README.md', { timeout: 10000 });
   });
 
+  test('blocks git commands when admin is not signed in via GitHub (test account)', async ({ page }) => {
+    const timestamp = Date.now();
+    const username = `NoGit_${timestamp}`;
+    const workspaceTitle = `NoGit_WS_${timestamp}`;
+
+    // 1. User logs in (ordinary username/password flow, no GitHub link)
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(username);
+    
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled({ timeout: 10000 });
+    await submitBtn.click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    // 2. User creates a workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
+    await page.click('button:has-text("Create Now")');
+
+    // Wait for redirect to IDE and bootstrap
+    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+    await page.waitForSelector('text=Select a file from the explorer to begin.');
+
+    // Locate terminal components
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    const terminalBody = page.locator('.xterm');
+
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    // 3. Try to execute a git command (should print blocker error)
+    await terminalTextarea.focus();
+    await page.keyboard.type('git status\n', { delay: 10 });
+    
+    // Expect blocker error message
+    await expect(terminalBody).toContainText('Error: Git commands are only available when signed in with a GitHub account.', { timeout: 10000 });
+  });
+
 });
