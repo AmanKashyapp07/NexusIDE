@@ -10,6 +10,7 @@ import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRig
 import { io, type Socket } from 'socket.io-client';
 import { apiUrl, wsUrl } from '../lib/backendUrls';
 import SnapshotPanel from '../components/Snapshots/SnapshotPanel';
+import ConflictResolver from '../components/Conflict/ConflictResolver';
 
 type UserRole = 'admin' | 'editor' | 'viewer';
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
@@ -58,6 +59,8 @@ function IdePage() {
   // Jump-to-member: userId of the collaborator whose cursor we want to jump to.
   // Set when the user clicks an avatar; cleared by CodeEditor via onJumpComplete.
   const [jumpToUserId, setJumpToUserId] = useState<string | null>(null);
+  const [hasConflicts, setHasConflicts] = useState(false);
+  const [showConflictResolver, setShowConflictResolver] = useState(false);
   const { addToast } = useToast();
 
   const handleConnectionStatusChange = useCallback((status: ConnectionStatus) => {
@@ -153,10 +156,16 @@ function IdePage() {
     socket.on('workspace-presence-update', (users: CollaboratorPresence[]) => setActiveCollaborators(users));
     socket.on('file-tree-update', () => fetchFiles(urlWorkspaceId));
 
-    // When admin restores a snapshot, reload the page so all users see the restored content
     socket.on('snapshot-restored', ({ label }: { label: string }) => {
       addToast(`Workspace restored to snapshot: "${label}"`, 'success');
       setTimeout(() => window.location.reload(), 1000);
+    });
+
+    socket.on('conflict-resolved', ({ fileId }: { fileId: string }) => {
+      if (activeFileId === fileId) {
+        setHasConflicts(false);
+        addToast('Merge conflict resolved.', 'success');
+      }
     });
 
     socket.on('user-typing', ({ userId }: { userId: string }) => {
@@ -184,8 +193,25 @@ function IdePage() {
   useEffect(() => {
     if (presenceSocketRef.current && activeFileId) {
       presenceSocketRef.current.emit('active-file-change', { activeFileId });
+      
+      const checkConflicts = async () => {
+        if (!urlWorkspaceId) return;
+        try {
+          const token = localStorage.getItem('token');
+          const res = await fetch(apiUrl(`/workspace/${urlWorkspaceId}/files/${activeFileId}/conflicts`), {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setHasConflicts(data.hasConflicts);
+          }
+        } catch (e) {
+           console.error('Failed to check conflicts', e);
+        }
+      };
+      checkConflicts();
     }
-  }, [activeFileId]);
+  }, [activeFileId, urlWorkspaceId]);
 
   useEffect(() => {
     if (files.length === 0) return;
@@ -566,6 +592,21 @@ function IdePage() {
               )}
             </div>
 
+            {hasConflicts && (
+              <div className="flex shrink-0 items-center justify-between bg-amber-500/10 px-4 py-2 border-b border-amber-500/20">
+                <div className="flex items-center gap-2 text-xs text-amber-500">
+                  <GitBranch size={14} />
+                  <span>This file has unmerged conflicts.</span>
+                </div>
+                <button 
+                  onClick={() => setShowConflictResolver(true)}
+                  className="rounded bg-amber-500 px-3 py-1 text-[10px] font-bold text-amber-950 hover:bg-amber-400 transition-colors"
+                >
+                  Resolve Conflicts
+                </button>
+              </div>
+            )}
+
             <div className="relative min-h-0 flex-1 bg-[#020202]/50">
               {activeFile ? (
                 <CodeEditor
@@ -654,6 +695,19 @@ function IdePage() {
           onClose={() => setIsSnapshotPanelOpen(false)}
           onCreateSnapshot={handleCreateSnapshot}
           isCreating={isSnapshotting}
+        />
+      )}
+
+      {showConflictResolver && workspaceId && activeFileId && activeFile && (
+        <ConflictResolver
+          workspaceId={workspaceId}
+          fileId={activeFileId}
+          filename={activeFile.name}
+          onClose={() => setShowConflictResolver(false)}
+          onResolved={() => {
+            setShowConflictResolver(false);
+            setHasConflicts(false);
+          }}
         />
       )}
     </div>

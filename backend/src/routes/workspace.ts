@@ -489,6 +489,23 @@ router.get('/:id/files/:fileId/content', requireWorkspaceRole('viewer'), async (
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+router.put('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const workspaceId = req.params.id as string;
+  const fileId = req.params.fileId as string;
+  const { content } = req.body;
+  try {
+    await getPool().query('UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2 AND workspace_id = $3', [content ?? '', fileId, workspaceId]);
+    
+    // Push the changes to any active live Yjs docs to keep them in sync
+    const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
+    await applyRestoredContentToLiveDocs(workspaceId, [{ fileId, content: content ?? '' }]);
+    
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
   const id = req.params.id as string;
   try {
@@ -501,6 +518,101 @@ router.delete('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: 
 });
 
 // =============================================================================
+// GIT MERGE CONFLICT RESOLVER
+// =============================================================================
+
+import { parseConflicts } from '../utils/conflictParser.js';
+
+router.get('/:id/files/:fileId/conflicts', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+  try {
+    const result = await getPool().query('SELECT content FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
+    
+    const content = result.rows[0].content || '';
+    const conflicts = parseConflicts(content);
+    
+    const hasConflicts = conflicts.some(c => c.type === 'conflict');
+    res.json({ hasConflicts, conflicts });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/:id/files/:fileId/conflicts/resolve', requireWorkspaceRole('editor'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const { id: workspaceId, fileId } = req.params as { id: string; fileId: string };
+  const { resolvedContent } = req.body;
+  
+  if (resolvedContent === undefined) return res.status(400).json({ error: 'Missing resolvedContent' });
+
+  const client = await getPool().connect();
+  try {
+    const fileRes = await client.query('SELECT name FROM files WHERE id = $1 AND workspace_id = $2', [fileId, workspaceId]);
+    if (!fileRes.rows.length) return res.status(404).json({ error: 'File not found' });
+
+    await client.query('BEGIN');
+    
+    // 1. Update the raw content in the database directly
+    await client.query(
+      'UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2',
+      [resolvedContent, fileId]
+    );
+
+    // 2. Mutate the live Yjs documents so the server CRDT overwrites the client CRDT
+    const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
+    await applyRestoredContentToLiveDocs(workspaceId, [{ fileId, content: resolvedContent }]);
+
+    await client.query('COMMIT');
+
+    // 3. Resolve file path for git add
+    const pathResult = await client.query(`
+      WITH RECURSIVE file_path_cte AS (
+        SELECT id, parent_id, name, type, name::text AS path
+        FROM files WHERE workspace_id = $1 AND parent_id IS NULL
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, f.type,
+               (cte.path || '/' || f.name)::text AS path
+        FROM files f
+        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+        WHERE f.workspace_id = $1
+      )
+      SELECT path FROM file_path_cte WHERE id = $2;
+    `, [workspaceId, fileId]);
+
+    if (pathResult.rows.length) {
+      const filePath = pathResult.rows[0].path;
+      // 4. Run `git add` in container
+      const { getRunningContainer } = await import('../sandbox/workspaceContainer.js');
+      const userId = req.user?.id;
+      if (userId) {
+         try {
+           const container = getRunningContainer(userId, workspaceId);
+           if (container) {
+             const exec = await container.exec({
+               Cmd: ['git', 'add', filePath],
+               WorkingDir: `/workspaces/${workspaceId}`
+             });
+             await exec.start({ Detach: true });
+             console.log(`[ConflictResolver] Git added ${filePath}`);
+           }
+         } catch(e) {
+           console.error('[ConflictResolver] git add failed:', e);
+         }
+      }
+    }
+    
+    // Broadcast resolve event to all clients in this workspace
+    getIO()?.to(`presence-${workspaceId}`).emit('conflict-resolved', { 
+      workspaceId,
+      fileId
+    });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // AI ASSISTANT & PREVIEW PROXY
 // =============================================================================
 
