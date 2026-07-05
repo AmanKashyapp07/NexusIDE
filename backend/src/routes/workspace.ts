@@ -9,7 +9,7 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/workspaceContainer';
 import { WORKSPACE_DATA_DIR } from '../sandbox/pool';
 import * as path from 'path';
-import { rmSync, existsSync, cpSync } from 'fs';
+import { rmSync, existsSync } from 'fs';
 import { Mistral } from '@mistralai/mistralai';
 import { getIO } from '../socket';
 
@@ -130,125 +130,255 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // =============================================================================
-// WORKSPACE SNAPSHOTTING (Time-Travel Branching)
+// WORKSPACE SNAPSHOTTING (Time-Travel, Read-only History)
 // =============================================================================
 
-// [ARCHITECTURE] Atomic Workspace Clone
-// Creates a full copy of the workspace: metadata, file tree (with remapped parent_ids),
-// CRDT state, and the host-side bind-mount directory. The requesting user becomes the
-// owner of the new snapshot workspace. Uses a single DB transaction to guarantee
-// consistency — if any step fails, nothing is committed.
-router.post('/:id/snapshot', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
-  const sourceWorkspaceId = req.params.id as string;
+// [ARCHITECTURE] Snapshot Design
+// Rather than cloning the entire workspace into a new workspaces row (expensive,
+// clutters the dashboard), snapshots are stored in the dedicated `workspace_snapshots`
+// + `snapshot_files` tables. The files are captured as a flattened path→content map
+// at the moment of snapshotting. The DB trigger `enforce_snapshot_limit` automatically
+// evicts the oldest snapshot when the count exceeds 10, keeping storage bounded.
+//
+// RBAC:
+//   - Create snapshot  → admin only
+//   - List snapshots   → viewer+  (all roles can browse history)
+//   - Preview files    → viewer+  (all roles can read snapshot files + diff)
+//   - Restore snapshot → admin only
+
+// POST /:id/snapshot — create a new snapshot (admin only)
+router.post('/:id/snapshot', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const workspaceId = req.params.id as string;
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const pool = getPool();
-  console.log('[DEBUG-SNAPSHOT] Attempting to connect to database pool...');
-  const client = await pool.connect();
-  console.log('[DEBUG-SNAPSHOT] Connected to database pool.');
+  const { label } = req.body;
+  const snapshotLabel = (label as string)?.trim() || `Snapshot ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
 
+  const client = await getPool().connect();
   try {
-    console.log('[DEBUG-SNAPSHOT] BEGIN transaction');
     await client.query('BEGIN');
 
-    // 1. Clone workspace record
-    console.log('[DEBUG-SNAPSHOT] Cloning workspace record for:', sourceWorkspaceId);
-    const wsResult = await client.query(
-      `INSERT INTO workspaces (owner_id, title, description, is_public)
-       SELECT $2, title || ' (Snapshot)', description, false
-       FROM workspaces WHERE id = $1
-       RETURNING id, title`,
-      [sourceWorkspaceId, userId]
+    // 1. Create snapshot record — trigger evict_old_snapshots fires automatically
+    const snapResult = await client.query(
+      `INSERT INTO workspace_snapshots (workspace_id, created_by, label)
+       VALUES ($1, $2, $3) RETURNING id, label, created_at`,
+      [workspaceId, userId, snapshotLabel]
     );
+    const snapshotId = snapResult.rows[0].id;
 
-    if (!wsResult.rows.length) {
-      console.log('[DEBUG-SNAPSHOT] Source workspace not found, rollback.');
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Source workspace not found' });
-    }
-
-    const newWorkspaceId = wsResult.rows[0].id;
-    const newTitle = wsResult.rows[0].title;
-    console.log('[DEBUG-SNAPSHOT] Workspace record cloned successfully. New ID:', newWorkspaceId);
-
-    // 2. Clone files with remapped parent_id references
-    console.log('[DEBUG-SNAPSHOT] Creating temp mapping table...');
+    // 2. Flatten the live file tree into path→content rows for this snapshot.
+    //    Uses a recursive CTE to resolve full paths, same pattern as export.
     await client.query(`
-      CREATE TEMP TABLE id_map (old_id UUID, new_id UUID) ON COMMIT DROP;
-    `);
-
-    // Insert root-level files (parent_id IS NULL) first
-    console.log('[DEBUG-SNAPSHOT] Inserting root files...');
-    await client.query(`
-      WITH inserted AS (
-        INSERT INTO files (workspace_id, parent_id, name, type, content, yjs_state, language, size_bytes)
-        SELECT $2, NULL, name, type, content, yjs_state, language, size_bytes
+      INSERT INTO snapshot_files (snapshot_id, path, content, language)
+      WITH RECURSIVE file_path_cte AS (
+        SELECT id, parent_id, name, type, content, language, name::text AS path
         FROM files WHERE workspace_id = $1 AND parent_id IS NULL
-        RETURNING id, name, type
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, f.type, f.content, f.language,
+               (cte.path || '/' || f.name)::text AS path
+        FROM files f
+        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+        WHERE f.workspace_id = $1
       )
-      INSERT INTO id_map (old_id, new_id)
-      SELECT f.id, inserted.id
-      FROM files f
-      JOIN inserted ON f.name = inserted.name AND f.type = inserted.type
-      WHERE f.workspace_id = $1 AND f.parent_id IS NULL;
-    `, [sourceWorkspaceId, newWorkspaceId]);
+      SELECT $2, path, content, language
+      FROM file_path_cte
+      WHERE type = 'file';
+    `, [workspaceId, snapshotId]);
 
-    // Iteratively insert child levels until no more children remain.
-    let insertedCount = 1; // seed the loop
-    const MAX_DEPTH = 50; // safety guard against infinite loops
-    let depth = 0;
-
-    console.log('[DEBUG-SNAPSHOT] Starting child files clone loop...');
-    while (insertedCount > 0 && depth < MAX_DEPTH) {
-      depth++;
-      console.log('[DEBUG-SNAPSHOT] Copying child level depth:', depth);
-      const result = await client.query(`
-        WITH to_copy AS (
-          SELECT f.id AS old_id, f.name, f.type, f.content, f.yjs_state, f.language, f.size_bytes, m.new_id AS new_parent_id
-          FROM files f
-          JOIN id_map m ON f.parent_id = m.old_id
-          WHERE f.workspace_id = $1
-            AND NOT EXISTS (SELECT 1 FROM id_map existing WHERE existing.old_id = f.id)
-        ),
-        inserted AS (
-          INSERT INTO files (workspace_id, parent_id, name, type, content, yjs_state, language, size_bytes)
-          SELECT $2, tc.new_parent_id, tc.name, tc.type, tc.content, tc.yjs_state, tc.language, tc.size_bytes
-          FROM to_copy tc
-          RETURNING id, name, type, parent_id
-        )
-        INSERT INTO id_map (old_id, new_id)
-        SELECT tc.old_id, inserted.id
-        FROM to_copy tc
-        JOIN inserted ON tc.name = inserted.name AND tc.type = inserted.type AND tc.new_parent_id = inserted.parent_id;
-      `, [sourceWorkspaceId, newWorkspaceId]);
-
-      insertedCount = result.rowCount ?? 0;
-      console.log('[DEBUG-SNAPSHOT] Finished depth:', depth, 'inserted rows:', insertedCount);
-    }
-
-    console.log('[DEBUG-SNAPSHOT] COMMIT transaction');
     await client.query('COMMIT');
 
-    // 3. Copy host-side workspace directory (bind-mount data)
-    console.log('[DEBUG-SNAPSHOT] Copying host-side directory...');
-    const sourceDir = path.join(WORKSPACE_DATA_DIR, sourceWorkspaceId);
-    const destDir = path.join(WORKSPACE_DATA_DIR, newWorkspaceId);
-
-    if (existsSync(sourceDir)) {
-      cpSync(sourceDir, destDir, { recursive: true });
-    }
-    console.log('[DEBUG-SNAPSHOT] cpSync complete.');
-
     res.status(201).json({
-      id: newWorkspaceId,
-      title: newTitle,
-      message: 'Workspace snapshot created successfully',
+      id: snapshotId,
+      label: snapResult.rows[0].label,
+      created_at: snapResult.rows[0].created_at,
     });
   } catch (err: any) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('[Snapshot] Failed:', err.message);
+    console.error('[Snapshot] Create failed:', err.message);
     res.status(500).json({ error: 'Failed to create snapshot' });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /:id/snapshots — list all snapshots for a workspace (viewer+)
+router.get('/:id/snapshots', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+  try {
+    const result = await getPool().query(
+      `SELECT s.id, s.label, s.created_at, u.username AS created_by
+       FROM workspace_snapshots s
+       JOIN users u ON s.created_by = u.id
+       WHERE s.workspace_id = $1
+       ORDER BY s.created_at DESC
+       LIMIT 10`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /:id/snapshots/:snapshotId/files — get all files in a snapshot with diff vs current (viewer+)
+// Returns each snapshot file alongside the current live content for that path,
+// so the frontend can render a beautiful line-by-line diff without extra round trips.
+router.get('/:id/snapshots/:snapshotId/files', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const { id: workspaceId, snapshotId } = req.params as { id: string; snapshotId: string };
+  try {
+    // Verify snapshot belongs to this workspace
+    const snapCheck = await getPool().query(
+      'SELECT id FROM workspace_snapshots WHERE id = $1 AND workspace_id = $2',
+      [snapshotId, workspaceId]
+    );
+    if (!snapCheck.rows.length) return res.status(404).json({ error: 'Snapshot not found' });
+
+    // Fetch snapshot files
+    const snapFiles = await getPool().query(
+      'SELECT path, content, language FROM snapshot_files WHERE snapshot_id = $1 ORDER BY path ASC',
+      [snapshotId]
+    );
+
+    // Fetch current live files (flattened paths) for diffing
+    const liveFiles = await getPool().query(`
+      WITH RECURSIVE file_path_cte AS (
+        SELECT id, parent_id, name, type, content, language, name::text AS path
+        FROM files WHERE workspace_id = $1 AND parent_id IS NULL
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, f.type, f.content, f.language,
+               (cte.path || '/' || f.name)::text AS path
+        FROM files f
+        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+        WHERE f.workspace_id = $1
+      )
+      SELECT path, content, language FROM file_path_cte WHERE type = 'file'
+    `, [workspaceId]);
+
+    // Build a map of live content keyed by path for O(1) lookup
+    const liveMap = new Map<string, string>(
+      liveFiles.rows.map((r: { path: string; content: string | null }) => [r.path, r.content ?? ''])
+    );
+
+    // Return each snapshot file with its live counterpart so the client can diff
+    const files = snapFiles.rows.map((f: { path: string; content: string | null; language: string | null }) => ({
+      path: f.path,
+      language: f.language,
+      snapshot_content: f.content ?? '',
+      live_content: liveMap.get(f.path) ?? null, // null = file deleted since snapshot
+    }));
+
+    // Also include files that exist live but not in snapshot (newly added files)
+    const snapPaths = new Set(snapFiles.rows.map((f: { path: string }) => f.path));
+    for (const lf of liveFiles.rows) {
+      if (!snapPaths.has(lf.path)) {
+        files.push({
+          path: lf.path,
+          language: lf.language,
+          snapshot_content: null as any, // null = file didn't exist at snapshot time
+          live_content: lf.content ?? '',
+        });
+      }
+    }
+
+    res.json(files);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/snapshots/:snapshotId/restore — restore workspace files to snapshot state (admin only)
+// Overwrites live file content with snapshot content. Files that existed at snapshot time
+// are updated; files added after the snapshot are left untouched (not deleted, to avoid
+// accidental data loss — admin can manually clean up if needed).
+// After restore, broadcasts a 'snapshot-restored' socket event to all connected clients
+// so they can reload their Yjs state and see the restored content immediately.
+// POST /:id/snapshots/:snapshotId/restore — restore workspace files to snapshot state (admin only)
+router.post('/:id/snapshots/:snapshotId/restore', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
+  const { id: workspaceId, snapshotId } = req.params as { id: string; snapshotId: string };
+
+  const client = await getPool().connect();
+  try {
+    // Verify snapshot belongs to this workspace
+    const snapCheck = await client.query(
+      'SELECT id, label FROM workspace_snapshots WHERE id = $1 AND workspace_id = $2',
+      [snapshotId, workspaceId]
+    );
+    if (!snapCheck.rows.length) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+
+    // CRITICAL FIX: Import the new mutation function instead of eviction
+    const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
+
+    await client.query('BEGIN');
+
+    // Fetch snapshot files
+    const snapFiles = await client.query(
+      'SELECT path, content FROM snapshot_files WHERE snapshot_id = $1',
+      [snapshotId]
+    );
+
+    // Build live path→id map using recursive CTE
+    const liveFiles = await client.query(`
+      WITH RECURSIVE file_path_cte AS (
+        SELECT id, parent_id, name, type, name::text AS path
+        FROM files WHERE workspace_id = $1 AND parent_id IS NULL
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, f.type,
+               (cte.path || '/' || f.name)::text AS path
+        FROM files f
+        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
+        WHERE f.workspace_id = $1
+      )
+      SELECT id, path FROM file_path_cte WHERE type = 'file'
+    `, [workspaceId]);
+
+    const livePathToId = new Map<string, string>(
+      liveFiles.rows.map((r: { id: string; path: string }) => [r.path, r.id])
+    );
+
+    // Track data to inject into live Yjs documents
+    const restoredFilesData: { fileId: string; content: string }[] = [];
+
+    // Restore each snapshot file that has a matching live file
+    let restoredCount = 0;
+    for (const sf of snapFiles.rows) {
+      const liveId = livePathToId.get(sf.path);
+      if (liveId) {
+        const restoredContent = sf.content ?? '';
+        
+        // 1. Update the raw content in the database directly
+        await client.query(
+          'UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2',
+          [restoredContent, liveId]
+        );
+        
+        // 2. Queue the file data to update the live Yjs doc
+        restoredFilesData.push({ fileId: liveId, content: restoredContent });
+        
+        restoredCount++;
+        console.log(`[Snapshot] Restored file: ${sf.path} (${restoredContent.length} bytes)`);
+      }
+    }
+    console.log(`[Snapshot] Total restored: ${restoredCount} files`);
+
+    // 3. Mutate the live Yjs documents so the server CRDT overwrites the client CRDT
+    await applyRestoredContentToLiveDocs(workspaceId, restoredFilesData);
+
+    await client.query('COMMIT');
+
+    // Broadcast restore event to all clients in this workspace so they reload their UI/Yjs docs
+    getIO()?.to(`presence-${workspaceId}`).emit('snapshot-restored', { 
+      workspaceId,
+      snapshotId,
+      label: snapCheck.rows[0].label 
+    });
+
+    res.json({ success: true, label: snapCheck.rows[0].label, restored_files: snapFiles.rows.length });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[Snapshot] Restore failed:', err.message);
+    res.status(500).json({ error: 'Failed to restore snapshot' });
   } finally {
     client.release();
   }

@@ -28,6 +28,7 @@ interface CodeEditorProps {
   onAwarenessChange?: (users: AwarenessUser[]) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
   readOnly?: boolean;
+
   // Jump-to-member: set to a userId to scroll the editor to that user's cursor.
   // IdePage clears it via onJumpComplete once the jump is executed.
   jumpToUserId?: string | null;
@@ -82,7 +83,7 @@ export default function CodeEditor({
   const [editor, setEditor] = useState<MonacoCodeEditor | null>(null);
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
+
 
   // Ref to the live WebsocketProvider — needed by the jump effect which runs
   // outside the collaboration useEffect closure.
@@ -97,7 +98,6 @@ export default function CodeEditor({
   if (fileId !== prevFileId) {
     setPrevFileId(fileId);
     setAwarenessStates([]);
-    setSaveStatus('idle');
   }
 
   const callbackRefs = useRef({ onAwarenessChange, onConnectionStatusChange, onCodeChange });
@@ -110,7 +110,6 @@ export default function CodeEditor({
     let isActive = true;
     let boundModel: Monaco.editor.ITextModel | null = null;
     let binding: MonacoBinding | null = null;
-    let saveDebounce: ReturnType<typeof setTimeout>;
 
     if (!editor || !workspaceId || !fileId) return;
 
@@ -196,15 +195,6 @@ export default function CodeEditor({
 
     const handleUpdate = (_update: Uint8Array, origin: any) => {
       if (!isActive || origin !== binding) return;
-      setSaveStatus('unsaved');
-      clearTimeout(saveDebounce);
-      saveDebounce = setTimeout(() => {
-        setSaveStatus('saving');
-        setTimeout(() => {
-          setSaveStatus('saved');
-          setTimeout(() => setSaveStatus('idle'), 2000);
-        }, 500);
-      }, 1000);
       callbackRefs.current.onCodeChange?.(editor.getValue());
     };
 
@@ -224,7 +214,6 @@ export default function CodeEditor({
       wsProviderRef.current = null;
       ydocRef.current = null;
       if (modelDisposable) modelDisposable.dispose();
-      clearTimeout(saveDebounce);
       
       wsProvider.off('sync', handleSync);
       wsProvider.off('status', handleStatus as any);
@@ -487,40 +476,6 @@ export default function CodeEditor({
         </div>
       )}
 
-      {saveStatus !== 'idle' && (
-        <div className={`absolute top-3 right-4 z-20 flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold transition-all duration-300 backdrop-blur-md shadow-md border ${
-          saveStatus === 'unsaved' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-          saveStatus === 'saving' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-          'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-        }`}>
-          {saveStatus === 'unsaved' && (
-            <>
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
-              </span>
-              Unsaved Changes
-            </>
-          )}
-          {saveStatus === 'saving' && (
-            <>
-              <svg className="animate-spin h-3 w-3 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Saving to Disk...
-            </>
-          )}
-          {saveStatus === 'saved' && (
-            <>
-              <svg className="h-3 w-3 text-emerald-400 animate-[bounce_1s_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              Changes Saved
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

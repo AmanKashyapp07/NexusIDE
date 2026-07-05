@@ -397,122 +397,285 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   });
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // TEST 8: Snapshotting and Branching Verification
+  // TEST 8: Snapshotting — RBAC, History, Diff Preview & Restore
+  // Verifies the full snapshot lifecycle:
+  //   a) Only admins can create snapshots (viewer + editor are rejected with 403)
+  //   b) All roles can list snapshots (GET /snapshots returns 200)
+  //   c) All roles can preview snapshot files with diff metadata
+  //   d) Only admins can restore a snapshot (viewer + editor rejected with 403)
+  //   e) Restore actually overwrites live file content
+  //   f) Max-10 eviction: creating 11 snapshots keeps only the latest 10
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('8. performs atomic workspace snapshotting and instant branching verification', async ({ page }) => {
-    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+  test('8. enforces snapshot RBAC, persists history, delivers diff data, and restores correctly', async ({ page, context }) => {
+    const alicePage = page; // admin (owner)
+    const bobPage   = await context.browser()!.newContext().then(c => c.newPage()); // editor
+    const evePage   = await context.browser()!.newContext().then(c => c.newPage()); // viewer
     const timestamp = Date.now();
-    const username = `SnapUser_${timestamp}`;
-    const workspaceTitle = `OriginalWS_${timestamp}`;
 
-    // 1. User logs in
-    await loginUser(page, username);
+    const aliceName = `Alice_Snap_${timestamp}`;
+    const bobName   = `Bob_Snap_${timestamp}`;
+    const eveName   = `Eve_Snap_${timestamp}`;
 
-    // 2. User creates a workspace
-    await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
-    await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const ideUrl = page.url();
-    const originalWorkspaceId = ideUrl.split('/ide/')[1].split('/')[0];
-    await waitForBootComplete(page);
+    await loginUser(alicePage, aliceName);
+    await loginUser(bobPage,   bobName);
+    await loginUser(evePage,   eveName);
 
-    // Locate terminal components
-    const terminalTextarea = page.locator('.xterm-helper-textarea');
-    const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
-    await page.waitForTimeout(3000);
+    // ── Setup: Alice creates workspace + file ───────────────────────────────
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Snap_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
 
-    // 3. Create a file structure and content in the workspace
-    await terminalTextarea.focus();
-    await page.keyboard.type('echo "initial content text" > hello.txt\n', { delay: 10 });
-    await page.waitForTimeout(4000); // Allow watcher to detect hello.txt
-
-    // 4. Open hello.txt in Monaco
-    const helloFile = page.locator('.ide-scrollbar').getByText('hello.txt');
-    await expect(helloFile).toBeVisible({ timeout: 10000 });
-    await helloFile.click();
-    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
-
-    // 5. Append additional text to hello.txt via Monaco
-    await page.evaluate(() => {
+    await createFile(alicePage, 'history.js');
+    await alicePage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    console.log(1);
+    // Write initial content into the file
+    await alicePage.evaluate(() => {
       const ed = (window as any).monaco.editor.getEditors()[0];
-      const model = ed.getModel();
-      model.setValue('initial content text and collaborative edits');
+      ed.getModel().setValue('// version 1');
     });
+    await alicePage.waitForTimeout(3000); // debounce save
+    console.log(2);
 
-    // Wait for the debounce save to finish
-    await page.waitForTimeout(3500);
+    // Invite Bob as editor, Eve as viewer
+    await inviteUser(alicePage, bobName, 'editor');
+    await inviteUser(alicePage, eveName, 'viewer');
 
-    // 6. Request snapshot via API directly and log response
-    console.log('[E2E] Triggering snapshot API call...');
-    const result = await page.evaluate(async (wsId) => {
-      const token = localStorage.getItem('token');
-      try {
+    const token = {
+      alice: await alicePage.evaluate(() => localStorage.getItem('token')),
+      bob:   await bobPage.evaluate(async () => {
+        await fetch('http://localhost:4000/api/auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: '' }) // placeholder — token already in storage
+        }).catch(() => {});
+        return localStorage.getItem('token');
+      }),
+      eve:   await evePage.evaluate(() => localStorage.getItem('token')),
+    };
+    console.log(3);
+    // Navigate Bob and Eve to the workspace so their tokens are populated
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await evePage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await waitForBootComplete(evePage);
+    console.log(4);
+    const bobToken = await bobPage.evaluate(() => localStorage.getItem('token'));
+    const eveToken = await evePage.evaluate(() => localStorage.getItem('token'));
+    const aliceToken = await alicePage.evaluate(() => localStorage.getItem('token'));
+    console.log(5);
+    // ── (a) RBAC: editor cannot create snapshot ─────────────────────────────
+    const bobCreateStatus = await bobPage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'bob-attempt' }),
+      });
+      return res.status;
+    }, workspaceId);
+    expect(bobCreateStatus).toBe(403);
+    console.log(6);
+    // ── (a) RBAC: viewer cannot create snapshot ──────────────────────────────
+    const eveCreateStatus = await evePage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'eve-attempt' }),
+      });
+      return res.status;
+    }, workspaceId);
+    expect(eveCreateStatus).toBe(403);
+    console.log(7);
+    // ── Admin creates a valid snapshot ───────────────────────────────────────
+    const createResult = await alicePage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'v1-baseline' }),
+      });
+      return { status: res.status, body: await res.json() };
+    }, workspaceId);
+    expect(createResult.status).toBe(201);
+    expect(createResult.body.label).toBe('v1-baseline');
+    const snapshotId = createResult.body.id as string;
+    expect(snapshotId).toBeTruthy();
+    console.log(8);
+    // ── (b) All roles can list snapshots ────────────────────────────────────
+    const aliceList = await alicePage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return { status: res.status, body: await res.json() };
+    }, workspaceId);
+    expect(aliceList.status).toBe(200);
+    expect(Array.isArray(aliceList.body)).toBe(true);
+    expect(aliceList.body.length).toBe(1);
+    expect(aliceList.body[0].label).toBe('v1-baseline');
+    expect(aliceList.body[0].created_by).toBe(aliceName);
+    console.log(9);
+    const bobList = await bobPage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.status;
+    }, workspaceId);
+    expect(bobList).toBe(200);
+
+    const eveList = await evePage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.status;
+    }, workspaceId);
+    expect(eveList).toBe(200);
+    console.log(9);
+    // ── (c) Mutate the live file, then check diff data ───────────────────────
+    await alicePage.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      ed.getModel().setValue('// version 2\nconsole.log("changed");');
+    });
+    await alicePage.waitForTimeout(3000); // debounce save
+    
+    // Wait for the Yjs 800ms debounced save to complete BEFORE calling restore
+    // This prevents the pending save timer from overwriting the restored content
+    await alicePage.waitForTimeout(1500);
+
+    const diffResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return { status: res.status, body: await res.json() };
+    }, { wsId: workspaceId, snapId: snapshotId });
+
+    expect(diffResult.status).toBe(200);
+    const historyFile = diffResult.body.find((f: any) => f.path === 'history.js');
+    expect(historyFile).toBeTruthy();
+    // snapshot captured v1; live is now v2 — both sides must be present
+    expect(historyFile.snapshot_content).toContain('version 1');
+    expect(historyFile.live_content).toContain('version 2');
+
+    // Eve (viewer) can also preview the diff
+    const eveDiffStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.status;
+    }, { wsId: workspaceId, snapId: snapshotId });
+    expect(eveDiffStatus).toBe(200);
+    console.log(10);
+
+    // ── (d) RBAC: editor cannot restore ─────────────────────────────────────
+    const bobRestoreStatus = await bobPage.evaluate(async ({ wsId, snapId }) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.status;
+    }, { wsId: workspaceId, snapId: snapshotId });
+    expect(bobRestoreStatus).toBe(403);
+    console.log(11);
+
+    // ── (d) RBAC: viewer cannot restore ─────────────────────────────────────
+    const eveRestoreStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.status;
+    }, { wsId: workspaceId, snapId: snapshotId });
+    expect(eveRestoreStatus).toBe(403);
+    console.log(12);
+
+    // Close Bob and Eve's pages before restore — their active Yjs connections would
+    // otherwise reconnect after eviction and save v2 back from their in-memory state.
+    await bobPage.close();
+    await evePage.close();
+    // Give their WebSocket connections time to close and server to process the disconnect
+    await alicePage.waitForTimeout(1500);
+
+    // ── (e) Admin restores snapshot → live file reverts to v1 ───────────────
+    console.log('[TEST] Triggering restore API call...');
+    const restoreResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return { status: res.status, body: await res.json() };
+    }, { wsId: workspaceId, snapId: snapshotId });
+    console.log('[TEST] Restore API response:', restoreResult);
+    expect(restoreResult.status).toBe(200);
+    expect(restoreResult.body.success).toBe(true);
+    expect(restoreResult.body.restored_files).toBeGreaterThan(0);
+    console.log(13);
+    // Verify the DB actually has the restored content (bypassing Yjs in-memory cache)
+    console.log('[TEST] Checking DB content directly via API...');
+    const fileListRes = await alicePage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/files`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.json();
+    }, workspaceId);
+    const historyFileId = fileListRes.find((f: any) => f.name === 'history.js')?.id;
+    console.log('[TEST] history.js fileId:', historyFileId);
+    console.log(14);
+    const dbContentRes = await alicePage.evaluate(async ({ wsId, fileId }) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/files/${fileId}/content`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.json();
+    }, { wsId: workspaceId, fileId: historyFileId });
+    console.log('[TEST] DB content after restore:', JSON.stringify(dbContentRes.content));
+    
+    // DB must have restored content
+    expect(dbContentRes.content).toContain('version 1');
+    expect(dbContentRes.content).not.toContain('version 2');
+
+    console.log('[TEST] Waiting for socket event propagation + page reload...');
+    // Wait for the snapshot-restored socket event to trigger page reload
+    await alicePage.waitForTimeout(2500);
+    
+    console.log('[TEST] Waiting for boot complete after reload...');
+    await waitForBootComplete(alicePage);
+    
+    console.log('[TEST] Opening history.js file...');
+    await alicePage.locator('.ide-scrollbar').getByText('history.js').click();
+    await alicePage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await alicePage.waitForTimeout(2000);
+
+    console.log('[TEST] Reading editor content...');
+    const restoredContent = await getEditorValue(alicePage);
+    console.log('[TEST] Restored content:', JSON.stringify(restoredContent));
+    expect(restoredContent).toContain('version 1');
+    expect(restoredContent).not.toContain('version 2');
+    console.log(15);
+    // ── (f) Max-10 eviction: create 10 more snapshots, total must stay ≤ 10 ─
+    for (let i = 2; i <= 11; i++) {
+      const r = await alicePage.evaluate(async ({ wsId, i }) => {
         const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+          body: JSON.stringify({ label: `auto-snap-${i}` }),
         });
-        const body = await res.json().catch(() => ({}));
-        return { status: res.status, body };
-      } catch (err: any) {
-        return { status: 500, error: err.message };
-      }
-    }, originalWorkspaceId);
-    
-    console.log('[E2E] Snapshot API response:', result);
-    expect(result.status).toBe(201);
-    const snapshotWorkspaceId = result.body.id;
-    expect(snapshotWorkspaceId).not.toBe(originalWorkspaceId);
-    
-    // Navigate to the new snapshot workspace URL
-    await page.goto(`${APP_URL}/ide/${snapshotWorkspaceId}`);
+        return res.status;
+      }, { wsId: workspaceId, i });
+      expect(r).toBe(201);
+    }
 
-    // Wait for new container to boot and workspace state load
-    await waitForBootComplete(page);
+    const finalList = await alicePage.evaluate(async (wsId) => {
+      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      return res.json();
+    }, workspaceId);
 
-    // 8. Verify the file list in snapshot workspace contains hello.txt
-    const helloFileInSnapshot = page.locator('.ide-scrollbar').getByText('hello.txt');
-    await expect(helloFileInSnapshot).toBeVisible({ timeout: 15000 });
-    await helloFileInSnapshot.click();
-    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
-
-    // Check that editor content matches the parent workspace content
-    const valInSnapshot = await getEditorValue(page);
-    expect(valInSnapshot).toBe('initial content text and collaborative edits');
-
-    // 9. Verify the container filesystem data is copied over correctly
-    const terminalTextarea2 = page.locator('.xterm-helper-textarea');
-    const terminalBody2 = page.locator('.xterm');
-    await expect(terminalBody2).toContainText('sandbox:~#', { timeout: 25000 });
-    await page.waitForTimeout(3000);
-
-    await terminalTextarea2.focus();
-    await page.keyboard.type('cat hello.txt\n', { delay: 10 });
-    await expect(terminalBody2).toContainText('initial content text and collaborative edits', { timeout: 10000 });
-
-    // 10. Perform edits in snapshot to verify isolation (does not modify original workspace)
-    await page.evaluate(() => {
-      const ed = (window as any).monaco.editor.getEditors()[0];
-      ed.getModel().setValue('changed in snapshot workspace');
-    });
-    await page.waitForTimeout(3500); // Allow save
-
-    // Navigate back to original workspace
-    await page.goto(ideUrl);
-    await waitForBootComplete(page);
-
-    // Open hello.txt in the original workspace
-    const helloFileInOriginal = page.locator('.ide-scrollbar').getByText('hello.txt');
-    await expect(helloFileInOriginal).toBeVisible({ timeout: 15000 });
-    await helloFileInOriginal.click();
-    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
-
-    // Verify original content remains intact (isolation is maintained)
-    const valInOriginal = await getEditorValue(page);
-    expect(valInOriginal).toBe('initial content text and collaborative edits');
+    // Trigger fires after insert, so total should never exceed 10
+    expect(finalList.length).toBeLessThanOrEqual(10);
+    // Oldest (v1-baseline) should have been evicted
+    const labels = finalList.map((s: any) => s.label);
+    expect(labels).not.toContain('v1-baseline');
+    // Most recent should be present
+    expect(labels).toContain('auto-snap-11');
+    console.log(16);
   });
 
 });
