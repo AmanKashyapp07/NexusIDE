@@ -463,6 +463,7 @@ export default function CodeEditor({
           padding: { top: 16, bottom: 16 },
           lineNumbersMinChars: 3,
           readOnly: readOnly,
+          automaticLayout: true,
         }}
         onMount={handleEditorDidMount}
       />
