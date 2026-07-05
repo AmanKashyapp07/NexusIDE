@@ -72,6 +72,18 @@ vi.mock('@monaco-editor/react', () => ({
             css: { cssDefaults: { setDiagnosticsOptions: vi.fn() } },
             json: { jsonDefaults: { setDiagnosticsOptions: vi.fn() } },
             registerInlineCompletionsProvider: vi.fn(() => ({ dispose: vi.fn() })),
+            registerHoverProvider: vi.fn(() => ({ dispose: vi.fn() })),
+            registerCompletionItemProvider: vi.fn(() => ({ dispose: vi.fn() })),
+            registerSignatureHelpProvider: vi.fn(() => ({ dispose: vi.fn() })),
+          },
+          editor: {
+            setModelMarkers: vi.fn(),
+          },
+          MarkerSeverity: {
+            Error: 1,
+            Warning: 2,
+            Info: 3,
+            Hint: 4,
           },
           Range: class {
             constructor() {}
