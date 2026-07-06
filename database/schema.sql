@@ -81,6 +81,7 @@ CREATE TABLE files (
     type node_type NOT NULL,
     content TEXT, 
     yjs_state BYTEA, -- CRDT state persistence for Yjs
+    author_map JSONB DEFAULT '{}'::jsonb, -- clientID→{userId,username,color} accumulated across all sessions
     language VARCHAR(50), 
     size_bytes BIGINT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

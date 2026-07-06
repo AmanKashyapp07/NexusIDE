@@ -489,17 +489,42 @@ router.get('/:id/files/:fileId/content', requireWorkspaceRole('viewer'), async (
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// GET file history — returns the raw Yjs state for timelapse replay, plus the
+// accumulated clientID→user author map so the replayer can colour-code each
+// character by its author.
+// Response: JSON { yjsState: <base64 string>, authorMap: { "<clientId>": { userId, username, color } } }
 router.get('/:id/files/:fileId/history', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const result = await getPool().query('SELECT yjs_state FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
+    const result = await getPool().query(
+      'SELECT yjs_state, author_map FROM files WHERE id = $1 AND workspace_id = $2',
+      [req.params.fileId, req.params.id]
+    );
     if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
-    
-    const yjsState = result.rows[0].yjs_state;
+
+    const yjsState: Buffer | null = result.rows[0].yjs_state;
     if (!yjsState) return res.status(404).json({ error: 'No history found for this file' });
-    
-    // Return raw binary buffer so frontend can parse Yjs operations
-    res.set('Content-Type', 'application/octet-stream');
-    res.send(yjsState);
+
+    // Also merge in any author data currently live in the in-memory doc
+    // (not yet flushed to DB) so attribution is up-to-date even mid-session.
+    const authorMap: Record<string, { userId: string; username: string; color: string }> =
+      result.rows[0].author_map || {};
+
+    try {
+      const docName = `${req.params.id}-${req.params.fileId}`;
+      const { getDocsMap } = await import('../docsRegistry.js');
+      const docsMap = getDocsMap();
+      if (docsMap.has(docName)) {
+        const liveDoc = await docsMap.get(docName)!;
+        for (const [clientId, info] of liveDoc.authorMap.entries()) {
+          authorMap[String(clientId)] = info;
+        }
+      }
+    } catch { /* in-memory merge is best-effort */ }
+
+    res.json({
+      yjsState: yjsState.toString('base64'),
+      authorMap,
+    });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
