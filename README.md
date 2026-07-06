@@ -273,6 +273,18 @@ To run the Playwright test suite locally, ensure the development servers are up 
 npx --prefix frontend playwright test ../testing/e2e/conflict.spec.ts
 ```
 
+### 5. Deployment & Remote E2E Testing
+
+The project is designed to be fully deployable on cloud VMs (e.g., Oracle VM) under PM2 process management.
+- **Dynamic Host Resolution**: The client application dynamically resolves the API endpoint and WebSocket gateway hostnames relative to `window.location.hostname` (mapping port `4000` for API/WS traffic). This allows out-of-the-box support for remote deployments and SSH tunneling without needing to hardcode target servers at compile time.
+- **Headless E2E Execution**: To validate the integration suite directly on your deployed VM, install the headless browsers and execute playwright with the target `BASE_URL`:
+  ```bash
+  # Inside your SSH session on the VM:
+  cd /home/ubuntu/sandbox-ide/frontend
+  npx playwright install --with-deps
+  BASE_URL=http://localhost:3000 npm run test:e2e
+  ```
+
 ---
 
 ## Engineering Learnings
