@@ -72,6 +72,12 @@ class WSSharedDoc extends Y.Doc {
   dbLoaded: boolean;
   saveTimeout: NodeJS.Timeout | null;
   isSaving: boolean;
+  // [AUTHOR ATTRIBUTION] Persistent clientID → user info mapping.
+  // Accumulated across all sessions — once a clientID is mapped to a user it
+  // stays, even after the user disconnects. On reconnect the user gets a new
+  // clientID which gets its own entry. This gives the timelapse replayer a
+  // stable lookup of "who typed each character" for the lifetime of the file.
+  authorMap: Map<number, { userId: string; username: string; color: string }>;
 
   constructor(name: string, workspaceId: string, fileId: string) {
     super();
@@ -84,6 +90,7 @@ class WSSharedDoc extends Y.Doc {
     this.dbLoaded = false;
     this.saveTimeout = null;
     this.isSaving = false;
+    this.authorMap = new Map();
 
     this.on('update', this.handleDocumentUpdate.bind(this));
     
@@ -96,6 +103,22 @@ class WSSharedDoc extends Y.Doc {
           removed.forEach((clientID: number) => { connControlledIDs.delete(clientID); });
         }
       }
+
+      // [AUTHOR ATTRIBUTION] When a client sets its awareness user field,
+      // record clientID → { userId, username, color } in authorMap.
+      // We check added + updated (not removed) since we want to keep the mapping
+      // permanently even after the client disconnects.
+      [...added, ...updated].forEach((clientID: number) => {
+        const state = this.awareness.getStates().get(clientID) as any;
+        if (state?.user?.id && state?.user?.name) {
+          this.authorMap.set(clientID, {
+            userId:   state.user.id,
+            username: state.user.name,
+            color:    state.user.color || '#6366f1',
+          });
+        }
+      });
+
       const awarenessUpdate = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients);
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, 1);
@@ -130,11 +153,16 @@ class WSSharedDoc extends Y.Doc {
       try {
         const state = Buffer.from(Y.encodeStateAsUpdate(this));
         const content = this.getText('monaco').toString();
-        log('💾 SAVE', `Debounced save doc=${this.name} (${content.length} chars)`);
-        await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, this.fileId]);
+        // Serialise authorMap as a plain JSON object keyed by clientID string
+        const authorMapJson = Object.fromEntries(
+          Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
+        );
+        log('💾 SAVE', `Debounced save doc=${this.name} (${content.length} chars, ${this.authorMap.size} authors)`);
+        await getPool().query(
+          'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
+          [state, content, JSON.stringify(authorMapJson), this.fileId]
+        );
         syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
-        // Notify all clients in this workspace that this file has been persisted.
-        // CodeEditor listens for this on the presence socket to show a real "Saved" confirmation.
         getIO()?.to(`presence-${this.workspaceId}`).emit('file-saved', { fileId: this.fileId });
       } catch (err: any) {
         log('💾 SAVE', `❌ DB save error: ${err.message}`);
@@ -149,8 +177,14 @@ class WSSharedDoc extends Y.Doc {
     try {
       const state = Buffer.from(Y.encodeStateAsUpdate(this));
       const content = this.getText('monaco').toString();
+      const authorMapJson = Object.fromEntries(
+        Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
+      );
       log('🔒 CLOSE', `Final save doc=${this.name} (${content.length} chars)`);
-      await getPool().query('UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3', [state, content, this.fileId]);
+      await getPool().query(
+        'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
+        [state, content, JSON.stringify(authorMapJson), this.fileId]
+      );
       syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
     } catch (err: any) {
       log('🔒 CLOSE', `❌ Final save error: ${err.message}`);
@@ -174,12 +208,24 @@ async function getOrCreateDoc(docName: string): Promise<WSSharedDoc> {
     const doc = new WSSharedDoc(docName, match[1], match[2]);
     
     try {
-      const res = await getPool().query('SELECT content, yjs_state FROM files WHERE id = $1', [doc.fileId]);
+      const res = await getPool().query('SELECT content, yjs_state, author_map FROM files WHERE id = $1', [doc.fileId]);
       if (res.rows.length > 0) {
         if (res.rows[0].yjs_state) {
           Y.applyUpdate(doc, res.rows[0].yjs_state);
         } else if (res.rows[0].content) {
           doc.getText('monaco').insert(0, res.rows[0].content);
+        }
+        // [AUTHOR ATTRIBUTION] Restore the previously accumulated clientID→user
+        // map from DB so timelapse history always has full attribution even for
+        // characters written in previous server sessions.
+        const storedMap = res.rows[0].author_map;
+        if (storedMap && typeof storedMap === 'object') {
+          for (const [clientIdStr, info] of Object.entries(storedMap)) {
+            const clientId = Number(clientIdStr);
+            if (!isNaN(clientId) && info && typeof info === 'object') {
+              doc.authorMap.set(clientId, info as { userId: string; username: string; color: string });
+            }
+          }
         }
       }
       doc.dbLoaded = true;
@@ -285,6 +331,11 @@ wss.on('connection', async (ws, req) => {
     });
 
     ws.on('close', async () => {
+      // Release the workspace container when the editor tab closes/navigates away.
+      if (decodedUser?.id && workspaceId) {
+        releaseWorkspaceContainer(decodedUser.id, workspaceId)?.catch(() => {});
+      }
+
       if (!docRef) return;
       const doc = docRef;
       const controlledIds = doc.conns.get(ws);
