@@ -2,6 +2,21 @@ import { test, expect, type Page } from '@playwright/test';
 
 const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
 
+test.beforeEach(async ({ context }) => {
+  await context.addInitScript(() => {
+    const originalFetch = window.fetch;
+    window.fetch = function (input, init) {
+      if (typeof input === 'string' && input.includes(':4000/api')) {
+        const hostname = window.location.hostname;
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+          input = input.replace(':4000/api', '/api');
+        }
+      }
+      return originalFetch.apply(this, arguments as any);
+    };
+  });
+});
+
 async function loginUser(page: Page, username: string) {
   await page.goto(`${APP_URL}/login`);
   const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
@@ -415,7 +430,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     const apiResponseStatus = await bobPage.evaluate(async (wsId) => {
       const token = localStorage.getItem('token');
       try {
-        const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files`, {
+        const res = await fetch(`/api/workspace/${wsId}/files`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -481,13 +496,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     const token = {
       alice: await alicePage.evaluate(() => localStorage.getItem('token')),
-      bob:   await bobPage.evaluate(async () => {
-        await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/auth/login`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: '' }) // placeholder — token already in storage
-        }).catch(() => {});
-        return localStorage.getItem('token');
-      }),
+      bob:   await bobPage.evaluate(() => localStorage.getItem('token')),
       eve:   await evePage.evaluate(() => localStorage.getItem('token')),
     };
     console.log(3);
@@ -503,7 +512,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(5);
     // ── (a) RBAC: editor cannot create snapshot ─────────────────────────────
     const bobCreateStatus = await bobPage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'bob-attempt' }),
@@ -514,7 +523,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(6);
     // ── (a) RBAC: viewer cannot create snapshot ──────────────────────────────
     const eveCreateStatus = await evePage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'eve-attempt' }),
@@ -525,7 +534,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(7);
     // ── Admin creates a valid snapshot ───────────────────────────────────────
     const createResult = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'v1-baseline' }),
@@ -539,7 +548,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(8);
     // ── (b) All roles can list snapshots ────────────────────────────────────
     const aliceList = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return { status: res.status, body: await res.json() };
@@ -551,7 +560,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     expect(aliceList.body[0].created_by).toBe(aliceName);
     console.log(9);
     const bobList = await bobPage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
@@ -559,7 +568,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     expect(bobList).toBe(200);
 
     const eveList = await evePage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
@@ -578,7 +587,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await alicePage.waitForTimeout(1500);
 
     const diffResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return { status: res.status, body: await res.json() };
@@ -593,7 +602,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     // Eve (viewer) can also preview the diff
     const eveDiffStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
@@ -603,7 +612,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     // ── (d) RBAC: editor cannot restore ─────────────────────────────────────
     const bobRestoreStatus = await bobPage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -614,7 +623,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     // ── (d) RBAC: viewer cannot restore ─────────────────────────────────────
     const eveRestoreStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -633,7 +642,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // ── (e) Admin restores snapshot → live file reverts to v1 ───────────────
     console.log('[TEST] Triggering restore API call...');
     const restoreResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -647,7 +656,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // Verify the DB actually has the restored content (bypassing Yjs in-memory cache)
     console.log('[TEST] Checking DB content directly via API...');
     const fileListRes = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files`, {
+      const res = await fetch(`/api/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.json();
@@ -656,7 +665,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log('[TEST] history.js fileId:', historyFileId);
     console.log(14);
     const dbContentRes = await alicePage.evaluate(async ({ wsId, fileId }) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files/${fileId}/content`, {
+      const res = await fetch(`/api/workspace/${wsId}/files/${fileId}/content`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.json();
@@ -688,7 +697,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // ── (f) Max-10 eviction: create 10 more snapshots, total must stay ≤ 10 ─
     for (let i = 2; i <= 11; i++) {
       const r = await alicePage.evaluate(async ({ wsId, i }) => {
-        const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
+        const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
           body: JSON.stringify({ label: `auto-snap-${i}` }),
@@ -699,7 +708,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     }
 
     const finalList = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.json();
@@ -743,7 +752,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   await alicePage.waitForTimeout(2000);
   
   const snapRes = await alicePage.evaluate(async (wsId) => {
-    const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
+    const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
@@ -769,7 +778,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
   const aliceRestorePromise = alicePage.evaluate(async ({ wsId, snapId }) => {
     await new Promise(r => setTimeout(r, 300)); // wait a bit so Bob is mid-typing
-    return fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+    return fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
@@ -782,13 +791,13 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   
   // The server's CRDT mutation (Baseline) must have the highest clock and win
   const dbContent = await alicePage.evaluate(async (wsId) => {
-    const filesRes = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files`, {
+    const filesRes = await fetch(`/api/workspace/${wsId}/files`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
     const files = await filesRes.json();
     const fileId = files.find((f: any) => f.name === 'race.js').id;
     
-    const contentRes = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files/${fileId}/content`, {
+    const contentRes = await fetch(`/api/workspace/${wsId}/files/${fileId}/content`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
     return (await contentRes.json()).content;
@@ -811,7 +820,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
   // Take Snapshot of empty workspace
   const snapRes = await page.evaluate(async (wsId) => {
-    const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
+    const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
       body: JSON.stringify({ label: 'Empty State' }),
@@ -827,7 +836,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
   // Restore the empty snapshot
   const restoreStatus = await page.evaluate(async ({ wsId, snapId }) => {
-    const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+    const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
     });

@@ -145,7 +145,10 @@ function IdePage() {
     if (!urlWorkspaceId || !user?.id) return;
 
     const token = localStorage.getItem('token') || '';
-    const socket = io(wsUrl('').replace(/^ws/, 'http'), { auth: { token } });
+    const socket = io(apiUrl('').replace(/\/api\/?$/, ''), { 
+      auth: { token },
+      transports: ['websocket']
+    });
     presenceSocketRef.current = socket;
 
     socket.on('connect', () => {

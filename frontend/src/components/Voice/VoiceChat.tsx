@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { Mic, MicOff, PhoneOff, Users } from 'lucide-react';
-import { wsUrl } from '../../lib/backendUrls';
+import { apiUrl, wsUrl } from '../../lib/backendUrls';
 
 interface VoiceUser {
   username: string;
@@ -57,8 +57,9 @@ export default function VoiceChat({ workspaceId, user }: VoiceChatProps) {
       setIsMuted(false);
 
       const token = localStorage.getItem('token') || '';
-      socketRef.current = io(wsUrl('').replace(/^ws/, 'http'), {
-        auth: { token }
+      socketRef.current = io(apiUrl('').replace(/\/api\/?$/, ''), {
+        auth: { token },
+        transports: ['websocket']
       });
       socketRef.current.emit('join-voice-room', { workspaceId, user });
 

@@ -1,8 +1,9 @@
 import { test, expect, type Page, type APIRequestContext, type Browser } from '@playwright/test';
 
 const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
-const API_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); u.port = '4000'; u.pathname = '/api'; return u.toString().replace(/\/$/, ''); } catch { return 'http://localhost:4000/api'; } })() : 'http://localhost:4000/api';
-const WS_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); u.port = '4000'; u.pathname = ''; u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'; return u.toString().replace(/\/$/, ''); } catch { return 'ws://localhost:4000'; } })() : 'ws://localhost:4000';
+const API_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') { u.port = '4000'; } u.pathname = '/api'; return u.toString().replace(/\/$/, ''); } catch { return 'http://localhost:4000/api'; } })() : 'http://localhost:4000/api';
+const WS_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') { u.port = '4000'; } else { u.pathname = '/ws'; } u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'; return u.toString().replace(/\/$/, ''); } catch { return 'ws://localhost:4000'; } })() : 'ws://localhost:4000';
+
 
 async function loginUser(page: Page, request: APIRequestContext, username: string) {
   await page.goto(`${APP_URL}/login`);
