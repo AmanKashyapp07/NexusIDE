@@ -251,7 +251,18 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
       }]);
     }, conflictContent);
     
-    await page.waitForTimeout(2000); // Wait for Yjs to sync conflict content
+    // Poll the database until the injected conflict content has synced and saved
+    await expect.poll(async () => {
+      const res = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/content`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok()) return '';
+      const body = await res.json();
+      return body.content || '';
+    }, {
+      intervals: [500, 1000, 2000],
+      timeout: 15000
+    }).toContain('<<<<<<< HEAD');
 
     // Simulate API resolving the conflict at the exact moment the user is typing
     const resolvedContent = `var x = 3; // resolved`;
@@ -273,7 +284,8 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
       }]);
     });
 
-    await resolvePromise;
+    const resolveRes = await resolvePromise;
+    expect(resolveRes.ok()).toBeTruthy();
 
     // Wait for the dust to settle on the WebSocket sync
     await page.waitForTimeout(2000);

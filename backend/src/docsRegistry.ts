@@ -49,16 +49,18 @@ export async function applyRestoredContentToLiveDocs(
   workspaceId: string, 
   restoredFiles: { fileId: string; content: string }[]
 ): Promise<void> {
-  const docs = getDocsMap(); //[cite: 3]
+  const docs = getDocsMap();
+  process.stdout.write(`[DEBUG docsRegistry] docs keys: ${JSON.stringify(Array.from(docs.keys()))} workspaceId: ${workspaceId} restoredFiles: ${JSON.stringify(restoredFiles)}\n`);
 
   for (const [docName, docPromise] of docs.entries()) {
-    // Only process docs belonging to this workspace[cite: 3]
+    // Only process docs belonging to this workspace
     if (!docName.startsWith(workspaceId)) continue;
     
     try {
       const doc = await docPromise;
+      process.stdout.write(`[DEBUG docsRegistry] Loaded doc: ${docName}, ytext length: ${doc.getText('monaco').length}\n`);
       
-      // 1. Cancel the debounced save FIRST so it doesn't overwrite the DB[cite: 3]
+      // 1. Cancel the debounced save FIRST so it doesn't overwrite the DB
       if (doc.saveTimeout) {
         clearTimeout(doc.saveTimeout);
         doc.saveTimeout = null;
@@ -77,10 +79,10 @@ export async function applyRestoredContentToLiveDocs(
           ytext.insert(0, matchedFile.content);
         });
         
-        console.log(`[Snapshot] Restored content applied as Yjs transaction to doc=${docName}`);
+        process.stdout.write(`[Snapshot] Restored content applied as Yjs transaction to doc=${docName}\n`);
       }
-    } catch (err) {
-      console.error(`[Snapshot Error] Failed to update live doc ${docName}`, err);
+    } catch (err: any) {
+      process.stdout.write(`[Snapshot Error] Failed to update live doc ${docName}: ${err.message}\n`);
     }
   }
 }

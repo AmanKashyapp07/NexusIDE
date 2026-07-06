@@ -211,6 +211,11 @@ test.describe('Collaborative Engine Part 2 (Tests 9-16)', () => {
       await bobPage.locator('.ide-scrollbar').getByText('undo-test.js').click();
       await waitForEditorModel(bobPage, 'undo-test.js');
 
+      await Promise.all([
+        waitForSocketConnect(alicePage),
+        waitForSocketConnect(bobPage)
+      ]);
+
       await focusEditor(alicePage);
       await alicePage.keyboard.type('// Alice Edit 1\n');
       await alicePage.waitForTimeout(500);
