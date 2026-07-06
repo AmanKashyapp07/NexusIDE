@@ -569,11 +569,17 @@ router.post('/:id/files/:fileId/conflicts/resolve', requireWorkspaceRole('editor
       [resolvedContent, fileId]
     );
 
-    // 2. Mutate the live Yjs documents so the server CRDT overwrites the client CRDT
-    const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
-    await applyRestoredContentToLiveDocs(workspaceId, [{ fileId, content: resolvedContent }]);
-
     await client.query('COMMIT');
+
+    // 2. Mutate the live Yjs documents so the server CRDT overwrites the client CRDT.
+    // Done after COMMIT so a failure here cannot roll back the DB write.
+    // Wrapped so any WS send error on a just-closed client cannot crash the response.
+    try {
+      const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
+      await applyRestoredContentToLiveDocs(workspaceId, [{ fileId, content: resolvedContent }]);
+    } catch (yjsErr: any) {
+      console.error('[ConflictResolver] Yjs broadcast error (non-fatal):', yjsErr.message);
+    }
 
     // 3. Resolve file path for git add
     const pathResult = await client.query(`

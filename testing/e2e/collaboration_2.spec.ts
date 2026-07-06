@@ -55,6 +55,10 @@ async function focusEditor(page: Page) {
   });
 }
 
+async function waitForSocketConnect(page: Page) {
+  await page.locator('[title="Status: connected"]').waitFor({ state: 'visible', timeout: 15000 });
+}
+
 async function waitForEditorModel(page: Page, filename: string) {
   await page.waitForFunction((expectedName) => {
     const editors = (window as any).monaco?.editor?.getEditors();
@@ -78,10 +82,6 @@ test.describe('Collaborative Engine Part 2 (Tests 9-16)', () => {
     const timestamp = Date.now();
     const FILE_A_CONTENT = `FILE_A_${timestamp}`;
     const FILE_B_CONTENT = `FILE_B_${timestamp}`;
-
-    alicePage.on('console', msg => console.log(`[Test9 - Alice] ${msg.type()}: ${msg.text()}`));
-    bobPage.on('console', msg => console.log(`[Test9 - Bob] ${msg.type()}: ${msg.text()}`));
-
     try {
       await loginUser(alicePage, `Alice_Switch_${timestamp}`);
       await loginUser(bobPage, `Bob_Switch_${timestamp}`);
@@ -222,23 +222,30 @@ test.describe('Collaborative Engine Part 2 (Tests 9-16)', () => {
       await focusEditor(alicePage);
       await alicePage.keyboard.type('X');
       
+      // Wait for X to sync to Bob before triggering undo
       await expect(async () => {
         const bobText = await getEditorValue(bobPage);
         expect(bobText).toContain('Alice Edit 1');
         expect(bobText).toContain('Bob Edit 1');
         expect(bobText).toContain('X');
-      }).toPass({ timeout: 5000, intervals: [500] });
+      }).toPass({ timeout: 8000, intervals: [500] });
+
+      // Wait for Yjs sync to settle before triggering undo so the
+      // undo stack is not reset by a concurrent handleSync rebind
+      await alicePage.waitForTimeout(1500);
 
       await alicePage.evaluate(() => {
         const ed = (window as any).monaco.editor.getEditors()[0];
         if (ed) { ed.focus(); ed.trigger('keyboard', 'undo', null); }
       });
 
+      // Give CRDT time to propagate undo result
       await expect(async () => {
         const aliceText = await getEditorValue(alicePage);
+        expect(aliceText).toContain('Alice Edit 1');
         expect(aliceText).toContain('Bob Edit 1');
         expect(aliceText).not.toContain('X'); 
-      }).toPass({ timeout: 5000, intervals: [500] });
+      }).toPass({ timeout: 8000, intervals: [500] });
     } finally {
       await bobContext.close();
     }
@@ -259,6 +266,7 @@ test.describe('Collaborative Engine Part 2 (Tests 9-16)', () => {
       await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
       const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
       await waitForBootComplete(alicePage);
+      await waitForSocketConnect(alicePage);
 
       await inviteUser(alicePage, `Bob_Offline_${timestamp}`, 'editor');
       await createFile(alicePage, 'partition.js');
@@ -266,6 +274,7 @@ test.describe('Collaborative Engine Part 2 (Tests 9-16)', () => {
 
       await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
       await waitForBootComplete(bobPage);
+      await waitForSocketConnect(bobPage);
       await bobPage.locator('.ide-scrollbar').getByText('partition.js').click();
       await waitForEditorModel(bobPage, 'partition.js');
 

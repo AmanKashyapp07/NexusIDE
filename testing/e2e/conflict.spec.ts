@@ -25,6 +25,10 @@ async function waitForBootComplete(page: Page) {
   } catch {}
 }
 
+async function waitForSocketConnect(page: Page) {
+  await page.locator('[title="Status: connected"]').waitFor({ state: 'visible', timeout: 15000 });
+}
+
 test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
   test.setTimeout(120000);
 
@@ -130,9 +134,6 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 
-    pageA.on('console', msg => console.log('PAGE A:', msg.text()));
-    pageB.on('console', msg => console.log('PAGE B:', msg.text()));
-
     // Login both users to ensure they are created in the database
     const tokenA = await loginUser(pageA, request, 'user_a');
     await loginUser(pageB, request, 'user_b');
@@ -168,8 +169,8 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
 
     // Allow Yjs WebSockets to handshake and complete initial sync
     await Promise.all([
-      pageA.waitForTimeout(2000),
-      pageB.waitForTimeout(2000)
+      waitForSocketConnect(pageA),
+      waitForSocketConnect(pageB)
     ]);
 
     // Inject conflict via User A using executeEdits so the change flows through
@@ -233,6 +234,7 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
     const conflictContent = `<<<<<<< HEAD\nvar x = 1;\n=======\nvar x = 2;\n>>>>>>> main`;
     await page.goto(`${APP_URL}/ide/${wsId}/${fileId}`);
     await waitForBootComplete(page);
+    await waitForSocketConnect(page);
     
     await page.waitForFunction(() => {
       return (window as any).monaco?.editor?.getEditors()?.length > 0;
@@ -240,10 +242,16 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
 
     await page.evaluate((content) => {
       const editor = (window as any).monaco.editor.getEditors()[0];
-      editor.setValue(content);
+      const model = editor.getModel();
+      const fullRange = model.getFullModelRange();
+      editor.executeEdits('test-inject', [{
+        range: fullRange,
+        text: content,
+        forceMoveMarkers: true
+      }]);
     }, conflictContent);
     
-    await page.waitForTimeout(2000); // Wait for sync
+    await page.waitForTimeout(2000); // Wait for Yjs to sync conflict content
 
     // Simulate API resolving the conflict at the exact moment the user is typing
     const resolvedContent = `var x = 3; // resolved`;

@@ -85,12 +85,6 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     await loginUser(alicePage, aliceName);
     await loginUser(bobPage, bobName);
-
-    alicePage.on('console', msg => console.log(`[ALICE CONSOLE] ${msg.type()}: ${msg.text()}`));
-    alicePage.on('pageerror', err => console.log(`[ALICE ERROR] ${err.message}`));
-    bobPage.on('console', msg => console.log(`[BOB CONSOLE] ${msg.type()}: ${msg.text()}`));
-    bobPage.on('pageerror', err => console.log(`[BOB ERROR] ${err.message}`));
-
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Split_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
     await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
