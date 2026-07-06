@@ -514,8 +514,8 @@ describe('WebSocket Yjs auth layer', () => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       // bindState query
-      if (sql.includes('SELECT content, yjs_state FROM files'))
-        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
     });
     const { code } = await ws(`/${WORKSPACE_ID}-${FILE_ID}?token=${ownerToken}`);
@@ -528,8 +528,8 @@ describe('WebSocket Yjs auth layer', () => {
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators'))
         return Promise.resolve({ rows: [{ role: 'editor' }] });
-      if (sql.includes('SELECT content, yjs_state FROM files'))
-        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
     });
     const { code } = await ws(`/${WORKSPACE_ID}-${FILE_ID}?token=${editorToken}`);
@@ -925,7 +925,7 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces')) return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators')) return Promise.resolve({ rows: [{ role: 'editor' }] });
-      if (sql.includes('SELECT content, yjs_state FROM files')) return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files')) return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
     });
 
@@ -969,7 +969,7 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces')) return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators')) return Promise.resolve({ rows: [{ role: 'viewer' }] });
-      if (sql.includes('SELECT content, yjs_state FROM files')) return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files')) return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
     });
 
@@ -1026,7 +1026,7 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces')) return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators')) return Promise.resolve({ rows: [{ role: 'editor' }] });
-      if (sql.includes('SELECT content, yjs_state FROM files')) return Promise.resolve({ rows: [{ content: 'initial content', yjs_state: null }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files')) return Promise.resolve({ rows: [{ content: 'initial content', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
     });
 
@@ -1639,14 +1639,14 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
     mockQuery.mockImplementation((sql: string, params?: any[]) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
-      if (sql.includes('SELECT content, yjs_state FROM files')) {
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files')) {
         // Check which file is being requested based on room
         const fileId = params?.[0]; // Won't work directly — but the server uses docName parsing
         // Return empty for both initially
         const stateA = persistedStates.get(FILE_A);
         const stateB = persistedStates.get(FILE_B);
         // We can't distinguish here easily, so return empty (server handles fresh docs)
-        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       }
       if (sql.includes('UPDATE files SET yjs_state')) {
         // We'd need the file ID — for this test we just verify no crash
@@ -1711,8 +1711,8 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators'))
         return Promise.resolve({ rows: [{ role: 'editor' }] });
-      if (sql.includes('SELECT content, yjs_state FROM files'))
-        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
     });
 
@@ -1774,8 +1774,8 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators'))
         return Promise.resolve({ rows: [{ role: 'editor' }] });
-      if (sql.includes('SELECT content, yjs_state FROM files'))
-        return Promise.resolve({ rows: [{ content: '', yjs_state: null }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       if (sql.includes('UPDATE files SET yjs_state'))
         return Promise.resolve({ rows: [] });
       return Promise.resolve({ rows: [] });
@@ -1856,9 +1856,9 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators'))
         return Promise.resolve({ rows: [{ role: 'editor' }] });
-      if (sql.includes('SELECT content, yjs_state FROM files')) {
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files')) {
         dbLoadCount++;
-        return Promise.resolve({ rows: [{ content: `load #${dbLoadCount}`, yjs_state: null }] });
+        return Promise.resolve({ rows: [{ content: `load #${dbLoadCount}`, yjs_state: null, author_map: {} }] });
       }
       if (sql.includes('UPDATE files SET yjs_state'))
         return Promise.resolve({ rows: [] });
