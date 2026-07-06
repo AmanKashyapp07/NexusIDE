@@ -407,6 +407,15 @@ io.on('connection', (socket) => {
     if (!workspacePresence.has(workspaceId)) workspacePresence.set(workspaceId, new Map());
     workspacePresence.get(workspaceId)!.set(socket.id, { userId: socket.data.user.id, username: socket.data.user.username || 'unknown', color: getColor(socket.data.user.username || 'unknown'), activeFileId: null });
     broadcastPresence(workspaceId);
+
+    // [PRODUCTION FIX] Push the current file tree state immediately to the
+    // joining socket. On a real network, there is a race between when the
+    // client's Socket.IO connects and when broadcast events fire from other
+    // users' actions. A 'file-tree-update' emitted to the room while this
+    // socket was still connecting is permanently lost. Pushing it here on
+    // join guarantees this socket always fetches the latest file list,
+    // regardless of when it connected relative to any broadcast.
+    socket.emit('file-tree-update');
   });
 
   socket.on('active-file-change', ({ activeFileId }) => {

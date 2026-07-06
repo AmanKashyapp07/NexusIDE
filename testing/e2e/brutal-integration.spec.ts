@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const APP_URL = 'http://localhost:5173';
+const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
 
 async function loginUser(page: Page, username: string) {
   await page.goto(`${APP_URL}/login`);
@@ -46,6 +46,31 @@ async function getEditorValue(page: Page): Promise<string> {
   });
 }
 
+async function waitForEditorSync(page: Page) {
+  const loading = page.locator('text=Syncing with server...');
+  try { await loading.waitFor({ state: 'visible', timeout: 1000 }); } catch {}
+  try { await loading.waitFor({ state: 'detached', timeout: 25000 }); } catch {}
+}
+
+async function waitForEditorModel(page: Page, filename: string) {
+  await page.waitForFunction((expectedName) => {
+    const editors = (window as any).monaco?.editor?.getEditors();
+    if (!editors || editors.length === 0) return false;
+    const model = editors[0].getModel();
+    return model && model.uri.path.endsWith(expectedName);
+  }, filename, { timeout: 25000 });
+  await page.waitForFunction(() => {
+    const editors = (window as any).monaco?.editor?.getEditors();
+    return editors && editors.length > 0 && typeof editors[0].hasTextFocus === 'function';
+  }, { timeout: 10000 });
+  await waitForEditorSync(page);
+}
+
+// Wait until the socket is connected
+async function waitForSocketConnect(page: Page) {
+  await page.locator('[title="Status: connected"]').waitFor({ state: 'visible', timeout: 15000 });
+}
+
 test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, RBAC)', () => {
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -61,6 +86,11 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await loginUser(alicePage, aliceName);
     await loginUser(bobPage, bobName);
 
+    alicePage.on('console', msg => console.log(`[ALICE CONSOLE] ${msg.type()}: ${msg.text()}`));
+    alicePage.on('pageerror', err => console.log(`[ALICE ERROR] ${err.message}`));
+    bobPage.on('console', msg => console.log(`[BOB CONSOLE] ${msg.type()}: ${msg.text()}`));
+    bobPage.on('pageerror', err => console.log(`[BOB ERROR] ${err.message}`));
+
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Split_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
     await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
@@ -71,15 +101,22 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(bobPage);
+    await waitForSocketConnect(bobPage);
 
     await createFile(alicePage, 'conflict.txt');
     await alicePage.waitForTimeout(2000);
+
+    // Bob waits for file to appear in sidebar (via file-tree-update socket event)
+    await expect(bobPage.locator('.ide-scrollbar').getByText('conflict.txt')).toBeVisible({ timeout: 10000 });
+    await bobPage.locator('.ide-scrollbar').getByText('conflict.txt').click();
+    await waitForEditorModel(bobPage, 'conflict.txt');
 
     const aliceTextarea = alicePage.locator('.monaco-editor').first();
     await aliceTextarea.click();
     await alicePage.keyboard.type('Init', { delay: 10 });
     await alicePage.waitForTimeout(1000);
 
+    // Confirm Bob received Alice's initial content before going offline
     await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('Init');
 
     await alicePage.context().setOffline(true);
@@ -182,8 +219,12 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(bobPage);
+    // Wait for auto-navigation to file and editor to mount with readOnly=true
+    await bobPage.locator('.ide-scrollbar').getByText('viewer-test.js').waitFor({ state: 'visible', timeout: 15000 });
+    await bobPage.locator('.ide-scrollbar').getByText('viewer-test.js').click();
+    await waitForEditorModel(bobPage, 'viewer-test.js');
 
-    await expect(bobPage.locator('text=View Only')).toBeVisible({ timeout: 15000 });
+    await expect(bobPage.locator('text=View Only')).toBeVisible({ timeout: 10000 });
     await expect(bobPage.locator('.xterm')).toContainText('sandbox:~#', { timeout: 25000 });
 
     const bobTerminalTextarea = bobPage.locator('.xterm-helper-textarea');
@@ -233,8 +274,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(bobPage);
     
+    await bobPage.locator('.ide-scrollbar').getByText('doomed.js').waitFor({ state: 'visible', timeout: 15000 });
     await bobPage.locator('.ide-scrollbar').getByText('doomed.js').click();
-    await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await waitForEditorModel(bobPage, 'doomed.js');
 
     // Bob starts typing rapidly via evaluation to simulate intense CRDT activity
     await bobPage.evaluate(() => {
@@ -289,8 +331,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('payload.js').waitFor({ state: 'visible', timeout: 15000 });
     await bobPage.locator('.ide-scrollbar').getByText('payload.js').click();
-    await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await waitForEditorModel(bobPage, 'payload.js');
 
     // Generate a massive string (e.g., ~19KB of code)
     const massiveString = "const data = 'X';\n".repeat(1000);
@@ -378,7 +421,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     const apiResponseStatus = await bobPage.evaluate(async (wsId) => {
       const token = localStorage.getItem('token');
       try {
-        const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/files`, {
+        const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -445,7 +488,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     const token = {
       alice: await alicePage.evaluate(() => localStorage.getItem('token')),
       bob:   await bobPage.evaluate(async () => {
-        await fetch('http://localhost:4000/api/auth/login', {
+        await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/auth/login`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: '' }) // placeholder — token already in storage
         }).catch(() => {});
@@ -466,7 +509,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(5);
     // ── (a) RBAC: editor cannot create snapshot ─────────────────────────────
     const bobCreateStatus = await bobPage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'bob-attempt' }),
@@ -477,7 +520,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(6);
     // ── (a) RBAC: viewer cannot create snapshot ──────────────────────────────
     const eveCreateStatus = await evePage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'eve-attempt' }),
@@ -488,7 +531,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(7);
     // ── Admin creates a valid snapshot ───────────────────────────────────────
     const createResult = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'v1-baseline' }),
@@ -502,7 +545,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(8);
     // ── (b) All roles can list snapshots ────────────────────────────────────
     const aliceList = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return { status: res.status, body: await res.json() };
@@ -514,7 +557,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     expect(aliceList.body[0].created_by).toBe(aliceName);
     console.log(9);
     const bobList = await bobPage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
@@ -522,7 +565,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     expect(bobList).toBe(200);
 
     const eveList = await evePage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
@@ -541,7 +584,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await alicePage.waitForTimeout(1500);
 
     const diffResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return { status: res.status, body: await res.json() };
@@ -556,7 +599,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     // Eve (viewer) can also preview the diff
     const eveDiffStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
@@ -566,7 +609,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     // ── (d) RBAC: editor cannot restore ─────────────────────────────────────
     const bobRestoreStatus = await bobPage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -577,7 +620,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
     // ── (d) RBAC: viewer cannot restore ─────────────────────────────────────
     const eveRestoreStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -596,7 +639,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // ── (e) Admin restores snapshot → live file reverts to v1 ───────────────
     console.log('[TEST] Triggering restore API call...');
     const restoreResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -610,7 +653,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // Verify the DB actually has the restored content (bypassing Yjs in-memory cache)
     console.log('[TEST] Checking DB content directly via API...');
     const fileListRes = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/files`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.json();
@@ -619,7 +662,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log('[TEST] history.js fileId:', historyFileId);
     console.log(14);
     const dbContentRes = await alicePage.evaluate(async ({ wsId, fileId }) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/files/${fileId}/content`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files/${fileId}/content`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.json();
@@ -651,7 +694,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // ── (f) Max-10 eviction: create 10 more snapshots, total must stay ≤ 10 ─
     for (let i = 2; i <= 11; i++) {
       const r = await alicePage.evaluate(async ({ wsId, i }) => {
-        const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+        const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
           body: JSON.stringify({ label: `auto-snap-${i}` }),
@@ -662,7 +705,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     }
 
     const finalList = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.json();
@@ -706,7 +749,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   await alicePage.waitForTimeout(2000);
   
   const snapRes = await alicePage.evaluate(async (wsId) => {
-    const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+    const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
@@ -732,7 +775,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
   const aliceRestorePromise = alicePage.evaluate(async ({ wsId, snapId }) => {
     await new Promise(r => setTimeout(r, 300)); // wait a bit so Bob is mid-typing
-    return fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+    return fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
@@ -745,13 +788,13 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   
   // The server's CRDT mutation (Baseline) must have the highest clock and win
   const dbContent = await alicePage.evaluate(async (wsId) => {
-    const filesRes = await fetch(`http://localhost:4000/api/workspace/${wsId}/files`, {
+    const filesRes = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
     const files = await filesRes.json();
     const fileId = files.find((f: any) => f.name === 'race.js').id;
     
-    const contentRes = await fetch(`http://localhost:4000/api/workspace/${wsId}/files/${fileId}/content`, {
+    const contentRes = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/files/${fileId}/content`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
     return (await contentRes.json()).content;
@@ -774,7 +817,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
   // Take Snapshot of empty workspace
   const snapRes = await page.evaluate(async (wsId) => {
-    const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshot`, {
+    const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
       body: JSON.stringify({ label: 'Empty State' }),
@@ -790,7 +833,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
 
   // Restore the empty snapshot
   const restoreStatus = await page.evaluate(async ({ wsId, snapId }) => {
-    const res = await fetch(`http://localhost:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+    const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
     });

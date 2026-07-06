@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
 
+const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
+
 test.describe('Monaco Editor Basic Functions', () => {
 
   test('1. verify monaco global type and instance structure', async ({ page }) => {
-    await page.goto('http://localhost:5173/login');
+    await page.goto(`${APP_URL}/login`);
     await page.fill('input[placeholder="Username (e.g. alice, bob)"]', 'testmonaco');
     await page.click('button[type="submit"]');
     await page.waitForURL(/\/dashboard/);
@@ -29,7 +31,7 @@ test.describe('Monaco Editor Basic Functions', () => {
   });
 
   test('2. verify monaco edit undo history', async ({ page }) => {
-    await page.goto('http://localhost:5173/login');
+    await page.goto(`${APP_URL}/login`);
     await page.fill('input[placeholder="Username (e.g. alice, bob)"]', 'testundo');
     await page.click('button[type="submit"]');
     await page.waitForURL(/\/dashboard/);
@@ -67,7 +69,7 @@ test.describe('Monaco Editor Basic Functions', () => {
   });
 
   test('3. verify monaco model URI paths', async ({ page }) => {
-    await page.goto('http://localhost:5173/login');
+    await page.goto(`${APP_URL}/login`);
     await page.fill('input[placeholder="Username (e.g. alice, bob)"]', 'testuri');
     await page.click('button[type="submit"]');
     await page.waitForURL(/\/dashboard/);

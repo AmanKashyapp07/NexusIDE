@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-
+const API_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); u.port = '4000'; u.pathname = '/api'; return u.toString().replace(/\/$/, ''); } catch { return 'http://localhost:4000/api'; } })() : 'http://localhost:4000/api';
 
 test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
 
@@ -1376,7 +1376,7 @@ server.listen(3000, () => {
     
     // Open a new tab in the same context to fetch the preview URL
     const previewPage = await context.newPage();
-    await previewPage.goto(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${token}`);
+    await previewPage.goto(`${API_URL.replace('/api', '')}/api/workspace/${workspaceId}/preview/?token=${token}`);
     
     // Assert target contents are served via proxy
     await expect(previewPage.locator('h1')).toHaveText('Express Backend Active', { timeout: 15000 });
@@ -1482,7 +1482,7 @@ server.listen(3000, () => {
     // 5. Query and open live preview from backend port 4000
     const token = await page.evaluate(() => localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
-    await previewPage.goto(`http://localhost:4000/api/workspace/${workspaceId}/preview/?token=${token}`);
+    await previewPage.goto(`${API_URL.replace('/api', '')}/api/workspace/${workspaceId}/preview/?token=${token}`);
 
     // Verify HTML content from frontend dev server
     await expect(previewPage.locator('h1')).toHaveText('React Frontend', { timeout: 15000 });
