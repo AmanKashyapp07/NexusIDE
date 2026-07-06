@@ -45,7 +45,11 @@ export async function deleteTestWorkspace(page: Page, workspaceId: string) {
   try {
     await page.evaluate(async (id) => {
       const token = localStorage.getItem('token');
-      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${id}`, {
+      const origin = window.location.origin;
+      const apiUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
+        ? `${window.location.protocol}//${window.location.hostname}:4000/api`
+        : `${origin}/api`;
+      const res = await fetch(`${apiUrl}/workspace/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

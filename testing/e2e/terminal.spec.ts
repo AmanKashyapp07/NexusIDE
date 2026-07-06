@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const API_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); u.port = '4000'; u.pathname = '/api'; return u.toString().replace(/\/$/, ''); } catch { return 'http://localhost:4000/api'; } })() : 'http://localhost:4000/api';
+const API_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') { u.port = '4000'; } u.pathname = '/api'; return u.toString().replace(/\/$/, ''); } catch { return 'http://localhost:4000/api'; } })() : 'http://localhost:4000/api';
 
 test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
 
