@@ -12,8 +12,9 @@ import { test, expect, type Page } from '@playwright/test';
 //   - Docker daemon running with sandbox-dev-env:latest image built
 // =============================================================================
 
-const APP_URL = 'http://localhost:5173';
-const API_URL = 'http://localhost:4000/api';
+const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
+const API_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); u.port = '4000'; u.pathname = '/api'; return u.toString().replace(/\/$/, ''); } catch { return 'http://localhost:4000/api'; } })() : 'http://localhost:4000/api';
+const WS_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.env.BASE_URL); u.port = '4000'; u.pathname = ''; u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'; return u.toString().replace(/\/$/, ''); } catch { return 'ws://localhost:4000'; } })() : 'ws://localhost:4000';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -282,8 +283,9 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     const wsRejectCode = await bobPage.evaluate(async ({ wsId }) => {
       const token = localStorage.getItem('token') ?? '';
       return new Promise<number>((resolve) => {
+        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:4000`;
         const ws = new WebSocket(
-          `ws://localhost:4000/ws/lsp/${wsId}/typescript?token=${encodeURIComponent(token)}`
+          `${wsUrl}/ws/lsp/${wsId}/typescript?token=${encodeURIComponent(token)}`
         );
         ws.onclose = (e) => resolve(e.code);
         ws.onerror = () => resolve(-1);
@@ -364,7 +366,8 @@ test.describe('LSP Integration (Language Intelligence)', () => {
 
     const closeCode = await page.evaluate(async ({ wsId }) => {
       return new Promise<number>((resolve) => {
-        const ws = new WebSocket(`ws://localhost:4000/ws/lsp/${wsId}/typescript?token=invalid_token_xyz`);
+        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:4000`;
+        const ws = new WebSocket(`${wsUrl}/ws/lsp/${wsId}/typescript?token=invalid_token_xyz`);
         ws.onclose = (e) => resolve(e.code);
         ws.onerror = () => resolve(-1);
         setTimeout(() => resolve(-2), 5000);

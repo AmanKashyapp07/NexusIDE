@@ -178,8 +178,27 @@ export default function CodeEditor({
 
     const handleSync = (synced: boolean) => {
       if (synced && isActive) {
-        // Y.Text is now hydrated from the server — safe to bind even if the
-        // cached Monaco model had prior content (they will now match/merge).
+        // [PRODUCTION FIX] Always destroy and recreate the binding on sync.
+        //
+        // On localhost, the Yjs SyncStep2 (server state) arrives before tryBind()
+        // runs for the first time, so Y.Text is already populated when binding
+        // is created and everything is correct.
+        //
+        // On a real network (Oracle VM, CI), there is meaningful RTT. tryBind()
+        // may fire first — while Y.Text is still empty — creating a binding that
+        // captures empty state. When the sync event eventually fires and Y.Text
+        // is hydrated, the existing binding's _typeObserver only fires on future
+        // *transactional* mutations, never on the initial applyUpdate from the
+        // server. The Monaco model therefore stays empty forever.
+        //
+        // Destroying and recreating the binding here guarantees MonacoBinding's
+        // constructor runs *after* Y.Text is authoritative, so it correctly
+        // calls model.setValue(ytext.toString()) with the server content.
+        if (binding) {
+          binding.destroy();
+          binding = null;
+          boundModel = null;
+        }
         tryBind();
       }
     };

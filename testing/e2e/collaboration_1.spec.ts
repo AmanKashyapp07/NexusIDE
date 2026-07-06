@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 
 
-const APP_URL = 'http://localhost:5173';
+const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
 
 async function inviteUser(page: Page, username: string, role: 'editor' | 'viewer' | 'admin') {
   await page.click('button:has-text("Share")');
@@ -69,6 +69,16 @@ async function waitForEditorModel(page: Page, filename: string) {
     const model = editors[0].getModel();
     return model && model.uri.path.endsWith(expectedName);
   }, filename, { timeout: 25000 });
+  // [PRODUCTION FIX] Wait for the editor instance to be fully initialized in
+  // React state, not just present in the DOM. On a real network, there is a
+  // gap between Monaco's DOM element appearing (.monaco-editor) and
+  // handleEditorDidMount firing (which calls setEditor and renders role-gated
+  // UI like the View Only badge). Checking hasTextFocus !== undefined confirms
+  // the full Monaco IStandaloneCodeEditor instance is ready.
+  await page.waitForFunction(() => {
+    const editors = (window as any).monaco?.editor?.getEditors();
+    return editors && editors.length > 0 && typeof editors[0].hasTextFocus === 'function';
+  }, { timeout: 10000 });
   await waitForEditorSync(page);
 }
 

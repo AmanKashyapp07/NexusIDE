@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-declare const process: { env: { CI?: string } };
+declare const process: { env: { CI?: string; BASE_URL?: string } };
 
 export default defineConfig({
   testDir: '../testing/e2e',
@@ -15,7 +15,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: process.env.BASE_URL || 'http://localhost:5173',
     trace: process.env.CI ? 'retain-on-failure' : 'off',
     screenshot: process.env.CI ? 'only-on-failure' : 'off',
     video: 'off',

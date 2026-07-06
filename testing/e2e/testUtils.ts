@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
-const APP_URL = 'http://localhost:5173';
+const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
 
 export async function login(page: Page, username: string, password?: string) {
   await page.goto(`${APP_URL}/login`);
@@ -45,7 +45,7 @@ export async function deleteTestWorkspace(page: Page, workspaceId: string) {
   try {
     await page.evaluate(async (id) => {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/workspace/${id}`, {
+      const res = await fetch(`${window.location.protocol}//${window.location.hostname}:4000/api/workspace/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

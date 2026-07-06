@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 
 
-const APP_URL = 'http://localhost:5173';
+const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
 
 async function inviteUser(page: Page, username: string, role: 'editor' | 'viewer' | 'admin') {
   await page.click('button:has-text("Share")');
