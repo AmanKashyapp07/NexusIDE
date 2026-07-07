@@ -489,28 +489,29 @@ router.get('/:id/files/:fileId/content', requireWorkspaceRole('viewer'), async (
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// GET file history — returns the raw Yjs state for timelapse replay, plus the
-// accumulated clientID→user author map so the replayer can colour-code each
-// character by its author.
-// Response: JSON { yjsState: <base64 string>, authorMap: { "<clientId>": { userId, username, color } } }
+// GET file history — returns either the ordered Yjs update stream (full fidelity)
+// or the final merged yjs_state (legacy/approximate), plus the author map.
+// Response: { authorMap, updates?: base64[], yjsState?: base64 }
 router.get('/:id/files/:fileId/history', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
+    const fileId = req.params.fileId;
+    const workspaceId = req.params.id;
+
     const result = await getPool().query(
       'SELECT yjs_state, author_map FROM files WHERE id = $1 AND workspace_id = $2',
-      [req.params.fileId, req.params.id]
+      [fileId, workspaceId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
 
     const yjsState: Buffer | null = result.rows[0].yjs_state;
     if (!yjsState) return res.status(404).json({ error: 'No history found for this file' });
 
-    // Also merge in any author data currently live in the in-memory doc
-    // (not yet flushed to DB) so attribution is up-to-date even mid-session.
+    // Merge in any author data currently live in the in-memory doc
     const authorMap: Record<string, { userId: string; username: string; color: string }> =
       result.rows[0].author_map || {};
 
     try {
-      const docName = `${req.params.id}-${req.params.fileId}`;
+      const docName = `${workspaceId}-${fileId}`;
       const { getDocsMap } = await import('../docsRegistry.js');
       const docsMap = getDocsMap();
       if (docsMap.has(docName)) {
@@ -519,8 +520,26 @@ router.get('/:id/files/:fileId/history', requireWorkspaceRole('viewer'), async (
           authorMap[String(clientId)] = info;
         }
       }
-    } catch { /* in-memory merge is best-effort */ }
+    } catch { /* best-effort */ }
 
+    // Try to return the full ordered update stream for exact replay.
+    // If file_updates has entries for this file, use them (full fidelity mode).
+    // Otherwise fall back to the merged yjsState (legacy/approximate mode).
+    try {
+      const updatesResult = await getPool().query(
+        'SELECT update FROM file_updates WHERE file_id = $1 ORDER BY seq ASC',
+        [fileId]
+      );
+
+      if (updatesResult.rows.length > 0) {
+        const updates = updatesResult.rows.map(
+          (r: { update: Buffer }) => r.update.toString('base64')
+        );
+        return res.json({ authorMap, updates });
+      }
+    } catch { /* table might not exist yet on older deploys — fall through */ }
+
+    // Fallback: return the merged state
     res.json({
       yjsState: yjsState.toString('base64'),
       authorMap,

@@ -149,6 +149,14 @@ class WSSharedDoc extends Y.Doc {
 
     if (!this.dbLoaded) return;
 
+    // Append the raw update to the ordered stream for full-fidelity timelapse.
+    // Fire-and-forget — if this fails the merged yjs_state still has the data.
+    const updateBuf = Buffer.from(update);
+    getPool().query(
+      'INSERT INTO file_updates (file_id, update) VALUES ($1, $2)',
+      [this.fileId, updateBuf]
+    ).catch(() => {});
+
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(async () => {
       if (this.isSaving) return;
