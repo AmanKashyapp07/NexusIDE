@@ -103,10 +103,25 @@ export default function TimelapseReplayer({
         Y.applyUpdate(ydoc, uint8);
         const ytext = ydoc.getText('monaco');
 
-        // Traverse the Y.Text Item linked list to extract per-character author info
-        const items: DocItem[] = [];
-        let maxC = 0;
+        // Traverse the Y.Text Item linked list to extract per-character author info.
+        //
+        // We need two orderings:
+        // 1. DOCUMENT ORDER (linked list traversal) — determines where each character
+        //    sits in the final text. Used when reconstructing currentText so characters
+        //    appear at their correct positions.
+        // 2. INSERTION ORDER (sorted by Yjs clock) — determines when each character
+        //    was typed. Used for the slider so step N means "after the Nth keystroke".
+        //
+        // The slider position maps to a clock threshold T. currentText is built by
+        // walking the document-order list and including only characters whose original
+        // Yjs clock is ≤ T. This correctly shows the document state after N keystrokes
+        // while preserving accurate character positions.
+
+        // Pass 1: collect all non-deleted items in document order, recording original clock
+        interface RawItem { docIndex: number; originalClock: number; clientId: number; str: string; }
+        const docOrderItems: RawItem[] = [];
         let curr = (ytext as any)._start;
+        let docIdx = 0;
         while (curr !== null) {
           if (!curr.deleted) {
             const content = curr.content.getContent();
@@ -115,14 +130,44 @@ export default function TimelapseReplayer({
               : typeof content === 'string' ? content : '';
             if (str) {
               for (let i = 0; i < str.length; i++) {
-                const charClock = curr.id.clock + i + 1;
-                items.push({ clock: charClock, str: str[i], clientId: curr.id.client });
-                if (charClock > maxC) maxC = charClock;
+                docOrderItems.push({
+                  docIndex:      docIdx++,
+                  originalClock: curr.id.clock + i,
+                  clientId:      curr.id.client,
+                  str:           str[i],
+                });
               }
             }
           }
           curr = curr.right;
         }
+
+        // Pass 2: sort by insertion time (clock asc, clientId as tiebreaker)
+        // to determine the sequential typing order. Assign each character a
+        // 1-based position that the slider will use as its clock value.
+        const insertionOrder = [...docOrderItems].sort(
+          (a, b) => a.originalClock !== b.originalClock
+            ? a.originalClock - b.originalClock
+            : a.clientId - b.clientId
+        );
+
+        // Build a map: originalClock+clientId → sequential position (1-based)
+        // so the slider position N means "the first N characters by typing order"
+        const clockToPosition = new Map<string, number>();
+        insertionOrder.forEach((item, idx) => {
+          clockToPosition.set(`${item.clientId}:${item.originalClock}`, idx + 1);
+        });
+
+        // Build the final items array in DOCUMENT order, each tagged with its
+        // sequential typing position. currentText reconstruction walks this in
+        // document order and includes items whose position ≤ currentClock.
+        const items: DocItem[] = docOrderItems.map(item => ({
+          clock:    clockToPosition.get(`${item.clientId}:${item.originalClock}`) ?? 1,
+          str:      item.str,
+          clientId: item.clientId,
+        }));
+
+        const maxC = docOrderItems.length; // total characters = slider max
 
         setDocItems(items);
         setMaxClock(maxC);
