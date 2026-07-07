@@ -80,7 +80,10 @@ class WSSharedDoc extends Y.Doc {
   authorMap: Map<number, { userId: string; username: string; color: string }>;
 
   constructor(name: string, workspaceId: string, fileId: string) {
-    super();
+    // gc:false preserves tombstoned (deleted) items in yjs_state so the
+    // timelapse replayer can reconstruct the full editing history including
+    // characters that were typed and later deleted.
+    super({ gc: false });
     this.name = name;
     this.workspaceId = workspaceId;
     this.fileId = fileId;

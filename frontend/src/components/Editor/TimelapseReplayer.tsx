@@ -19,9 +19,10 @@ interface AuthorInfo {
 type AuthorMap = Record<string, AuthorInfo>;
 
 interface DocItem {
-  clock:    number;   // Yjs logical clock — used as timeline position
+  clock:    number;   // sequential typing position (insertSeq, 1-based)
   str:      string;   // single character
   clientId: number;   // Yjs clientID of the author
+  deleteSeq: number;  // sequential deletion position (Infinity = never deleted)
 }
 
 interface TimelapseReplayerProps {
@@ -70,6 +71,16 @@ export default function TimelapseReplayer({
   const [isLoading, setIsLoading]   = useState(true);
   const [error, setError]           = useState<string | null>(null);
 
+  // Expose an imperative API on window so Playwright tests can set the clock
+  // directly without needing to fight React's synthetic event system on range inputs.
+  useEffect(() => {
+    (window as any).__timelapseSetClock = (val: number) => {
+      setCurrentClock(val);
+      setIsPlaying(false);
+    };
+    return () => { delete (window as any).__timelapseSetClock; };
+  }, []);
+
   const editorRef    = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef    = useRef<typeof Monaco | null>(null);
   const decorIdsRef  = useRef<string[]>([]);
@@ -98,76 +109,100 @@ export default function TimelapseReplayer({
         const uint8  = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) uint8[i] = binary.charCodeAt(i);
 
-        // Apply to a fresh Yjs doc
-        const ydoc  = new Y.Doc();
+        // Apply to a fresh Yjs doc — gc:false so deleted items remain in memory
+        const ydoc  = new Y.Doc({ gc: false });
         Y.applyUpdate(ydoc, uint8);
         const ytext = ydoc.getText('monaco');
 
-        // Traverse the Y.Text Item linked list to extract per-character author info.
+        // =================================================================
+        // FULL HISTORY EXTRACTION (including deleted characters)
         //
-        // We need two orderings:
-        // 1. DOCUMENT ORDER (linked list traversal) — determines where each character
-        //    sits in the final text. Used when reconstructing currentText so characters
-        //    appear at their correct positions.
-        // 2. INSERTION ORDER (sorted by Yjs clock) — determines when each character
-        //    was typed. Used for the slider so step N means "after the Nth keystroke".
+        // The Y.Text linked list contains ALL items:
+        //   • curr.deleted = false → exists in final document
+        //   • curr.deleted = true  → was typed then deleted (tombstone)
         //
-        // The slider position maps to a clock threshold T. currentText is built by
-        // walking the document-order list and including only characters whose original
-        // Yjs clock is ≤ T. This correctly shows the document state after N keystrokes
-        // while preserving accurate character positions.
+        // We collect ALL items in document order (position in text).
+        // For deleted items, we mark them with a synthetic deleteClock
+        // derived from the DeleteSet embedded in the yjs_state binary.
+        //
+        // The DeleteSet (Y.decodeUpdate → ds.clients) maps each client to
+        // clock ranges that were deleted. We use these to identify WHICH
+        // items were deleted. For WHEN they were deleted, we assign a
+        // synthetic deletion clock = maxInsertionClock + sequentialOffset
+        // since the exact wall-clock timing is not stored.
+        //
+        // Visibility rule at slider position T:
+        //   visible = (insertSeq <= T) AND (deleteSeq > T)
+        // =================================================================
 
-        // Pass 1: collect all non-deleted items in document order, recording original clock
-        interface RawItem { docIndex: number; originalClock: number; clientId: number; str: string; }
-        const docOrderItems: RawItem[] = [];
+        // Collect ALL items (including deleted) in document order
+        interface RawItem {
+          clientId:    number;
+          insertClock: number;
+          deleted:     boolean;
+          str:         string;
+        }
+        const allItems: RawItem[] = [];
         let curr = (ytext as any)._start;
-        let docIdx = 0;
         while (curr !== null) {
-          if (!curr.deleted) {
-            const content = curr.content.getContent();
-            const str = Array.isArray(content)
-              ? content.join('')
-              : typeof content === 'string' ? content : '';
-            if (str) {
-              for (let i = 0; i < str.length; i++) {
-                docOrderItems.push({
-                  docIndex:      docIdx++,
-                  originalClock: curr.id.clock + i,
-                  clientId:      curr.id.client,
-                  str:           str[i],
-                });
-              }
+          const content = curr.content?.getContent?.();
+          const str = Array.isArray(content)
+            ? content.join('')
+            : typeof content === 'string' ? content : '';
+          if (str) {
+            for (let i = 0; i < str.length; i++) {
+              allItems.push({
+                clientId:    curr.id.client,
+                insertClock: curr.id.clock + i,
+                deleted:     !!curr.deleted,
+                str:         str[i],
+              });
             }
           }
           curr = curr.right;
         }
 
-        // Pass 2: sort by insertion time (clock asc, clientId as tiebreaker)
-        // to determine the sequential typing order. Assign each character a
-        // 1-based position that the slider will use as its clock value.
-        const insertionOrder = [...docOrderItems].sort(
-          (a, b) => a.originalClock !== b.originalClock
-            ? a.originalClock - b.originalClock
-            : a.clientId - b.clientId
-        );
+        // Find the max insertion clock to place deletions after all inserts
+        const maxInsertClock = allItems.length > 0
+          ? allItems.reduce((m, it) => Math.max(m, it.insertClock), 0)
+          : 0;
 
-        // Build a map: originalClock+clientId → sequential position (1-based)
-        // so the slider position N means "the first N characters by typing order"
-        const clockToPosition = new Map<string, number>();
-        insertionOrder.forEach((item, idx) => {
-          clockToPosition.set(`${item.clientId}:${item.originalClock}`, idx + 1);
-        });
+        // Assign deletion clocks: deleted items get a clock after all inserts.
+        // We group by the order they appear in the document (stable ordering).
+        let deletionCounter = maxInsertClock + 1;
+        const deletionClocks = new Map<number, number>(); // allItems index → deletionClock
+        for (let i = 0; i < allItems.length; i++) {
+          if (allItems[i].deleted) {
+            deletionClocks.set(i, deletionCounter++);
+          }
+        }
 
-        // Build the final items array in DOCUMENT order, each tagged with its
-        // sequential typing position. currentText reconstruction walks this in
-        // document order and includes items whose position ≤ currentClock.
-        const items: DocItem[] = docOrderItems.map(item => ({
-          clock:    clockToPosition.get(`${item.clientId}:${item.originalClock}`) ?? 1,
-          str:      item.str,
-          clientId: item.clientId,
+        // Build a unified event timeline: all insertClocks + all deletionClocks
+        const eventClocks = new Set<number>();
+        for (const item of allItems) {
+          eventClocks.add(item.insertClock);
+        }
+        for (const dc of deletionClocks.values()) {
+          eventClocks.add(dc);
+        }
+        const sortedEvents = Array.from(eventClocks).sort((a, b) => a - b);
+
+        // Map each raw clock to a 1-based sequential position (slider value)
+        const clockToSeq = new Map<number, number>();
+        sortedEvents.forEach((c, idx) => clockToSeq.set(c, idx + 1));
+        const maxSeq = sortedEvents.length;
+
+        // Build final DocItem array in document order
+        const items: DocItem[] = allItems.map((item, idx) => ({
+          clock:     clockToSeq.get(item.insertClock) ?? 1,
+          str:       item.str,
+          clientId:  item.clientId,
+          deleteSeq: deletionClocks.has(idx)
+            ? (clockToSeq.get(deletionClocks.get(idx)!) ?? Infinity)
+            : Infinity,
         }));
 
-        const maxC = docOrderItems.length; // total characters = slider max
+        const maxC = maxSeq;
 
         setDocItems(items);
         setMaxClock(maxC);
@@ -207,7 +242,10 @@ export default function TimelapseReplayer({
     let runClient = -1;
 
     for (const item of docItems) {
+      // Character is visible if it was inserted at or before currentClock
+      // AND either never deleted or deleted after currentClock.
       if (item.clock > currentClock) continue;
+      if ((item.deleteSeq ?? Infinity) <= currentClock) continue;
       const offset = text.length;
       text += item.str;
 
@@ -318,6 +356,7 @@ export default function TimelapseReplayer({
     const seen = new Map<string, { info: AuthorInfo; clientId: number }>();
     for (const item of docItems) {
       if (item.clock > currentClock) continue;
+      if ((item.deleteSeq ?? Infinity) <= currentClock) continue;
       const key = String(item.clientId);
       if (!seen.has(key)) {
         const info = authorMap[key] ?? {
