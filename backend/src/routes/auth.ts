@@ -58,7 +58,7 @@ router.get('/github/callback', async (req, res) => {
 
     const pool = getPool();
     // Use email to link existing users who registered before GitHub OAuth
-    let dbUser = await pool.query('SELECT * FROM users WHERE github_id = $1 OR email = $2', [githubId, primaryEmail]);
+    let dbUser = await pool.query('SELECT id, username, email, github_id FROM users WHERE github_id = $1 OR email = $2', [githubId, primaryEmail]);
     let userId;
 
     if (dbUser.rows.length > 0) {
@@ -103,7 +103,7 @@ router.post('/test-login', async (req, res) => {
     const email = `${username.toLowerCase()}@test.local`;
 
     // Check if user already exists
-    let dbUser = await pool.query('SELECT * FROM users WHERE username = $1 OR email = $2', [username, email]);
+    let dbUser = await pool.query('SELECT id, username, email FROM users WHERE username = $1 OR email = $2', [username, email]);
     let userId: string;
 
     if (dbUser.rows.length > 0) {

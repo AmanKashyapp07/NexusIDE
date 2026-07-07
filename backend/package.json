@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/server.ts",
   "scripts": {
     "dev": "tsx watch --ignore ./workspace_data src/server.ts",
     "start": "tsx src/server.ts",
@@ -17,11 +17,13 @@
     "archiver": "^8.0.0",
     "axios": "^1.18.1",
     "bcrypt": "^6.0.0",
+    "compression": "^1.7.5",
     "cors": "^2.8.6",
     "dockerode": "^5.0.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "http-proxy-middleware": "^3.0.7",
+    "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.21.0",
     "socket.io": "^4.8.3",
@@ -31,6 +33,7 @@
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
+    "@types/compression": "^1.7.5",
     "@types/archiver": "^8.0.0",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",

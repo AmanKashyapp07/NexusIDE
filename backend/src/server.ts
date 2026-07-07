@@ -18,6 +18,7 @@ function log(prefix: string, ...args: any[]) {
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
+import compression from 'compression';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
@@ -40,6 +41,17 @@ import { getDocsMap } from './docsRegistry.js';
 
 const app = express();
 app.use(cors());
+// Compress all HTTP responses (gzip/deflate)
+// Reduces bandwidth by 60-80% for JSON/text responses
+app.use(compression({
+  level: 6, // Balance between speed and compression (default)
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    // Don't compress WebSocket upgrade requests
+    if (req.headers['upgrade']) return false;
+    return compression.filter(req, res);
+  }
+}));
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -197,6 +209,16 @@ class WSSharedDoc extends Y.Doc {
           'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
           [state, content, JSON.stringify(authorMapJson), this.fileId]
         );
+        
+        // Invalidate Redis cache after saving
+        try {
+          const { fileContentCache, yjsStateCache } = await import('./utils/redisCache.js');
+          await fileContentCache.delete(`${this.fileId}`);
+          await yjsStateCache.delete(`${this.fileId}:history`);
+        } catch (err: any) {
+          log('💾 SAVE', `⚠️  Cache invalidation failed: ${err.message}`);
+        }
+        
         syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
         getIO()?.to(`presence-${this.workspaceId}`).emit('file-saved', { fileId: this.fileId });
       } catch (err: any) {
@@ -220,6 +242,16 @@ class WSSharedDoc extends Y.Doc {
         'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
         [state, content, JSON.stringify(authorMapJson), this.fileId]
       );
+      
+      // Invalidate Redis cache after final save
+      try {
+        const { fileContentCache, yjsStateCache } = await import('./utils/redisCache.js');
+        await fileContentCache.delete(`${this.fileId}`);
+        await yjsStateCache.delete(`${this.fileId}:history`);
+      } catch (err: any) {
+        log('🔒 CLOSE', `⚠️  Cache invalidation failed: ${err.message}`);
+      }
+      
       syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
     } catch (err: any) {
       log('🔒 CLOSE', `❌ Final save error: ${err.message}`);
