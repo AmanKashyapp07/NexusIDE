@@ -454,7 +454,84 @@ test.describe('Timelapse Author Attribution', () => {
     await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
   });
 
-  // ── Test 5: authorMap persists across server restarts (DB round-trip) ──────
+  // ── Test 6: Chronological replay order ──────────────────────────────────
+  // Verifies the core fix: timelapse replays characters in the order they were
+  // TYPED (insertion order by Yjs clock), not in their final document position.
+  //
+  // Setup: Alice types "SECOND" first, then goes back and inserts "FIRST " at
+  // the beginning. The final document reads "FIRST SECOND".
+  // A position-ordered (broken) replay would show "F I R S T S E C O N D…"
+  // A clock-ordered (correct) replay must show "S E C O N D…" first (those
+  // were typed first) and only add "FIRST " characters after.
+  test('6. timelapse replays characters in typing order, not final document position', async ({ page }) => {
+    await createTestFile(page, 'order.js');
+
+    // Step 1: type "SECOND" — these characters get low Yjs clocks
+    await typeTextInMonaco(page, 'SECOND');
+    await page.waitForTimeout(2000);
+
+    // Step 2: move cursor to position 0 and insert "FIRST " — these characters
+    // get higher clocks even though they appear before "SECOND" in the document
+    await page.evaluate(() => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      editor.setPosition({ lineNumber: 1, column: 1 });
+      editor.focus();
+    });
+    await page.keyboard.type('FIRST ');
+    await page.waitForTimeout(3000); // debounce save
+
+    // Confirm final document content is "FIRST SECOND" (sanity check)
+    const finalContent = await page.evaluate(() => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      return editor.getModel()?.getValue() ?? '';
+    });
+    expect(finalContent).toBe('FIRST SECOND');
+
+    // Open timelapse
+    await page.getByRole('button', { name: 'Timelapse' }).click();
+    const replayer = page.locator('.shadow-2xl.z-50');
+    await expect(replayer.getByText('CRDT Timelapse')).toBeVisible({ timeout: 10000 });
+
+    // Rewind to the very start
+    await page.locator('.shadow-2xl.z-50 input[type="range"]').fill('0');
+    await page.waitForTimeout(300);
+
+    // Helper: read the current timelapse editor value (editors[1] is the replayer)
+    const getReplayerValue = () => page.evaluate(() => {
+      const editors = (window as any).monaco?.editor?.getEditors();
+      return editors && editors[1] ? editors[1].getModel()?.getValue() ?? '' : '';
+    });
+
+    // At clock=0 the replayer must be empty
+    expect(await getReplayerValue()).toBe('');
+
+    // Advance the slider one character at a time.
+    // Read the max value from the slider so the test is independent of
+    // internal clock numbering.
+    const maxVal = await page.locator('.shadow-2xl.z-50 input[type="range"]').getAttribute('max');
+    const total = Number(maxVal); // should equal total character count = 12 ("FIRST SECOND")
+    expect(total).toBe(12);
+
+    // After the first 6 ticks the replayer must contain "SECOND" (typed first)
+    // but NOT "FIRST " (typed second, inserted before "SECOND" in the document).
+    await page.locator('.shadow-2xl.z-50 input[type="range"]').fill('6');
+    await page.waitForTimeout(300);
+
+    const afterSix = await getReplayerValue();
+    // The 6 earliest-clocked characters are "SECOND"
+    expect(afterSix).toContain('SECOND');
+    expect(afterSix).not.toContain('FIRST');
+
+    // After all 12 ticks the full text "FIRST SECOND" must be present
+    await page.locator('.shadow-2xl.z-50 input[type="range"]').fill('12');
+    await page.waitForTimeout(300);
+
+    const afterAll = await getReplayerValue();
+    expect(afterAll).toBe('FIRST SECOND');
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+
   // Open the file, type, wait for save, reload the page (new server session),
   // open timelapse — legend must still show the author without re-typing.
   test('5. authorMap survives page reload (DB persistence verified)', async ({ page }) => {
