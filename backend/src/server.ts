@@ -140,6 +140,34 @@ class WSSharedDoc extends Y.Doc {
     }
   }
 
+  // [CONCURRENCY] Sequential update queue for file_updates inserts.
+  // Without a queue, rapid keystroke updates fire concurrent INSERT queries
+  // that can arrive at PostgreSQL out-of-order (network jitter), breaking the
+  // chronological ORDER BY seq ASC guarantee that timelapse replay depends on.
+  // The queue ensures update N finishes its INSERT before update N+1 begins.
+  private updateQueue: Array<Buffer> = [];
+  private isProcessingQueue = false;
+
+  private async processUpdateQueue() {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+    try {
+      while (this.updateQueue.length > 0) {
+        const buf = this.updateQueue.shift()!;
+        try {
+          await getPool().query(
+            'INSERT INTO file_updates (file_id, update) VALUES ($1, $2)',
+            [this.fileId, buf]
+          );
+        } catch {
+          // Non-fatal — the merged yjs_state still has the data
+        }
+      }
+    } finally {
+      this.isProcessingQueue = false;
+    }
+  }
+
   handleDocumentUpdate(update: Uint8Array, origin: any) {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, 0);
@@ -149,13 +177,9 @@ class WSSharedDoc extends Y.Doc {
 
     if (!this.dbLoaded) return;
 
-    // Append the raw update to the ordered stream for full-fidelity timelapse.
-    // Fire-and-forget — if this fails the merged yjs_state still has the data.
-    const updateBuf = Buffer.from(update);
-    getPool().query(
-      'INSERT INTO file_updates (file_id, update) VALUES ($1, $2)',
-      [this.fileId, updateBuf]
-    ).catch(() => {});
+    // Enqueue the raw update for sequential ordered insertion into file_updates.
+    this.updateQueue.push(Buffer.from(update));
+    this.processUpdateQueue();
 
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(async () => {
