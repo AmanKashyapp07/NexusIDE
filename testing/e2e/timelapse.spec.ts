@@ -230,6 +230,177 @@ test.describe('Yjs Session Timelapse Replay', () => {
 // These run as a separate describe block because they require two browser
 // contexts (two users) and their own workspace lifecycle.
 // =============================================================================
+test.describe('Live Editor Blame Feature', () => {
+  let workspaceId: string;
+  const WS_TITLE = `Blame-Test-${Date.now()}`;
+
+  // Helper: invite a user to the workspace via API
+  async function inviteViaApi(page: Page, username: string, role = 'editor') {
+    await page.evaluate(async ({ wsId, username, role }) => {
+      const token = localStorage.getItem('token');
+      await fetch(`/api/workspace/${wsId}/collaborators`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ usernameOrEmail: username, role }),
+      });
+    }, { wsId: workspaceId, username, role });
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'attr_alice', 'password123');
+    workspaceId = await createTestWorkspace(page, WS_TITLE);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await deleteTestWorkspace(page, workspaceId);
+  });
+
+  test('toggles blame sidebar visibility and updates word-wrap layout', async ({ page }) => {
+    await createTestFile(page, 'blame_toggle.js');
+    await typeTextInMonaco(page, 'const x = 10;\nconst y = 20;');
+
+    // Allow Yjs to sync the awareness state and doc
+    await page.waitForTimeout(2000);
+
+    // FIX: Bypass accessibility tree, find the button by its exact text content
+    const blameBtn = page.locator('button', { hasText: /^Blame$/ });
+    await expect(blameBtn).toBeVisible();
+
+    // 1. Open Blame
+    await blameBtn.click();
+
+    // Button text should change
+    const hideBtn = page.locator('button', { hasText: 'Hide Blame' });
+    await expect(hideBtn).toBeVisible();
+
+    // Sidebar should appear containing the author's username
+    const sidebar = page.locator('div').filter({ hasText: 'Live edit' }).first();
+    await expect(sidebar).toBeVisible();
+    await expect(page.getByText('attr_alice').first()).toBeVisible();
+
+    // 2. Close Blame
+    await hideBtn.click();
+    await expect(blameBtn).toBeVisible();
+    await expect(page.getByText('Live edit')).toBeHidden();
+  });
+
+  test('attributes authorship chronologically on the same line', async ({ page, browser }) => {
+    // 1. Alice creates the file and writes the initial code
+    await createTestFile(page, 'blame_chrono.js');
+    await typeTextInMonaco(page, 'let data = [];');
+    await page.waitForTimeout(3000);
+
+    // Verify Alice is the author of line 1
+    const blameBtn = page.locator('button', { hasText: /^Blame$/ });
+    await blameBtn.click();
+    
+    await expect(page.getByText('attr_alice').first()).toBeVisible();
+    
+    const hideBtn = page.locator('button', { hasText: 'Hide Blame' });
+    await hideBtn.click(); // Close for Bob's turn
+
+    // 2. Invite Bob
+    await inviteViaApi(page, 'attr_bob', 'editor');
+
+    const bobContext = await browser.newContext();
+    const bobPage = await bobContext.newPage();
+
+    try {
+      await login(bobPage, 'attr_bob', 'password123');
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+
+      // Wait for environment and click the file
+      const loadingEl = bobPage.locator('text=Booting environment...');
+
+      try {
+        await loadingEl.waitFor({ state: 'visible', timeout: 3000 });
+      } catch {}
+
+      try {
+        await loadingEl.waitFor({ state: 'detached', timeout: 35000 });
+      } catch {}
+
+      await bobPage
+        .locator('.ide-scrollbar')
+        .getByText('blame_chrono.js')
+        .waitFor({ state: 'visible', timeout: 15000 });
+
+      await bobPage
+        .locator('.ide-scrollbar')
+        .getByText('blame_chrono.js')
+        .click();
+
+      await bobPage.waitForFunction(
+        (name) => {
+          const eds = (window as any).monaco?.editor?.getEditors();
+          return (
+            eds &&
+            eds.length > 0 &&
+            eds[0].getModel()?.uri.path.endsWith(name)
+          );
+        },
+        'blame_chrono.js',
+        { timeout: 20000 }
+      );
+
+      // Bob modifies the exact same line Alice wrote
+      await bobPage.evaluate(() => {
+        const editor = (window as any).monaco.editor.getEditors()[0];
+        editor.setPosition({ lineNumber: 1, column: 14 });
+        editor.focus();
+      });
+
+      // Bob types, acquiring the highest Yjs clock for this line
+      await bobPage.keyboard.type(' /* loaded */');
+      await bobPage.waitForTimeout(3000);
+
+    } finally {
+      await bobContext.close();
+    }
+
+    // 3. Back to Alice: Open Blame again
+    await blameBtn.click();
+
+    // The line should now be attributed to Bob because his edit has a higher Yjs clock
+    const blameSidebar = page.locator('.w-\\[260px\\]');
+
+    await expect(
+      blameSidebar.getByText('attr_bob')
+    ).toBeVisible({ timeout: 5000 });
+
+    // Alice's name should no longer be the primary blame for line 1
+    await expect(
+      blameSidebar.getByText('attr_alice')
+    ).toBeHidden();
+  });
+
+  test('gracefully handles missing author history (offline/deleted)', async ({ page }) => {
+    await createTestFile(page, 'blame_empty.js');
+
+    // Simulate Monaco line insertion without a Yjs aware author attached
+    await page.evaluate(() => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      editor.getModel()?.setValue(
+        'function autoGenerated() {\n  return true;\n}'
+      );
+    });
+
+    await page.waitForTimeout(1000);
+
+    // FIX: Use robust text locator
+    const blameBtn = page.locator('button', { hasText: /^Blame$/ });
+    await blameBtn.click();
+
+    // Fallback UI should render cleanly without crashing
+    const unknownLines = page.getByText('No history');
+    const count = await unknownLines.count();
+
+    expect(count).toBeGreaterThanOrEqual(1);
+  });
+});
 
 test.describe('Timelapse Author Attribution', () => {
   let workspaceId: string;

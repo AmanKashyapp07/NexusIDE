@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: timelapse.spec.ts >> Timelapse Full-Fidelity Replay >> keyboard shortcuts control playback
-- Location: ../testing/e2e/timelapse.spec.ts:1283:7
+- Name: timelapse.spec.ts >> Timelapse Full-Fidelity Replay >> exact deletion replay shows deleted text at correct timeline position
+- Location: ../testing/e2e/timelapse.spec.ts:1238:7
 
 # Error details
 

@@ -63,6 +63,8 @@ function IdePage() {
   const [hasConflicts, setHasConflicts] = useState(false);
   const [showConflictResolver, setShowConflictResolver] = useState(false);
   const [isViewingTimelapse, setIsViewingTimelapse] = useState(false);
+  const [authorMap, setAuthorMap] = useState<Record<string, { username: string; color: string }>>({});
+  const [isBlameOpen, setIsBlameOpen] = useState(false);
   const { addToast } = useToast();
 
   const handleConnectionStatusChange = useCallback((status: ConnectionStatus) => {
@@ -74,6 +76,20 @@ function IdePage() {
       return status;
     });
   }, [addToast]);
+
+  const handleAwarenessChange = useCallback((users: Array<{ name: string; color: string; id?: string }>) => {
+    // Build authorMap from awareness users: map their id to username and color
+    // Merge with existing authorMap to preserve historical data
+    setAuthorMap(prev => {
+      const newAuthorMap = { ...prev };
+      users.forEach(user => {
+        if (user.id) {
+          newAuthorMap[user.id] = { username: user.name, color: user.color };
+        }
+      });
+      return newAuthorMap;
+    });
+  }, []);
 
   const sidebarWidth = 260;
   const editorWidth = 62;
@@ -92,6 +108,38 @@ function IdePage() {
   }, [files, urlFileId]);
   
   const activeFileId = activeFile?.id ?? null;
+  
+  // Load author map from history when file changes
+  useEffect(() => {
+    if (!workspaceId || !activeFileId) return;
+    
+    const loadAuthorMap = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(apiUrl(`/workspace/${workspaceId}/files/${activeFileId}/history`), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authorMap) {
+            // Convert backend format to frontend format (remove userId field)
+            const frontendAuthorMap: Record<string, { username: string; color: string }> = {};
+            for (const [clientId, info] of Object.entries(data.authorMap as Record<string, any>)) {
+              frontendAuthorMap[clientId] = {
+                username: info.username,
+                color: info.color
+              };
+            }
+            setAuthorMap(frontendAuthorMap);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load author map:', err);
+      }
+    };
+    
+    loadAuthorMap();
+  }, [workspaceId, activeFileId]);
   
   const fetchFiles = useCallback(async (wsId: string) => {
     try {
@@ -403,6 +451,20 @@ function IdePage() {
 
         <div className="flex items-center gap-3">
           <VoiceChat workspaceId={workspaceId} user={user} />
+          
+          {/* Hide Blame Button - shows when blame is open */}
+          {isBlameOpen && (
+            <button
+              onClick={() => setIsBlameOpen(false)}
+              className="flex items-center gap-1.5 rounded-md bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 text-xs font-medium text-indigo-400 border border-indigo-500/20 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Hide Blame
+            </button>
+          )}
+          
           <div className="h-6 w-[1px] bg-white/[0.08] mx-2" />
 
           {activeCollaborators.length > 0 && (
@@ -649,9 +711,13 @@ function IdePage() {
                       filename={activeFile.name}
                       language={activeFile.language || 'javascript'}
                       currentUser={user}
+                      authorMap={authorMap}
+                      isBlameOpen={isBlameOpen}
+                      onBlameToggle={setIsBlameOpen}
                       readOnly={userRole === 'viewer'}
                       onEditorReady={(editor) => { editorRef.current = editor; }}
                       onConnectionStatusChange={handleConnectionStatusChange}
+                      onAwarenessChange={handleAwarenessChange}
                       onCodeChange={handleTypingActivity}
                       jumpToUserId={jumpToUserId}
                       onJumpComplete={() => setJumpToUserId(null)}

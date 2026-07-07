@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import * as Y from 'yjs';
@@ -24,6 +24,9 @@ interface CodeEditorProps {
   filename?: string;
   language: string;
   currentUser: { username: string; id: string };
+  authorMap?: Record<string, { username: string; color: string }>; // Added for Blame
+  isBlameOpen?: boolean; // External control for blame visibility
+  onBlameToggle?: (open: boolean) => void; // Callback when blame is toggled
   onCodeChange?: (code: string) => void;
   onEditorReady?: (editor: MonacoCodeEditor) => void;
   onAwarenessChange?: (users: AwarenessUser[]) => void;
@@ -67,12 +70,48 @@ class AutocompleteCache {
 }
 const ghostTextCache = new AutocompleteCache(50);
 
+// ===========================================================================
+// [BLAME FEATURE] Chronological Author Extraction
+// ===========================================================================
+function getChronologicalLineBlame(ytext: Y.Text) {
+  const lineAuthors = new Map<number, { clientId: number; maxClock: number }>();
+  let currentLine = 1;
+  let node: any = (ytext as any)._start;
+
+  while (node !== null) {
+    if (!node.deleted) {
+      const content = node.content?.getContent?.();
+      const str = Array.isArray(content) ? content.join('') : (typeof content === 'string' ? content : '');
+      
+      for (let i = 0; i < str.length; i++) {
+        if (str[i] === '\n') {
+          currentLine++;
+        } else {
+          const charClock = node.id.clock + i;
+          const existing = lineAuthors.get(currentLine);
+          if (!existing || charClock > existing.maxClock) {
+            lineAuthors.set(currentLine, { clientId: node.id.client, maxClock: charClock });
+          }
+        }
+      }
+    }
+    node = node.right;
+  }
+
+  const result = new Map<number, number>();
+  lineAuthors.forEach((data, line) => result.set(line, data.clientId));
+  return result;
+}
+
 export default function CodeEditor({
   workspaceId,
   fileId,
   filename,
   language,
   currentUser,
+  authorMap = {}, // Added for Blame
+  isBlameOpen = false,
+  onBlameToggle,
   onCodeChange,
   onEditorReady,
   onAwarenessChange,
@@ -85,6 +124,38 @@ export default function CodeEditor({
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
   const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
   const [lspStatus, setLspStatus] = useState<LspStatus>('off');
+
+  // ===========================================================================
+  // [BLAME FEATURE] UI States
+  // ===========================================================================
+  const [showBlame, setShowBlame] = useState(false);
+  const [blameData, setBlameData] = useState<Map<number, number>>(new Map());
+  const [lineCount, setLineCount] = useState(1);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Sync with parent component's blame state
+  useEffect(() => {
+    setShowBlame(isBlameOpen);
+  }, [isBlameOpen]);
+
+  // Notify parent when blame is toggled locally
+  const toggleBlame = () => {
+    const newState = !showBlame;
+    setShowBlame(newState);
+    onBlameToggle?.(newState);
+  };
+
+  // Build authorMap from awareness states (map Yjs clientId to user info)
+  const liveAuthorMap = useMemo(() => {
+    const map: Record<string, { username: string; color: string }> = {};
+    awarenessStates.forEach(([clientId, state]) => {
+      if (state.user) {
+        map[String(clientId)] = { username: state.user.name, color: state.user.color };
+      }
+    });
+    // Merge with provided authorMap (from parent) for historical data
+    return { ...authorMap, ...map };
+  }, [awarenessStates, authorMap]);
 
   // ===========================================================================
   // [FEATURE] LSP Client — real-time diagnostics, hover, completions
@@ -100,24 +171,41 @@ export default function CodeEditor({
     onStatusChange: setLspStatus,
   });
 
-
-  // Ref to the live WebsocketProvider — needed by the jump effect which runs
-  // outside the collaboration useEffect closure.
   const wsProviderRef = useRef<WebsocketProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
 
-  // Synchronously reset sync and awareness status during render if the active file has swapped.
-  // This ensures the "Syncing with server..." overlay is instantly visible in the DOM
   const [prevFileId, setPrevFileId] = useState(fileId);
-  // during the render commit, preventing E2E race conditions where Playwright asserts
-  // state before the new Yjs websocket handshake is initiated.
   if (fileId !== prevFileId) {
     setPrevFileId(fileId);
     setAwarenessStates([]);
+    // Reset blame state when switching files
+    setShowBlame(false);
+    setBlameData(new Map());
+    setLineCount(1);
   }
 
   const callbackRefs = useRef({ onAwarenessChange, onConnectionStatusChange, onCodeChange });
   callbackRefs.current = { onAwarenessChange, onConnectionStatusChange, onCodeChange };
+
+  // ===========================================================================
+  // [BLAME FEATURE] Isolated Live Calculation
+  // ===========================================================================
+  useEffect(() => {
+    if (!showBlame || !editor || !ydocRef.current) return;
+    
+    const updateBlame = () => {
+      const ydoc = ydocRef.current;
+      if (!ydoc) return;
+      const ytext = ydoc.getText('monaco');
+      setBlameData(getChronologicalLineBlame(ytext));
+      setLineCount(editor.getModel()?.getLineCount() || 1);
+    };
+
+    updateBlame();
+    // Safely hook into Monaco's native model changes without touching Yjs binding
+    const disposable = editor.onDidChangeModelContent(updateBlame);
+    return () => disposable.dispose();
+  }, [showBlame, editor]);
 
   // ===========================================================================
   // [COLLABORATION SESSION] Deterministic Yjs lifecycle
@@ -135,8 +223,6 @@ export default function CodeEditor({
     const ydoc = new Y.Doc();
     const wsProvider = new WebsocketProvider(wsUrl(''), roomName, ydoc, { params: { token } });
 
-    // Expose provider + doc via refs so the jump effect can read awareness state
-    // without being part of this effect's dependency array.
     wsProviderRef.current = wsProvider;
     ydocRef.current = ydoc;
 
@@ -148,15 +234,6 @@ export default function CodeEditor({
       if (!model || !model.uri || !model.uri.path.endsWith(expectedName)) return;
       if (binding && boundModel === model) return;
 
-      // [SYNC ORDERING GUARD]
-      // MonacoBinding's constructor calls monacoModel.setValue(ytext.toString())
-      // whenever the two differ. If we bind a freshly-created (empty) Y.Doc to a
-      // Monaco model that was cached with content from a prior visit (rapid file
-      // switching keeps CodeEditor mounted, so Monaco reuses the model by URI),
-      // the binding would wipe the cached content to "" before the server sync
-      // repopulates Y.Text — producing a transient/empty editor (Test 9).
-      // Defer binding until the server sync has hydrated Y.Text; handleSync
-      // re-invokes tryBind once the doc is authoritative.
       const ytext = ydoc.getText('monaco');
       if (!(wsProvider as any).synced && ytext.length === 0 && model.getValue().length > 0) {
         return;
@@ -178,22 +255,6 @@ export default function CodeEditor({
 
     const handleSync = (synced: boolean) => {
       if (synced && isActive) {
-        // [PRODUCTION FIX] Always destroy and recreate the binding on sync.
-        //
-        // On localhost, the Yjs SyncStep2 (server state) arrives before tryBind()
-        // runs for the first time, so Y.Text is already populated when binding
-        // is created and everything is correct.
-        //
-        // On a real network (Oracle VM, CI), there is meaningful RTT. tryBind()
-        // may fire first — while Y.Text is still empty — creating a binding that
-        // captures empty state. When the sync event eventually fires and Y.Text
-        // is hydrated, the existing binding's _typeObserver only fires on future
-        // *transactional* mutations, never on the initial applyUpdate from the
-        // server. The Monaco model therefore stays empty forever.
-        //
-        // Destroying and recreating the binding here guarantees MonacoBinding's
-        // constructor runs *after* Y.Text is authoritative, so it correctly
-        // calls model.setValue(ytext.toString()) with the server content.
         if (binding) {
           binding.destroy();
           binding = null;
@@ -234,7 +295,6 @@ export default function CodeEditor({
     };
 
     wsProvider.on('sync', handleSync);
-
     wsProvider.on('status', handleStatus as any);
     wsProvider.awareness.on('change', handleAwareness);
     ydoc.on('update', handleUpdate);
@@ -264,11 +324,6 @@ export default function CodeEditor({
 
   // ===========================================================================
   // [FEATURE] Jump-to-member cursor
-  // When jumpToUserId is set by IdePage (user clicked a member's avatar),
-  // find that member in the Yjs awareness state, decode their cursor relative
-  // position back to an absolute Monaco position, and scroll + move the caret.
-  // Read-only — never writes to awareness state, so it cannot race with cursor
-  // rendering or trigger spurious awareness change events.
   // ===========================================================================
   useEffect(() => {
     if (!jumpToUserId || !editor || !wsProviderRef.current || !ydocRef.current) return;
@@ -283,11 +338,9 @@ export default function CodeEditor({
 
     for (const [, state] of states) {
       const s = state as AwarenessState & { user?: AwarenessUser & { id?: string } };
-      // Match by userId stored in awareness (set as `id` in handleStatus above).
       if (!s.user?.id || s.user.id !== jumpToUserId) continue;
       if (!s.selection) continue;
 
-      // Decode the relative cursor position back to an absolute character offset.
       const headAbs = Y.createAbsolutePositionFromRelativePosition(
         s.selection.head as Y.RelativePosition,
         ydoc
@@ -295,15 +348,12 @@ export default function CodeEditor({
       if (headAbs === null || headAbs.type !== ytext) continue;
 
       const position = model.getPositionAt(headAbs.index);
-      // Smooth scroll to the target line, centering it in the viewport.
       editor.revealPositionInCenter(position, 0 /* Smooth */);
       editor.setPosition(position);
       editor.focus();
       break;
     }
 
-    // Signal IdePage to clear jumpToUserId regardless of whether we found the
-    // cursor — avoids a stale jump re-triggering if the user switches files.
     onJumpComplete?.();
   }, [jumpToUserId, editor, onJumpComplete]);
 
@@ -408,6 +458,13 @@ export default function CodeEditor({
     setEditor(editorInstance);
     setMonacoInstance(monaco as MonacoInstance);
 
+    // [BLAME FEATURE] Sync editor scroll to blame sidebar
+    editorInstance.onDidScrollChange((e) => {
+      if (sidebarRef.current) {
+        sidebarRef.current.scrollTop = e.scrollTop;
+      }
+    });
+
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
       target: monaco.languages.typescript.ScriptTarget.ES2020,
       allowNonTsExtensions: true,
@@ -422,10 +479,6 @@ export default function CodeEditor({
       allowNonTsExtensions: true,
     });
 
-    // Disable Monaco's built-in shallow type checker for TS/JS — the real
-    // tsserver LSP provides authoritative diagnostics via JSON-RPC instead.
-    // CSS/JSON have no LSP so we suppress their built-in validators too (they
-    // produce noisy false-positives in a multi-language sandbox context).
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
     monaco.languages.css.cssDefaults.setDiagnosticsOptions({ validate: false });
@@ -436,7 +489,8 @@ export default function CodeEditor({
   };
 
   return (
-    <div className="relative h-full w-full bg-[#1e1e1e]">
+    // Replaced absolute wrapper with flex for split pane architecture
+    <div className="relative flex h-full w-full bg-[#1e1e1e] overflow-hidden">
       <style>
         {awarenessStates.map(([clientId, state]) => {
             if (!state.user?.color) return '';
@@ -472,64 +526,126 @@ export default function CodeEditor({
           }).join('\n')}
       </style>
       
-      <Editor
-        path={filename || fileId}
-        height="100%"
-        language={language}
-        theme="vs-dark"
-        loading={
-          <div className="flex h-full w-full items-center justify-center bg-[#1e1e1e]">
-            <div className="flex flex-col items-center gap-4">
-              <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#3b82f6] border-t-transparent" />
-              <span className="text-sm font-medium tracking-wide text-gray-400 font-mono">Loading Editor...</span>
-            </div>
-          </div>
-        }
-        options={{
-          minimap: { enabled: false },
-          fontSize: 14,
-          fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, Menlo, monospace",
-          fontLigatures: true,
-          wordWrap: 'on',
-          padding: { top: 16, bottom: 16 },
-          lineNumbersMinChars: 3,
-          readOnly: readOnly,
-          automaticLayout: true,
-        }}
-        onMount={handleEditorDidMount}
-      />
-
-      {readOnly && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold text-zinc-400 bg-black/40 border border-white/10 backdrop-blur-md shadow-sm">
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          View Only
-        </div>
-      )}
-
-      {/* LSP status badge — shown bottom-right when language server is active */}
-      {lspStatus !== 'off' && !readOnly && ['typescript', 'javascript', 'typescriptreact', 'javascriptreact', 'python'].includes(language) && (
-        <div
-          data-testid="lsp-status-badge"
-          data-lsp-status={lspStatus}
-          className={`absolute bottom-3 right-3 z-20 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold backdrop-blur-md border transition-all ${
-            lspStatus === 'ready'
-              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-              : lspStatus === 'connecting'
-              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-              : 'bg-red-500/10 text-red-400 border-red-500/20'
-          }`}
+      {/* ===========================================================================
+          [BLAME FEATURE] Custom React Blame Sidebar
+          =========================================================================== */}
+      {showBlame && (
+        <div 
+          ref={sidebarRef}
+          className="w-[260px] shrink-0 overflow-hidden bg-[#252526] border-r border-white/10 text-xs z-10"
+          style={{ scrollbarWidth: 'none' }} 
         >
-          <span className={`h-1.5 w-1.5 rounded-full ${
-            lspStatus === 'ready'      ? 'bg-emerald-400'
-            : lspStatus === 'connecting' ? 'bg-blue-400 animate-pulse'
-            : 'bg-red-400'
-          }`} />
-          {lspStatus === 'ready' ? 'LSP' : lspStatus === 'connecting' ? 'LSP…' : 'LSP ✕'}
+          {/* pt/pb-[16px] perfectly matches Monaco's { top: 16, bottom: 16 } padding options */}
+          <div className="pt-[16px] pb-[16px]"> 
+            {Array.from({ length: lineCount }, (_, i) => i + 1).map(line => {
+              const clientId = blameData.get(line);
+              const author = clientId ? liveAuthorMap[String(clientId)] : null;
+              
+              return (
+                <div 
+                  key={line} 
+                  // h-[21px] must exactly match Monaco's configured lineHeight
+                  className="flex items-center h-[21px] px-3 hover:bg-white/5 border-l-2 border-transparent group transition-colors cursor-default"
+                  style={{ borderLeftColor: author?.color || 'transparent' }}
+                >
+                  {author ? (
+                    <>
+                      <span 
+                        className="w-2 h-2 rounded-full mr-2 shrink-0 opacity-80" 
+                        style={{ backgroundColor: author.color }} 
+                      />
+                      <span className="truncate w-24 mr-2 font-medium text-zinc-300">
+                        {author.username}
+                      </span>
+                      <span className="truncate flex-1 text-[10px] text-zinc-500 group-hover:text-zinc-400">
+                        Live edit
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-zinc-600 italic px-4">No history</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
+      {/* Editor Main Canvas Wrapper */}
+      <div className="flex-1 relative min-w-0">
+        <Editor
+          path={filename || fileId}
+          height="100%"
+          language={language}
+          theme="vs-dark"
+          loading={
+            <div className="flex h-full w-full items-center justify-center bg-[#1e1e1e]">
+              <div className="flex flex-col items-center gap-4">
+                <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#3b82f6] border-t-transparent" />
+                <span className="text-sm font-medium tracking-wide text-gray-400 font-mono">Loading Editor...</span>
+              </div>
+            </div>
+          }
+          options={{
+            minimap: { enabled: false },
+            fontSize: 14,
+            lineHeight: 21, // Added to enforce perfect alignment with the React sidebar h-[21px]
+            fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, Menlo, monospace",
+            fontLigatures: true,
+            // Dynamically disable word wrap when blame is open to preserve row-to-row alignment
+            wordWrap: showBlame ? 'off' : 'on',
+            padding: { top: 16, bottom: 16 },
+            lineNumbersMinChars: 3,
+            readOnly: readOnly,
+            automaticLayout: true,
+          }}
+          onMount={handleEditorDidMount}
+        />
+        
+        {/* ===========================================================================
+            [BLAME FEATURE] Toggle Button Overlay
+            =========================================================================== */}
+        <button
+          onClick={toggleBlame}
+          className="absolute top-4 right-6 z-30 flex items-center gap-1.5 rounded-md bg-[#2d2d2d] hover:bg-[#3d3d3d] px-3 py-1.5 text-xs font-medium text-zinc-300 border border-white/10 transition-colors shadow-lg"
+        >
+          <svg className={`w-3.5 h-3.5 transition-transform ${showBlame ? 'text-indigo-400' : 'text-zinc-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {showBlame ? 'Hide Blame' : 'Blame'}
+        </button>
+
+        {readOnly && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold text-zinc-400 bg-black/40 border border-white/10 backdrop-blur-md shadow-sm">
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            View Only
+          </div>
+        )}
+
+        {/* LSP status badge */}
+        {lspStatus !== 'off' && !readOnly && ['typescript', 'javascript', 'typescriptreact', 'javascriptreact', 'python'].includes(language) && (
+          <div
+            data-testid="lsp-status-badge"
+            data-lsp-status={lspStatus}
+            className={`absolute bottom-3 right-3 z-20 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold backdrop-blur-md border transition-all ${
+              lspStatus === 'ready'
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : lspStatus === 'connecting'
+                ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                : 'bg-red-500/10 text-red-400 border-red-500/20'
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${
+              lspStatus === 'ready'      ? 'bg-emerald-400'
+              : lspStatus === 'connecting' ? 'bg-blue-400 animate-pulse'
+              : 'bg-red-400'
+            }`} />
+            {lspStatus === 'ready' ? 'LSP' : lspStatus === 'connecting' ? 'LSP…' : 'LSP ✕'}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
