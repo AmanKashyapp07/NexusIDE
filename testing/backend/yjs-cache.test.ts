@@ -219,7 +219,7 @@ describe('Yjs Cache - Integration Tests with Database', () => {
     
     // Create test workspace
     const wsResult = await pool.query(
-      `INSERT INTO workspaces (id, name, owner_id, is_public) 
+      `INSERT INTO workspaces (id, title, owner_id, is_public) 
        VALUES (gen_random_uuid(), 'cache-test-ws', 'test-user-id', false) 
        RETURNING id`
     );

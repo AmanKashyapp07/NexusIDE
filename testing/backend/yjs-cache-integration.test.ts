@@ -62,7 +62,7 @@ describe('Yjs Cache - E2E Integration', () => {
 
     // Create test workspace
     const wsResult = await pool.query(
-      `INSERT INTO workspaces (id, name, owner_id, is_public) 
+      `INSERT INTO workspaces (id, title, owner_id, is_public) 
        VALUES (gen_random_uuid(), 'cache-e2e-ws', $1, false) 
        RETURNING id`,
       [testUserId]
