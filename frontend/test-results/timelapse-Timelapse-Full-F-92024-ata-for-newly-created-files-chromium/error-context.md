@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: timelapse.spec.ts >> Timelapse Full-Fidelity Replay >> keyboard shortcuts control playback
-- Location: ../testing/e2e/timelapse.spec.ts:1283:7
+- Name: timelapse.spec.ts >> Timelapse Full-Fidelity Replay >> history endpoint returns valid replay data for newly created files
+- Location: ../testing/e2e/timelapse.spec.ts:1181:7
 
 # Error details
 

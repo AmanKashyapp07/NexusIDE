@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: timelapse.spec.ts >> Timelapse Full-Fidelity Replay >> keyboard shortcuts control playback
-- Location: ../testing/e2e/timelapse.spec.ts:1283:7
+- Name: timelapse.spec.ts >> Timelapse Snapshot Engine >> snapshot count exceeds final character count when deletions occurred
+- Location: ../testing/e2e/timelapse.spec.ts:1109:7
 
 # Error details
 

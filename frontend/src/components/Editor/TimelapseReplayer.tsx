@@ -537,7 +537,7 @@ export default function TimelapseReplayer({
     if (!snap) return { text: '', decorationRanges: [] as Array<{ startPos: any; endPos: any; clientId: number }>, authors: [] as Array<{ info: AuthorInfo; clientId: number }> };
 
     const text = snap.text;
-    const decorationRanges = snap.authorRanges.map(r => ({
+    const decorationRanges = snap.authorRanges.map((r: any) => ({
       startPos: offsetToPosition(text, r.start),
       endPos:   offsetToPosition(text, r.end),
       clientId: r.clientId,
@@ -571,7 +571,7 @@ export default function TimelapseReplayer({
       return;
     }
 
-    const newDecorations: Monaco.editor.IModelDeltaDecoration[] = decorationRanges.map(r => {
+    const newDecorations: Monaco.editor.IModelDeltaDecoration[] = decorationRanges.map((r: any) => {
       const info = authorMap[String(r.clientId)];
       const color = info?.color ?? fallbackColor(r.clientId);
       const className = `timelapse-author-${r.clientId}`;

@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: timelapse.spec.ts >> Timelapse Full-Fidelity Replay >> keyboard shortcuts control playback
-- Location: ../testing/e2e/timelapse.spec.ts:1283:7
+- Name: timelapse.spec.ts >> Timelapse Full-Fidelity Replay >> timelapse opens and displays content regardless of replay mode
+- Location: ../testing/e2e/timelapse.spec.ts:1216:7
 
 # Error details
 
