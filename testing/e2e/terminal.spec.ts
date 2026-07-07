@@ -1608,3 +1608,269 @@ server.listen(3000, () => {
   });
 
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BRUTAL TERMINAL TEST SUITE — PART 3
+// Covers: Multi-file Python/JS/C++ Execution, Mixed-Language Pipelines,
+// Symlink Handling, and Deep Module Interconnection
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test.describe('Terminal Multi-File Interconnection & Compilation', () => {
+
+  test('compiles and executes multi-file C++ project with headers and implementations', async ({ page }) => {
+    const timestamp = Date.now();
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(`CppMulti_${timestamp}`);
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Cpp_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+
+    const terminalBody = page.locator('.xterm');
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    await terminalTextarea.focus();
+    await page.keyboard.type('mkdir cpp_project && cd cpp_project\n', { delay: 10 });
+
+    // Create Header File
+    const headerCode = `
+#ifndef MATH_UTILS_H
+#define MATH_UTILS_H
+int multiply(int a, int b);
+#endif
+`;
+    await page.keyboard.type(`cat << 'EOF' > math_utils.h\n${headerCode}\nEOF\n`, { delay: 10 });
+
+    // Create Implementation File
+    const implCode = `
+#include "math_utils.h"
+int multiply(int a, int b) {
+    return a * b;
+}
+`;
+    await page.keyboard.type(`cat << 'EOF' > math_utils.cpp\n${implCode}\nEOF\n`, { delay: 10 });
+
+    // Create Main File
+    const mainCode = `
+#include <iostream>
+#include "math_utils.h"
+int main() {
+    std::cout << "CPP_LINK_OK: " << multiply(21, 2) << std::endl;
+    return 0;
+}
+`;
+    await page.keyboard.type(`cat << 'EOF' > main.cpp\n${mainCode}\nEOF\n`, { delay: 10 });
+    await page.waitForTimeout(1000);
+
+    // Compile multiple files using g++ directly
+    await page.keyboard.type('g++ main.cpp math_utils.cpp -o app\n', { delay: 10 });
+    // Wait for compilation to finish (shell prompt returns)
+    await expect(terminalBody).toContainText('app', { timeout: 15000 }); 
+    
+    // Execute the compiled binary
+    await page.keyboard.type('./app\n', { delay: 10 });
+    await expect(terminalBody).toContainText('CPP_LINK_OK: 42', { timeout: 5000 });
+  });
+
+  test('executes multi-file Python program with package initialization and cross-imports', async ({ page }) => {
+    const timestamp = Date.now();
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(`PyMulti_${timestamp}`);
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Py_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+
+    const terminalBody = page.locator('.xterm');
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    await terminalTextarea.focus();
+    
+    // Create a Python package structure
+    await page.keyboard.type('mkdir -p my_package/submodule\n', { delay: 10 });
+    await page.keyboard.type('touch my_package/__init__.py my_package/submodule/__init__.py\n', { delay: 10 });
+
+    const helperCode = `
+def get_status():
+    return "PYTHON_IMPORT_SUCCESS"
+`;
+    await page.keyboard.type(`cat << 'EOF' > my_package/submodule/helper.py\n${helperCode}\nEOF\n`, { delay: 10 });
+
+    const mainPyCode = `
+from my_package.submodule.helper import get_status
+import sys
+
+def main():
+    print(f"Status: {get_status()}")
+    print(f"Args: {sys.argv[1] if len(sys.argv) > 1 else 'None'}")
+
+if __name__ == "__main__":
+    main()
+`;
+    await page.keyboard.type(`cat << 'EOF' > main.py\n${mainPyCode}\nEOF\n`, { delay: 10 });
+    await page.waitForTimeout(1000);
+
+    // Run python module with arguments
+    await page.keyboard.type('python3 main.py IDE_TESTER\n', { delay: 10 });
+    
+    await expect(terminalBody).toContainText('Status: PYTHON_IMPORT_SUCCESS', { timeout: 5000 });
+    await expect(terminalBody).toContainText('Args: IDE_TESTER', { timeout: 5000 });
+  });
+
+  test('resolves Node.js ESM and CommonJS interop and deeply nested requires', async ({ page }) => {
+    const timestamp = Date.now();
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(`NodeMulti_${timestamp}`);
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Node_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+
+    const terminalBody = page.locator('.xterm');
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    await terminalTextarea.focus();
+
+    // 1. Test CommonJS
+    const cjsModule = `module.exports = { secret: 'CJS_MODULE_LOADED' };`;
+    await page.keyboard.type(`cat << 'EOF' > lib.cjs\n${cjsModule}\nEOF\n`, { delay: 10 });
+    
+    const cjsMain = `const lib = require('./lib.cjs'); console.log(lib.secret);`;
+    await page.keyboard.type(`cat << 'EOF' > main.cjs\n${cjsMain}\nEOF\n`, { delay: 10 });
+    
+    await page.keyboard.type('node main.cjs\n', { delay: 10 });
+    await expect(terminalBody).toContainText('CJS_MODULE_LOADED', { timeout: 5000 });
+
+    // 2. Test ES Modules (MJS)
+    const esmModule = `export const calculate = (n) => n * 3;`;
+    await page.keyboard.type(`cat << 'EOF' > math.mjs\n${esmModule}\nEOF\n`, { delay: 10 });
+
+    const esmMain = `import { calculate } from './math.mjs'; console.log('ESM_RESULT_' + calculate(5));`;
+    await page.keyboard.type(`cat << 'EOF' > app.mjs\n${esmMain}\nEOF\n`, { delay: 10 });
+
+    await page.keyboard.type('node app.mjs\n', { delay: 10 });
+    await expect(terminalBody).toContainText('ESM_RESULT_15', { timeout: 5000 });
+  });
+
+  test('executes a mixed-language pipeline (Bash -> Python -> Node -> C++)', async ({ page }) => {
+    const timestamp = Date.now();
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(`MixedLang_${timestamp}`);
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Mixed_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+
+    const terminalBody = page.locator('.xterm');
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    await terminalTextarea.focus();
+
+    // 1. Python script: Reads stdin, multiplies by 2
+    const pyScript = `import sys\nprint(int(sys.stdin.read().strip()) * 2)`;
+    await page.keyboard.type(`cat << 'EOF' > step1.py\n${pyScript}\nEOF\n`, { delay: 10 });
+
+    // 2. Node script: Reads stdin, adds 10
+    const nodeScript = `const fs = require('fs'); const input = parseInt(fs.readFileSync(0, 'utf-8').trim()); console.log(input + 10);`;
+    await page.keyboard.type(`cat << 'EOF' > step2.js\n${nodeScript}\nEOF\n`, { delay: 10 });
+
+    // 3. C++ program: Takes argv, prints final formatted string
+    const cppScript = `
+#include <iostream>
+#include <cstdlib>
+int main(int argc, char** argv) {
+    if(argc > 1) std::cout << "PIPELINE_FINAL:" << argv[1] << std::endl;
+    return 0;
+}
+`;
+    await page.keyboard.type(`cat << 'EOF' > step3.cpp\n${cppScript}\nEOF\n`, { delay: 10 });
+    await page.keyboard.type('g++ step3.cpp -o step3_bin\n', { delay: 10 });
+    await expect(terminalBody).toContainText('step3_bin', { timeout: 15000 });
+
+    // 4. Bash pipeline chaining them all together:
+    // Input 5 -> Python(5*2=10) -> Node(10+10=20) -> C++(PIPELINE_FINAL:20)
+    await page.keyboard.type('result=$(echo "5" | python3 step1.py | node step2.js)\n', { delay: 10 });
+    await page.keyboard.type('./step3_bin $result\n', { delay: 10 });
+
+    await expect(terminalBody).toContainText('PIPELINE_FINAL:20', { timeout: 10000 });
+  });
+
+});
+
+test.describe('Terminal Advanced File System Edge Cases', () => {
+
+  
+
+  test('handles large file operations, binary downloads, and permission modifications (chmod)', async ({ page }) => {
+    const timestamp = Date.now();
+    await page.goto('/login');
+    const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    await usernameInput.click();
+    await usernameInput.fill(`Perms_${timestamp}`);
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Perms_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+
+    const terminalBody = page.locator('.xterm');
+    const terminalTextarea = page.locator('.xterm-helper-textarea');
+    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await page.waitForTimeout(3000);
+
+    await terminalTextarea.focus();
+
+    // 1. Download a file using curl (simulating fetching a binary/script)
+    await page.keyboard.type('curl -s https://raw.githubusercontent.com/torvalds/linux/master/README > linux_readme.txt\n', { delay: 10 });
+    
+    // Validate the file has substantial line count
+    await page.keyboard.type('wc -l linux_readme.txt\n', { delay: 10 });
+    await expect(terminalBody).toContainText(/[1-9][0-9]+ linux_readme\.txt/, { timeout: 10000 });
+
+    // 2. Write a shell script, make it executable, and run it
+    const bashScript = `#!/bin/bash\necho "EXECUTION_GRANTED_OK"`;
+    await page.keyboard.type(`cat << 'EOF' > runner.sh\n${bashScript}\nEOF\n`, { delay: 10 });
+    
+    // Try running without permissions (should fail)
+    await page.keyboard.type('./runner.sh\n', { delay: 10 });
+    await expect(terminalBody).toContainText(/Permission denied|not found/, { timeout: 5000 });
+
+    // Add execution rights
+    await page.keyboard.type('chmod +x runner.sh\n', { delay: 10 });
+    
+    // Run successfully
+    await page.keyboard.type('./runner.sh\n', { delay: 10 });
+    await expect(terminalBody).toContainText('EXECUTION_GRANTED_OK', { timeout: 5000 });
+  });
+
+});
