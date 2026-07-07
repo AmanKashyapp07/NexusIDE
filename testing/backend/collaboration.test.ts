@@ -299,9 +299,14 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
   let app: any;
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     mockQuery = vi.fn();
     const mod = await import('../../backend/src/server.js');
     app = mod.app;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('returns file content for the workspace owner', async () => {
@@ -646,9 +651,14 @@ describe('POST /api/auth/test-login', () => {
   let app: any;
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     mockQuery = vi.fn();
     const mod = await import('../../backend/src/server.js');
     app = mod.app;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('creates a new user and returns a JWT', async () => {

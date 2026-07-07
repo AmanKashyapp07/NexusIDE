@@ -315,11 +315,11 @@ async function getOrCreateDoc(docName: string): Promise<WSSharedDoc> {
           // Restore author map from cache
           doc.authorMap = cached.authorMap;
           
-          log('⚡ CACHE', `Redis cache HIT for doc=${docName} (${cached.yjsState?.length || 0} bytes)`);
+          log('[YJS-CACHE]', `Redis cache HIT for doc=${docName} (${cached.yjsState?.length || 0} bytes)`);
         }
       } catch (cacheErr: any) {
         // Cache errors are non-fatal - fall through to database
-        log('⚡ CACHE', `Redis unavailable, using DB: ${cacheErr.message}`);
+        log('[YJS-CACHE]', `Redis unavailable, using DB: ${cacheErr.message}`);
       }
       
       // ===========================================================================
