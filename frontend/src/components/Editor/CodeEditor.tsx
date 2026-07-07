@@ -366,8 +366,10 @@ export default function CodeEditor({
   }, [jumpToUserId, editor, onJumpComplete]);
 
   // ===========================================================================
-  // [INTEGRATION] Autocomplete Provider
+  // [INTEGRATION] Autocomplete Provider - DISABLED
   // ===========================================================================
+  // Autocomplete is turned off to reduce distractions
+  /*
   useEffect(() => {
     if (!editor || !monacoInstance || readOnly) return;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -460,6 +462,7 @@ export default function CodeEditor({
       if (activeAbortController) activeAbortController.abort();
     };
   }, [editor, monacoInstance, readOnly, workspaceId, language]);
+  */
 
   const handleEditorDidMount: OnMount = (editorInstance, monaco) => {
     if (typeof window !== 'undefined') (window as any).monaco = monaco;
@@ -495,7 +498,13 @@ export default function CodeEditor({
     monaco.languages.css.cssDefaults.setDiagnosticsOptions({ validate: false });
     monaco.languages.json.jsonDefaults.setDiagnosticsOptions({ validate: false });
 
-    editorInstance.updateOptions({ wordBasedSuggestions: 'currentDocument', inlineSuggest: { enabled: true } });
+    editorInstance.updateOptions({ 
+      wordBasedSuggestions: 'off',  // Disable word-based suggestions
+      inlineSuggest: { enabled: false },  // Disable inline suggestions
+      quickSuggestions: false,  // Disable quick suggestions
+      suggestOnTriggerCharacters: false,  // Disable suggestions on trigger characters
+      acceptSuggestionOnEnter: 'off',  // Disable accept on enter
+    });
     onEditorReady?.(editorInstance);
   };
 
