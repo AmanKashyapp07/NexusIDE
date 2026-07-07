@@ -74,7 +74,8 @@ const ghostTextCache = new AutocompleteCache(50);
 // [BLAME FEATURE] Chronological Author Extraction
 // ===========================================================================
 function getChronologicalLineBlame(ytext: Y.Text) {
-  const lineAuthors = new Map<number, { clientId: number; maxClock: number }>();
+  // Map<lineNumber, Map<clientId, charCount>>
+  const lineAuthors = new Map<number, Map<number, number>>();
   let currentLine = 1;
   let node: any = (ytext as any)._start;
 
@@ -87,11 +88,15 @@ function getChronologicalLineBlame(ytext: Y.Text) {
         if (str[i] === '\n') {
           currentLine++;
         } else {
-          const charClock = node.id.clock + i;
-          const existing = lineAuthors.get(currentLine);
-          if (!existing || charClock > existing.maxClock) {
-            lineAuthors.set(currentLine, { clientId: node.id.client, maxClock: charClock });
+          const clientId = node.id.client;
+          
+          if (!lineAuthors.has(currentLine)) {
+            lineAuthors.set(currentLine, new Map());
           }
+          
+          // Increment character count for this client on this line
+          const clientCounts = lineAuthors.get(currentLine)!;
+          clientCounts.set(clientId, (clientCounts.get(clientId) || 0) + 1);
         }
       }
     }
@@ -99,7 +104,24 @@ function getChronologicalLineBlame(ytext: Y.Text) {
   }
 
   const result = new Map<number, number>();
-  lineAuthors.forEach((data, line) => result.set(line, data.clientId));
+  
+  // Assign authorship to the client with the most characters per line
+  lineAuthors.forEach((clientCounts, line) => {
+    let maxClient = -1;
+    let maxCount = -1;
+    
+    clientCounts.forEach((count, clientId) => {
+      if (count > maxCount) {
+        maxCount = count;
+        maxClient = clientId;
+      }
+    });
+    
+    if (maxClient !== -1) {
+      result.set(line, maxClient);
+    }
+  });
+
   return result;
 }
 
@@ -141,8 +163,10 @@ export default function CodeEditor({
   // Notify parent when blame is toggled locally
   const toggleBlame = () => {
     const newState = !showBlame;
+    console.log('[CodeEditor] toggleBlame called, newState:', newState);
     setShowBlame(newState);
     onBlameToggle?.(newState);
+    console.log('[CodeEditor] onBlameToggle called with:', newState);
   };
 
   // Build authorMap from awareness states (map Yjs clientId to user info)
@@ -202,7 +226,6 @@ export default function CodeEditor({
     };
 
     updateBlame();
-    // Safely hook into Monaco's native model changes without touching Yjs binding
     const disposable = editor.onDidChangeModelContent(updateBlame);
     return () => disposable.dispose();
   }, [showBlame, editor]);
@@ -225,6 +248,12 @@ export default function CodeEditor({
 
     wsProviderRef.current = wsProvider;
     ydocRef.current = ydoc;
+    
+    // Expose for E2E testing
+    if (typeof window !== 'undefined') {
+      (window as any).__yjsProvider = wsProvider;
+      (window as any).__yjsDoc = ydoc;
+    }
 
     const tryBind = () => {
       if (!isActive) return;
@@ -308,6 +337,13 @@ export default function CodeEditor({
       isActive = false;
       wsProviderRef.current = null;
       ydocRef.current = null;
+      
+      // Clean up E2E test instrumentation
+      if (typeof window !== 'undefined') {
+        delete (window as any).__yjsProvider;
+        delete (window as any).__yjsDoc;
+      }
+      
       if (modelDisposable) modelDisposable.dispose();
       
       wsProvider.off('sync', handleSync);

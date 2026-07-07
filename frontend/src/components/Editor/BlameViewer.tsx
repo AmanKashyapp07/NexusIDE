@@ -5,7 +5,8 @@ import type * as Monaco from 'monaco-editor';
 
 // 1. The Algorithm: Runs entirely on the frontend Y.Doc
 function getChronologicalLineBlame(ytext: Y.Text) {
-  const lineAuthors = new Map<number, { clientId: number; maxClock: number }>();
+  // Map<lineNumber, Map<clientId, charCount>>
+  const lineAuthors = new Map<number, Map<number, number>>();
   let currentLine = 1;
   let node: any = (ytext as any)._start;
 
@@ -18,15 +19,15 @@ function getChronologicalLineBlame(ytext: Y.Text) {
         if (str[i] === '\n') {
           currentLine++;
         } else {
-          const charClock = node.id.clock + i; 
-          const existing = lineAuthors.get(currentLine);
+          const clientId = node.id.client;
           
-          if (!existing || charClock > existing.maxClock) {
-            lineAuthors.set(currentLine, { 
-              clientId: node.id.client, 
-              maxClock: charClock 
-            });
+          if (!lineAuthors.has(currentLine)) {
+            lineAuthors.set(currentLine, new Map());
           }
+          
+          // Increment character count for this client on this line
+          const clientCounts = lineAuthors.get(currentLine)!;
+          clientCounts.set(clientId, (clientCounts.get(clientId) || 0) + 1);
         }
       }
     }
@@ -34,7 +35,24 @@ function getChronologicalLineBlame(ytext: Y.Text) {
   }
 
   const result = new Map<number, number>();
-  lineAuthors.forEach((data, line) => result.set(line, data.clientId));
+  
+  // Assign authorship to the client with the most characters per line
+  lineAuthors.forEach((clientCounts, line) => {
+    let maxClient = -1;
+    let maxCount = -1;
+    
+    clientCounts.forEach((count, clientId) => {
+      if (count > maxCount) {
+        maxCount = count;
+        maxClient = clientId;
+      }
+    });
+    
+    if (maxClient !== -1) {
+      result.set(line, maxClient);
+    }
+  });
+
   return result;
 }
 

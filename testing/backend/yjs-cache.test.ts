@@ -205,6 +205,7 @@ describe('Yjs Cache - Unit Tests', () => {
 });
 
 describe('Yjs Cache - Integration Tests with Database', () => {
+  let testUserId: string;
   let testWorkspaceId: string;
   let testFileId: string;
   let pool: any;
@@ -216,19 +217,28 @@ describe('Yjs Cache - Integration Tests with Database', () => {
     }
     
     pool = getPool();
+
+    // Create test user
+    const userResult = await pool.query(
+      `INSERT INTO users (id, username, github_id, email, avatar_url) 
+       VALUES (gen_random_uuid(), 'cache-test-user-db', 'gh-cache-test-db', 'cache-db@test.com', 'https://example.com/avatar.png') 
+       RETURNING id`
+    );
+    testUserId = userResult.rows[0].id;
     
     // Create test workspace
     const wsResult = await pool.query(
       `INSERT INTO workspaces (id, title, owner_id, is_public) 
-       VALUES (gen_random_uuid(), 'cache-test-ws', 'test-user-id', false) 
-       RETURNING id`
+       VALUES (gen_random_uuid(), 'cache-test-ws', $1, false) 
+       RETURNING id`,
+      [testUserId]
     );
     testWorkspaceId = wsResult.rows[0].id;
 
     // Create test file
     const fileResult = await pool.query(
-      `INSERT INTO files (id, workspace_id, path, content, yjs_state, author_map) 
-       VALUES (gen_random_uuid(), $1, '/test.js', 'console.log("test");', NULL, '{}') 
+      `INSERT INTO files (id, workspace_id, name, type, content, yjs_state, author_map) 
+       VALUES (gen_random_uuid(), $1, 'test.js', 'file', 'console.log("test");', NULL, '{}') 
        RETURNING id`,
       [testWorkspaceId]
     );
@@ -239,6 +249,7 @@ describe('Yjs Cache - Integration Tests with Database', () => {
     // Cleanup database
     await pool.query('DELETE FROM files WHERE workspace_id = $1', [testWorkspaceId]);
     await pool.query('DELETE FROM workspaces WHERE id = $1', [testWorkspaceId]);
+    await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     await clearYjsCache();
   });
 
