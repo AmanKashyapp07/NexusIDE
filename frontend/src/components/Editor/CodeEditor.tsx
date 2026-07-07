@@ -317,6 +317,14 @@ export default function CodeEditor({
       
       if (binding) binding.destroy();
       
+      // Clean up local awareness state before destroying provider
+      // This prevents ghost cursors for other users
+      try {
+        wsProvider.awareness.setLocalState(null);
+      } catch (e) {
+        // Ignore errors if already disconnected
+      }
+      
       wsProvider.destroy();
       ydoc.destroy();
     };
@@ -459,11 +467,14 @@ export default function CodeEditor({
     setMonacoInstance(monaco as MonacoInstance);
 
     // [BLAME FEATURE] Sync editor scroll to blame sidebar
-    editorInstance.onDidScrollChange((e) => {
-      if (sidebarRef.current) {
-        sidebarRef.current.scrollTop = e.scrollTop;
-      }
-    });
+    // Guard against missing API in test environments
+    if (typeof editorInstance.onDidScrollChange === 'function') {
+      editorInstance.onDidScrollChange((e) => {
+        if (sidebarRef.current) {
+          sidebarRef.current.scrollTop = e.scrollTop;
+        }
+      });
+    }
 
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
       target: monaco.languages.typescript.ScriptTarget.ES2020,

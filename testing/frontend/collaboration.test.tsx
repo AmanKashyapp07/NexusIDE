@@ -58,7 +58,21 @@ vi.mock('@monaco-editor/react', () => ({
           updateOptions: vi.fn(),
           getModel: vi.fn(() => ({
             setValue: vi.fn(),
+            uri: { path: '/test.js' },
+            getValueInRange: vi.fn(() => ''),
+            getLineCount: vi.fn(() => 1),
+            getLineMaxColumn: vi.fn(() => 1),
+            getPositionAt: vi.fn(() => ({ lineNumber: 1, column: 1 })),
+            getFullModelRange: vi.fn(() => ({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 })),
           })),
+          getValue: vi.fn(() => ''),
+          setValue: vi.fn(),
+          setPosition: vi.fn(),
+          revealPositionInCenter: vi.fn(),
+          focus: vi.fn(),
+          onDidChangeModel: vi.fn(() => ({ dispose: vi.fn() })),
+          onDidChangeModelContent: vi.fn(() => ({ dispose: vi.fn() })),
+          onDidScrollChange: vi.fn(() => ({ dispose: vi.fn() })), // Added for blame feature
         };
         const mockMonaco = {
           languages: {
