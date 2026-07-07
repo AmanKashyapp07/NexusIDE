@@ -303,6 +303,11 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
     mockQuery = vi.fn();
     const mod = await import('../../backend/src/server.js');
     app = mod.app;
+    if (mod.docs) mod.docs.clear();
+    try {
+      const cacheMod = await import('../../backend/src/utils/yjsCache.js');
+      await cacheMod.clearYjsCache();
+    } catch {}
   });
 
   afterEach(() => {

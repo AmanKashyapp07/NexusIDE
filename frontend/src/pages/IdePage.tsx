@@ -452,6 +452,22 @@ function IdePage() {
         <div className="flex items-center gap-3">
           <VoiceChat workspaceId={workspaceId} user={user} />
           
+          {/* Hide Blame Button - shows when blame is open */}
+          {isBlameOpen && (
+            <button
+              onClick={() => {
+                console.log('[IdePage] Hide Blame clicked, setting isBlameOpen to false');
+                setIsBlameOpen(false);
+              }}
+              className="flex items-center gap-1.5 rounded-md bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 text-xs font-medium text-indigo-400 border border-indigo-500/20 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Hide Blame
+            </button>
+          )}
+          
           <div className="h-6 w-[1px] bg-white/[0.08] mx-2" />
 
           {activeCollaborators.length > 0 && (

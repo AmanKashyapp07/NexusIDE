@@ -1,0 +1,38 @@
+
+> frontend@0.0.0 test:e2e
+> NODE_PATH=node_modules:./node_modules playwright test timelapse.spec.ts --grep=attributes authorship
+
+
+Running 1 test using 1 worker
+
+[TEST DEBUG] Line 1 content: { lineContent: 'let data = []; /* loaded */', error: 'No ydoc found' }
+  ✘  1 [chromium] › ../testing/e2e/timelapse.spec.ts:290:7 › Live Editor Blame Feature › attributes authorship chronologically on the same line (20.5s)
+
+
+  1) [chromium] › ../testing/e2e/timelapse.spec.ts:290:7 › Live Editor Blame Feature › attributes authorship chronologically on the same line 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('.w-\\[260px\\]').getByText('attr_bob')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for locator('.w-\\[260px\\]').getByText('attr_bob')
+
+
+      405 |     await expect(
+      406 |       blameSidebar.getByText('attr_bob')
+    > 407 |     ).toBeVisible({ timeout: 5000 });
+          |       ^
+      408 |
+      409 |     // Alice's name should no longer be the primary blame for line 1
+      410 |     await expect(
+        at /Users/amankashyap/Documents/sandbox/testing/e2e/timelapse.spec.ts:407:7
+
+    Error Context: test-results/timelapse-Live-Editor-Blam-4add1-ologically-on-the-same-line-chromium/error-context.md
+
+  1 failed
+    [chromium] › ../testing/e2e/timelapse.spec.ts:290:7 › Live Editor Blame Feature › attributes authorship chronologically on the same line 

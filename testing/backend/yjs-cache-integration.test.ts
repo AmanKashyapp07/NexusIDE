@@ -71,8 +71,8 @@ describe('Yjs Cache - E2E Integration', () => {
 
     // Create test file
     const fileResult = await pool.query(
-      `INSERT INTO files (id, workspace_id, path, content, yjs_state, author_map) 
-       VALUES (gen_random_uuid(), $1, '/e2e-test.js', '', NULL, '{}') 
+      `INSERT INTO files (id, workspace_id, name, type, content, yjs_state, author_map) 
+       VALUES (gen_random_uuid(), $1, 'e2e-test.js', 'file', '', NULL, '{}') 
        RETURNING id`,
       [testWorkspaceId]
     );

@@ -363,6 +363,43 @@ test.describe('Live Editor Blame Feature', () => {
 
     // 3. Back to Alice: Open Blame again
     await blameBtn.click();
+    
+    // window.__yjsDoc should exist since Alice has been using the editor
+    // Wait briefly for blame sidebar to render
+    await page.waitForTimeout(1000);
+
+    // Debug: Check the actual line content and blame data
+    const debugInfo = await page.evaluate(() => {
+      const editor = (window as any).monaco?.editor?.getEditors?.()?.[0];
+      const lineContent = editor?.getModel()?.getLineContent(1);
+      const ydoc = (window as any).__yjsDoc;
+      
+      if (!ydoc) return { lineContent, error: 'No ydoc found', charsByClient: {} };
+      
+      const ytext = ydoc.getText('monaco');
+      let node: any = (ytext as any)._start;
+      const charsByClient: Record<number, number> = {};
+      let line1Chars = '';
+      
+      while (node !== null) {
+        if (!node.deleted) {
+          const content = node.content?.getContent?.();
+          const str = Array.isArray(content) ? content.join('') : (typeof content === 'string' ? content : '');
+          
+          for (let i = 0; i < str.length; i++) {
+            if (str[i] === '\n') break; // Only count line 1
+            line1Chars += str[i];
+            const clientId = node.id.client;
+            charsByClient[clientId] = (charsByClient[clientId] || 0) + 1;
+          }
+        }
+        node = node.right;
+      }
+      
+      return { lineContent, line1Chars, charsByClient };
+    });
+    
+    console.log('[TEST DEBUG] Line 1 content:', debugInfo);
 
     // The line should now be attributed to Bob because his edit has a higher Yjs clock
     const blameSidebar = page.locator('.w-\\[260px\\]');
@@ -399,6 +436,201 @@ test.describe('Live Editor Blame Feature', () => {
     const count = await unknownLines.count();
 
     expect(count).toBeGreaterThanOrEqual(1);
+  });
+
+  test('live blame updates when user-2 modifies user-1 line (both connected)', async ({ page, browser }) => {
+    // 1. Alice creates a file and writes line 1
+    await createTestFile(page, 'live_blame_update.js');
+    await typeTextInMonaco(page, 'const x = 10;');
+    await page.waitForTimeout(2000);
+
+    // 2. Open blame - should show Alice as author of line 1
+    const blameBtn = page.locator('button', { hasText: /^Blame$/ });
+    await blameBtn.click();
+    await expect(page.getByText('attr_alice').first()).toBeVisible();
+
+    // 3. Invite Bob to the workspace
+    await inviteViaApi(page, 'live_bob', 'editor');
+
+    // 4. Bob opens the same file in a new browser context
+    const bobContext = await browser.newContext();
+    const bobPage = await bobContext.newPage();
+
+    try {
+      await login(bobPage, 'live_bob', 'password123');
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+
+      // Wait for environment to boot
+      const loadingEl = bobPage.locator('text=Booting environment...');
+      try {
+        await loadingEl.waitFor({ state: 'visible', timeout: 3000 });
+      } catch {}
+      try {
+        await loadingEl.waitFor({ state: 'detached', timeout: 35000 });
+      } catch {}
+
+      await bobPage.waitForTimeout(3000);
+
+      // Bob clicks the file - be more flexible with waiting
+      const fileInTree = bobPage.locator('.ide-scrollbar').getByText('live_blame_update.js');
+      
+      // Wait for file tree to populate
+      await bobPage.waitForTimeout(2000);
+      
+      // Try to find the file with a longer timeout
+      try {
+        await fileInTree.waitFor({ state: 'visible', timeout: 20000 });
+        await fileInTree.click();
+      } catch (e) {
+        console.log('[TEST] File not found in tree, trying to navigate directly via URL');
+        // Fallback: get the fileId from Alice's page and navigate directly
+        const activeFileId = await page.evaluate(() => {
+          const url = window.location.href;
+          const match = url.match(/\/ide\/[^/]+\/([^/]+)/);
+          return match ? match[1] : null;
+        });
+        
+        if (activeFileId) {
+          await bobPage.goto(`${APP_URL}/ide/${workspaceId}/${activeFileId}`);
+        } else {
+          throw e;
+        }
+      }
+
+      await bobPage.waitForTimeout(2000);
+
+      // Wait for Bob's Yjs WebSocket to connect and sync
+      console.log('[TEST] Waiting for Bob\'s Yjs connection...');
+      const syncResult = await bobPage.evaluate(() => {
+        return new Promise((resolve) => {
+          const checkConnection = () => {
+            const wsProvider = (window as any).__yjsProvider;
+            if (wsProvider?.synced && wsProvider?.ws?.readyState === 1) {
+              const editor = (window as any).monaco?.editor?.getEditors?.()?.[0];
+              const content = editor?.getModel()?.getValue() || '';
+              resolve({ connected: true, synced: true, content });
+            }
+          };
+          
+          // Check immediately
+          checkConnection();
+          
+          // Then poll every 500ms for up to 15 seconds
+          const interval = setInterval(checkConnection, 500);
+          setTimeout(() => {
+            clearInterval(interval);
+            const wsProvider = (window as any).__yjsProvider;
+            const editor = (window as any).monaco?.editor?.getEditors?.()?.[0];
+            resolve({
+              connected: wsProvider?.ws?.readyState === 1,
+              synced: wsProvider?.synced || false,
+              content: editor?.getModel()?.getValue() || '',
+              wsExists: !!wsProvider
+            });
+          }, 15000);
+        });
+      });
+      
+      console.log('[TEST] Bob connection status:', syncResult);
+      
+      if (!(syncResult as any).synced) {
+        throw new Error(`Bob's Yjs not synced. Status: ${JSON.stringify(syncResult)}`);
+      }
+
+      // 5. Bob modifies line 1 by adding a comment
+      console.log('[TEST] Bob typing modification...');
+      await bobPage.keyboard.press('End');
+      await bobPage.keyboard.type(' // modified by Bob');
+      await bobPage.waitForTimeout(2000);
+      
+      // Verify Bob's edit is in his editor
+      const bobEditorAfterEdit = await bobPage.evaluate(() => {
+        const editor = (window as any).monaco?.editor?.getEditors?.()?.[0];
+        return editor?.getModel()?.getValue() || '';
+      });
+      console.log('[TEST] Bob\'s editor after edit:', bobEditorAfterEdit);
+      
+      if (!bobEditorAfterEdit.includes('// modified by Bob')) {
+        throw new Error(`Bob's edit not in his own editor: ${bobEditorAfterEdit}`);
+      }
+      
+      await bobPage.waitForTimeout(3000); // Wait for Yjs to sync to Alice
+
+      // 6. Back to Alice's page - blame should now show Bob as author of line 1
+      await page.waitForTimeout(2000); // Wait for Yjs sync + blame recalculation
+      
+      // window.__yjsDoc should exist in Alice's context
+      await page.waitForTimeout(500);
+      
+      // Debug: Check Alice's editor content
+      const aliceEditorAfterBobEdit = await page.evaluate(() => {
+        const editor = (window as any).monaco?.editor?.getEditors?.()?.[0];
+        return editor?.getModel()?.getValue() || '';
+      });
+      console.log('[TEST DEBUG] Alice editor after Bob edit:', aliceEditorAfterBobEdit);
+      
+      // Debug: Check Yjs character distribution
+      const charDebug = await page.evaluate(() => {
+        const ydoc = (window as any).__yjsDoc;
+        if (!ydoc) return { error: 'No ydoc', line1: '', charsByClient: {} };
+        
+        const ytext = ydoc.getText('monaco');
+        let node: any = (ytext as any)._start;
+        const charsByClient: Record<number, number> = {};
+        let line1 = '';
+        
+        while (node !== null) {
+          if (!node.deleted) {
+            const content = node.content?.getContent?.();
+            const str = Array.isArray(content) ? content.join('') : (typeof content === 'string' ? content : '');
+            
+            for (let i = 0; i < str.length; i++) {
+              if (str[i] === '\n') break;
+              line1 += str[i];
+              const clientId = node.id.client;
+              charsByClient[clientId] = (charsByClient[clientId] || 0) + 1;
+            }
+          }
+          node = node.right;
+        }
+        
+        return { line1, charsByClient };
+      });
+      console.log('[TEST DEBUG] Line 1 chars by client:', charDebug);
+
+      // Debug: Check what's actually in the blame sidebar
+      const blameSidebar = page.locator('.w-\\[260px\\]');
+      const blameText = await blameSidebar.textContent();
+      console.log('[TEST DEBUG] Blame sidebar content:', blameText);
+      
+      // Check if blame sidebar exists and has content
+      await expect(blameSidebar).toBeVisible({ timeout: 5000 });
+      
+      // Alice's blame panel should now show Bob as the author of line 1
+      const bobAuthor = blameSidebar.getByText('live_bob').first();
+      const bobVisible = await bobAuthor.isVisible().catch(() => false);
+      
+      if (!bobVisible) {
+        console.log('[TEST] ❌ live_bob not visible in blame sidebar');
+        console.log('[TEST] Checking if attr_alice is still showing...');
+        const aliceStillVisible = await blameSidebar.getByText('attr_alice').first().isVisible().catch(() => false);
+        console.log('[TEST] attr_alice still visible:', aliceStillVisible);
+        
+        // Check Monaco editor content to verify Bob's edit was synced
+        const editorContent = await page.evaluate(() => {
+          const editor = (window as any).monaco?.editor?.getEditors?.()?.[0];
+          return editor?.getModel()?.getValue() || '';
+        });
+        console.log('[TEST] Editor content after Bob edit:', editorContent);
+      }
+      
+      await expect(bobAuthor).toBeVisible({ timeout: 5000 });
+
+      console.log('[TEST] ✓ Blame updated to show live_bob as author after modification');
+
+    } finally {
+      await bobContext.close();
+    }
   });
 });
 
