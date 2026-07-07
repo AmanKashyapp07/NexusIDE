@@ -63,8 +63,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.get('/default', async (req: AuthRequest, res: Response) => {
   if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    let ws = await getPool().query('SELECT * FROM workspaces WHERE owner_id = $1 LIMIT 1', [req.user.id]);
-    if (!ws.rows.length) ws = await getPool().query('INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING *', [req.user.id, 'My First Sandbox']);
+    let ws = await getPool().query('SELECT id, title, owner_id, is_public FROM workspaces WHERE owner_id = $1 LIMIT 1', [req.user.id]);
+    if (!ws.rows.length) ws = await getPool().query('INSERT INTO workspaces (owner_id, title) VALUES ($1, $2) RETURNING id, title, owner_id, is_public', [req.user.id, 'My First Sandbox']);
     res.json(ws.rows[0]);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -483,10 +483,22 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
 // Returns the latest content from DB so the client can force-apply it to the local doc.
 router.get('/:id/files/:fileId/content', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
-    const result = await getPool().query('SELECT content FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
-    if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
-    res.json({ content: result.rows[0].content || '' });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+    const { fileContentCache } = await import('../utils/redisCache.js');
+    
+    const content = await fileContentCache.getOrFetch(
+      `${req.params.fileId}`,
+      async () => {
+        const result = await getPool().query('SELECT content FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
+        if (!result.rows.length) throw new Error('File not found');
+        return result.rows[0].content || '';
+      },
+      5 * 60 // 5 minutes
+    );
+    
+    res.json({ content });
+  } catch (err: any) { 
+    res.status(err.message === 'File not found' ? 404 : 500).json({ error: err.message }); 
+  }
 });
 
 // GET file history — returns either the ordered Yjs update stream (full fidelity)
@@ -496,19 +508,29 @@ router.get('/:id/files/:fileId/history', requireWorkspaceRole('viewer'), async (
   try {
     const fileId = req.params.fileId;
     const workspaceId = req.params.id;
+    const { yjsStateCache } = await import('../utils/redisCache.js');
 
-    const result = await getPool().query(
-      'SELECT yjs_state, author_map FROM files WHERE id = $1 AND workspace_id = $2',
-      [fileId, workspaceId]
+    const cached = await yjsStateCache.getOrFetch(
+      `${fileId}:history`,
+      async () => {
+        const result = await getPool().query(
+          'SELECT yjs_state, author_map FROM files WHERE id = $1 AND workspace_id = $2',
+          [fileId, workspaceId]
+        );
+        if (!result.rows.length) throw new Error('File not found');
+        return result.rows[0];
+      },
+      10 * 60 // 10 minutes
     );
-    if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
+    
+    if (!cached) return res.status(404).json({ error: 'File not found' });
 
-    const yjsState: Buffer | null = result.rows[0].yjs_state;
+    const yjsState: Buffer | null = cached.yjs_state;
     if (!yjsState) return res.status(404).json({ error: 'No history found for this file' });
 
     // Merge in any author data currently live in the in-memory doc
     const authorMap: Record<string, { userId: string; username: string; color: string }> =
-      result.rows[0].author_map || {};
+      cached.author_map || {};
 
     try {
       const docName = `${workspaceId}-${fileId}`;

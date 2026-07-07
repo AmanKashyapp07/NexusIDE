@@ -6,7 +6,29 @@ export function getPool(): Pool {
   if (!pool) {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
+      // Optimize connection pool for better performance
+      max: 20,                    // Maximum connections (default: 10)
+      idleTimeoutMillis: 30000,   // Close idle connections after 30s
+      connectionTimeoutMillis: 5000, // Timeout if can't get connection
+      // Enable keep-alive to prevent connection drops
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
     });
+    
+    // Log pool errors
+    pool.on('error', (err) => {
+      console.error('[DB Pool] Unexpected error:', err);
+    });
+    
+    // Log pool connection events (only in dev)
+    if (process.env.NODE_ENV !== 'production') {
+      pool.on('connect', () => {
+        console.log('[DB Pool] New client connected');
+      });
+      pool.on('remove', () => {
+        console.log('[DB Pool] Client removed');
+      });
+    }
   }
   return pool;
 }
