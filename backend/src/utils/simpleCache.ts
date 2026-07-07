@@ -133,7 +133,7 @@ export class SimpleCache<T = any> {
     if (this.accessOrder.length === 0) return;
     
     const lruKey = this.accessOrder[0];
-    this.delete(lruKey);
+    if (lruKey) this.delete(lruKey);
   }
 
   /**

@@ -33,9 +33,9 @@
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
-    "@types/compression": "^1.7.5",
     "@types/archiver": "^8.0.0",
     "@types/bcrypt": "^6.0.0",
+    "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.19",
     "@types/dockerode": "^4.0.1",
     "@types/express": "^5.0.6",
