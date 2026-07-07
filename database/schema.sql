@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Drop existing tables to ensure a clean slate (Idempotent)
 DROP TABLE IF EXISTS execution_history CASCADE;
+DROP TABLE IF EXISTS file_updates CASCADE;
 DROP TABLE IF EXISTS snapshot_files CASCADE;
 DROP TABLE IF EXISTS workspace_snapshots CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
@@ -118,6 +119,21 @@ CREATE TABLE execution_history (
 
 CREATE INDEX idx_executions_workspace ON execution_history(workspace_id);
 CREATE INDEX idx_executions_user ON execution_history(user_id);
+
+-- 5b. FILE UPDATE STREAM (for full-fidelity timelapse replay)
+-- Stores every Yjs update in the order it was received by the server.
+-- Unlike yjs_state (which is the merged final blob), this preserves the
+-- exact sequence of operations including deletions, enabling frame-by-frame
+-- replay without heuristic approximation.
+CREATE TABLE file_updates (
+    file_id    UUID NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    seq        BIGSERIAL,
+    update     BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (file_id, seq)
+);
+
+CREATE INDEX idx_file_updates_file ON file_updates(file_id);
 
 -- 6. WORKSPACE SNAPSHOTS
 -- Stores point-in-time snapshots of a workspace (max 10 per workspace).
