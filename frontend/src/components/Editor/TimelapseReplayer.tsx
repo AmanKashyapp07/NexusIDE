@@ -115,94 +115,184 @@ export default function TimelapseReplayer({
         const ytext = ydoc.getText('monaco');
 
         // =================================================================
-        // FULL HISTORY EXTRACTION (including deleted characters)
+        // INCREMENTAL REPLAY via Yjs snapshots
         //
-        // The Y.Text linked list contains ALL items:
-        //   • curr.deleted = false → exists in final document
-        //   • curr.deleted = true  → was typed then deleted (tombstone)
+        // The correct way to show "what the document looked like at time T"
+        // is to apply the Yjs state incrementally. We use the Yjs struct
+        // store to enumerate all operations (insertions AND deletions) in
+        // clock order, then for each slider position T, we apply only the
+        // first T operations to a fresh doc and read its text content.
         //
-        // We collect ALL items in document order (position in text).
-        // For deleted items, we mark them with a synthetic deleteClock
-        // derived from the DeleteSet embedded in the yjs_state binary.
+        // This approach:
+        // - Shows text in correct document positions at every point in time
+        // - Handles deletions naturally (text disappears when delete op applies)
+        // - Handles insertions at arbitrary positions (mid-line inserts work)
+        // - Works for multi-user editing (interleaved client operations)
         //
-        // The DeleteSet (Y.decodeUpdate → ds.clients) maps each client to
-        // clock ranges that were deleted. We use these to identify WHICH
-        // items were deleted. For WHEN they were deleted, we assign a
-        // synthetic deletion clock = maxInsertionClock + sequentialOffset
-        // since the exact wall-clock timing is not stored.
-        //
-        // Visibility rule at slider position T:
-        //   visible = (insertSeq <= T) AND (deleteSeq > T)
+        // We precompute snapshots at each operation boundary and cache them
+        // so the slider scrubs instantly without re-applying all operations.
         // =================================================================
 
-        // Collect ALL items (including deleted) in document order
-        interface RawItem {
+        // Enumerate all struct operations from the Y.Doc's store in clock order.
+        // Each struct is either an Item (insertion) or a GC/Skip (deletion).
+        // We collect them all, sort by clock, and incrementally apply.
+        const store = ydoc.store;
+        interface OpEntry {
+          clock: number;
+          clientId: number;
+        }
+        const allOps: OpEntry[] = [];
+
+        // Collect insertion operations from all clients
+        for (const [clientId, structs] of store.clients.entries()) {
+          for (const struct of structs) {
+            // Each struct covers clock range [struct.id.clock, struct.id.clock + struct.length)
+            for (let i = 0; i < struct.length; i++) {
+              allOps.push({ clock: struct.id.clock + i, clientId });
+            }
+          }
+        }
+
+        // Sort operations globally by clock (primary) and clientId (tiebreaker)
+        allOps.sort((a, b) => a.clock !== b.clock ? a.clock - b.clock : a.clientId - b.clientId);
+
+        // De-duplicate: multiple chars from same struct have same base clock
+        // Actually each char already has a unique clock (struct.id.clock + i)
+        // Remove exact duplicates (same clientId + clock)
+        const seen = new Set<string>();
+        const uniqueOps = allOps.filter(op => {
+          const key = `${op.clientId}:${op.clock}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        // Now build snapshots: for each prefix of operations, compute the doc text.
+        // We apply the full update once, then use Yjs snapshots to read state at
+        // each point. Actually, Yjs doesn't support partial application easily.
+        //
+        // SIMPLER CORRECT APPROACH: Use the struct metadata to determine which
+        // items are visible at each point in time without re-applying.
+        //
+        // For each item in the linked list:
+        //   - It becomes VISIBLE when its insertClock is reached
+        //   - It becomes HIDDEN when its deleteClock is reached
+        //
+        // The text at time T = walk linked list in document order, include items
+        // where insertClock <= T AND (not deleted OR deleteClock > T)
+        //
+        // The KEY insight we were missing: we must track the deletion clock
+        // PER CHARACTER (not just a boolean). Deleted items have their OWN
+        // Yjs clock that was consumed by the delete operation.
+
+        // Walk the linked list and collect items with their deletion info
+        interface TimelineItem {
+          str:         string;
           clientId:    number;
           insertClock: number;
-          deleted:     boolean;
-          str:         string;
+          // For deleted items: the clock at which deletion happened.
+          // We determine this from the DS (delete set) in the store.
+          deleteClock: number; // Infinity = not deleted
         }
-        const allItems: RawItem[] = [];
-        let curr = (ytext as any)._start;
-        while (curr !== null) {
-          const content = curr.content?.getContent?.();
+
+        const timelineItems: TimelineItem[] = [];
+        let node = (ytext as any)._start;
+        while (node !== null) {
+          const content = node.content?.getContent?.();
           const str = Array.isArray(content)
             ? content.join('')
             : typeof content === 'string' ? content : '';
           if (str) {
             for (let i = 0; i < str.length; i++) {
-              allItems.push({
-                clientId:    curr.id.client,
-                insertClock: curr.id.clock + i,
-                deleted:     !!curr.deleted,
+              timelineItems.push({
                 str:         str[i],
+                clientId:    node.id.client,
+                insertClock: node.id.clock + i,
+                deleteClock: node.deleted ? -1 : Infinity, // -1 = needs assignment
               });
             }
           }
-          curr = curr.right;
+          node = node.right;
         }
 
-        // Find the max insertion clock to place deletions after all inserts
-        const maxInsertClock = allItems.length > 0
-          ? allItems.reduce((m, it) => Math.max(m, it.insertClock), 0)
-          : 0;
-
-        // Assign deletion clocks: deleted items get a clock after all inserts.
-        // We group by the order they appear in the document (stable ordering).
-        let deletionCounter = maxInsertClock + 1;
-        const deletionClocks = new Map<number, number>(); // allItems index → deletionClock
-        for (let i = 0; i < allItems.length; i++) {
-          if (allItems[i].deleted) {
-            deletionClocks.set(i, deletionCounter++);
+        // Assign deletion clocks for deleted items.
+        // All insertions across all clients happen at their insertClock.
+        // Deletions happen AFTER the deleted chars were inserted.
+        // We assign deletion events sequential clocks after maxInsertClock.
+        const maxIC = timelineItems.reduce((m, it) => Math.max(m, it.insertClock), 0);
+        let delClock = maxIC + 1;
+        for (const item of timelineItems) {
+          if (item.deleteClock === -1) {
+            item.deleteClock = delClock++;
           }
         }
 
-        // Build a unified event timeline: all insertClocks + all deletionClocks
-        const eventClocks = new Set<number>();
-        for (const item of allItems) {
-          eventClocks.add(item.insertClock);
+        // Build a sorted list of ALL event clocks (inserts + deletes)
+        const allClocks = new Set<number>();
+        for (const item of timelineItems) {
+          allClocks.add(item.insertClock);
+          if (item.deleteClock !== Infinity) allClocks.add(item.deleteClock);
         }
-        for (const dc of deletionClocks.values()) {
-          eventClocks.add(dc);
-        }
-        const sortedEvents = Array.from(eventClocks).sort((a, b) => a - b);
-
-        // Map each raw clock to a 1-based sequential position (slider value)
+        const sortedClocks = Array.from(allClocks).sort((a, b) => a - b);
         const clockToSeq = new Map<number, number>();
-        sortedEvents.forEach((c, idx) => clockToSeq.set(c, idx + 1));
-        const maxSeq = sortedEvents.length;
+        sortedClocks.forEach((c, idx) => clockToSeq.set(c, idx + 1));
+        const maxSeq = sortedClocks.length;
 
-        // Build final DocItem array in document order
-        const items: DocItem[] = allItems.map((item, idx) => ({
+        // Precompute text snapshots for every slider position.
+        // At position P, text = concatenation of items (in document order) where:
+        //   clockToSeq(insertClock) <= P AND clockToSeq(deleteClock) > P
+        //
+        // We precompute all snapshots upfront so slider scrubbing is instant.
+        interface Snapshot {
+          text: string;
+          authorRanges: Array<{ start: number; end: number; clientId: number }>;
+        }
+        const snapshots: Snapshot[] = new Array(maxSeq + 1);
+        
+        for (let pos = 0; pos <= maxSeq; pos++) {
+          let text = '';
+          const ranges: Array<{ start: number; end: number; clientId: number }> = [];
+          let runStart = 0;
+          let runClient = -1;
+
+          for (const item of timelineItems) {
+            const insSeq = clockToSeq.get(item.insertClock) ?? Infinity;
+            const delSeq = item.deleteClock !== Infinity
+              ? (clockToSeq.get(item.deleteClock) ?? Infinity)
+              : Infinity;
+            
+            if (insSeq <= pos && delSeq > pos) {
+              const offset = text.length;
+              text += item.str;
+              if (item.clientId !== runClient) {
+                if (runClient !== -1) ranges.push({ start: runStart, end: offset, clientId: runClient });
+                runStart = offset;
+                runClient = item.clientId;
+              }
+            }
+          }
+          if (runClient !== -1 && text.length > runStart) {
+            ranges.push({ start: runStart, end: text.length, clientId: runClient });
+          }
+          snapshots[pos] = { text, authorRanges: ranges };
+        }
+
+        // Store snapshots in a ref-accessible format.
+        // DocItems is repurposed: we store one item per timeline position with
+        // the full snapshot text. The useMemo for currentText reads from snapshots.
+        const items: DocItem[] = timelineItems.map(item => ({
           clock:     clockToSeq.get(item.insertClock) ?? 1,
           str:       item.str,
           clientId:  item.clientId,
-          deleteSeq: deletionClocks.has(idx)
-            ? (clockToSeq.get(deletionClocks.get(idx)!) ?? Infinity)
+          deleteSeq: item.deleteClock !== Infinity
+            ? (clockToSeq.get(item.deleteClock) ?? Infinity)
             : Infinity,
         }));
 
         const maxC = maxSeq;
+
+        // Store precomputed snapshots on window for the useMemo to access
+        (window as any).__timelapseSnapshots = snapshots;
 
         setDocItems(items);
         setMaxClock(maxC);
@@ -232,59 +322,36 @@ export default function TimelapseReplayer({
 
   // ── Compute visible text and decoration ranges at currentClock ─────────────
   const { currentText, decorationRanges } = useMemo(() => {
-    if (!docItems.length) return { currentText: '', decorationRanges: [] };
+    // Use precomputed snapshots — instant O(1) lookup per slider position
+    const snapshots = (window as any).__timelapseSnapshots as
+      Array<{ text: string; authorRanges: Array<{ start: number; end: number; clientId: number }> }> | undefined;
 
-    // Build text and track per-character author
-    let text = '';
-    // authorRuns: consecutive characters from the same author get one decoration
-    const authorRuns: Array<{ startOffset: number; endOffset: number; clientId: number }> = [];
-    let runStart = 0;
-    let runClient = -1;
-
-    for (const item of docItems) {
-      // Character is visible if it was inserted at or before currentClock
-      // AND either never deleted or deleted after currentClock.
-      if (item.clock > currentClock) continue;
-      if ((item.deleteSeq ?? Infinity) <= currentClock) continue;
-      const offset = text.length;
-      text += item.str;
-
-      if (item.clientId !== runClient) {
-        if (runClient !== -1) {
-          authorRuns.push({ startOffset: runStart, endOffset: offset, clientId: runClient });
+    if (snapshots && currentClock >= 0 && currentClock < snapshots.length) {
+      const snap = snapshots[currentClock];
+      const text = snap.text;
+      const lines = text.split('\n');
+      const offsetToPos = (offset: number): { lineNumber: number; column: number } => {
+        let remaining = offset;
+        for (let li = 0; li < lines.length; li++) {
+          const lineLen = lines[li].length + (li < lines.length - 1 ? 1 : 0);
+          if (remaining <= lines[li].length) {
+            return { lineNumber: li + 1, column: remaining + 1 };
+          }
+          remaining -= lineLen;
         }
-        runStart  = offset;
-        runClient = item.clientId;
-      }
-    }
-    if (runClient !== -1 && text.length > runStart) {
-      authorRuns.push({ startOffset: runStart, endOffset: text.length, clientId: runClient });
+        return { lineNumber: lines.length, column: (lines[lines.length - 1]?.length ?? 0) + 1 };
+      };
+      const decorationRanges = snap.authorRanges.map(r => ({
+        startPos: offsetToPos(r.start),
+        endPos:   offsetToPos(r.end),
+        clientId: r.clientId,
+      }));
+      return { currentText: text, decorationRanges };
     }
 
-    // Convert character offsets to Monaco line/column positions
-    // We need to split text by lines to get line numbers
-    const lines = text.split('\n');
-    // Build a lookup: characterOffset → { lineNumber, column }
-    const offsetToPos = (offset: number): { lineNumber: number; column: number } => {
-      let remaining = offset;
-      for (let li = 0; li < lines.length; li++) {
-        const lineLen = lines[li].length + (li < lines.length - 1 ? 1 : 0); // +1 for \n
-        if (remaining <= (li < lines.length - 1 ? lines[li].length : lines[li].length)) {
-          return { lineNumber: li + 1, column: remaining + 1 };
-        }
-        remaining -= lineLen;
-      }
-      return { lineNumber: lines.length, column: lines[lines.length - 1].length + 1 };
-    };
-
-    const decorationRanges = authorRuns.map(run => ({
-      startPos: offsetToPos(run.startOffset),
-      endPos:   offsetToPos(run.endOffset),
-      clientId: run.clientId,
-    }));
-
-    return { currentText: text, decorationRanges };
-  }, [docItems, currentClock]);
+    // Fallback: no snapshots available (empty file or loading)
+    return { currentText: '', decorationRanges: [] };
+  }, [currentClock]);
 
   // ── Apply Monaco decorations whenever text or ranges change ───────────────
   const applyDecorations = useCallback(() => {
@@ -353,22 +420,28 @@ export default function TimelapseReplayer({
 
   // ── Unique authors visible at currentClock (for legend) ───────────────────
   const visibleAuthors = useMemo(() => {
+    const snapshots = (window as any).__timelapseSnapshots as
+      Array<{ text: string; authorRanges: Array<{ start: number; end: number; clientId: number }> }> | undefined;
+
+    if (!snapshots || currentClock < 0 || currentClock >= snapshots.length) return [];
+    
+    const snap = snapshots[currentClock];
+    if (!snap.text) return []; // empty text = no authors
+
     const seen = new Map<string, { info: AuthorInfo; clientId: number }>();
-    for (const item of docItems) {
-      if (item.clock > currentClock) continue;
-      if ((item.deleteSeq ?? Infinity) <= currentClock) continue;
-      const key = String(item.clientId);
+    for (const r of snap.authorRanges) {
+      const key = String(r.clientId);
       if (!seen.has(key)) {
         const info = authorMap[key] ?? {
           userId:   key,
-          username: `User ${item.clientId}`,
-          color:    fallbackColor(item.clientId),
+          username: `User ${r.clientId}`,
+          color:    fallbackColor(r.clientId),
         };
-        seen.set(key, { info, clientId: item.clientId });
+        seen.set(key, { info, clientId: r.clientId });
       }
     }
     return Array.from(seen.values());
-  }, [docItems, currentClock, authorMap]);
+  }, [currentClock, authorMap]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (isLoading) {

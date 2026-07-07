@@ -340,14 +340,6 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
 
 });
 
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// BRUTAL TERMINAL TEST SUITE — PART 2
-// Covers: Viewer Restrictions, Multi-User Isolation, Environment Variables,
-// Signal Handling, Directory Ops, npm install Trigger, Pipe/Redirect,
-// Working Directory Persistence, File Deletion Sync, Concurrent Races
-
-
 test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
 
   test('two users in same workspace get independent PTY sessions with isolated shell state', async ({ page, context }) => {
@@ -529,7 +521,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
   });
 });
 
-
 test.describe('Terminal Signal Handling & Process Control', () => {
 
   test('handles SIGTSTP (Ctrl+Z) to background a process and fg to resume it', async ({ page }) => {
@@ -649,7 +640,6 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await expect(terminalBody).toContainText('POST_TRAP_OK', { timeout: 5000 });
   });
 });
-
 
 test.describe('Terminal File System Operations & Reverse Sync', () => {
 
@@ -785,7 +775,6 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
 
 });
 
-
 test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
 
   test('supports pipes, redirects, here-docs, and command chaining', async ({ page }) => {
@@ -914,7 +903,6 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
   });
 });
 
-
 test.describe('Terminal Working Directory Persistence & Navigation', () => {
 
   test('working directory persists across commands and supports complex navigation', async ({ page }) => {
@@ -988,7 +976,6 @@ test.describe('Terminal Working Directory Persistence & Navigation', () => {
     await expect(terminalBody).toContainText('RELATIVE_FILE', { timeout: 5000 });
   });
 });
-
 
 test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
 
@@ -1100,7 +1087,6 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
     await expect(page.locator('.monaco-editor')).toContainText('TERMINAL_SEPARATE', { timeout: 10000 });
   });
 });
-
 
 test.describe('Terminal Environment & System Validation', () => {
 
@@ -1232,7 +1218,6 @@ test.describe('Terminal Environment & System Validation', () => {
     await expect(terminalBody).toContainText(/error|undeclared/i, { timeout: 10000 });
   });
 });
-
 
 test.describe('Terminal History & Shell State', () => {
 
@@ -1609,12 +1594,6 @@ server.listen(3000, () => {
 
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// BRUTAL TERMINAL TEST SUITE — PART 3
-// Covers: Multi-file Python/JS/C++ Execution, Mixed-Language Pipelines,
-// Symlink Handling, and Deep Module Interconnection
-// ═══════════════════════════════════════════════════════════════════════════════
-
 test.describe('Terminal Multi-File Interconnection & Compilation', () => {
 
   test('compiles and executes multi-file C++ project with headers and implementations', async ({ page }) => {
@@ -1874,3 +1853,4 @@ test.describe('Terminal Advanced File System Edge Cases', () => {
   });
 
 });
+

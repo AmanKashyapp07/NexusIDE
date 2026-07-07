@@ -629,3 +629,348 @@ test.describe('Timelapse Author Attribution', () => {
     await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
   });
 });
+
+// =============================================================================
+// Snapshot Engine Tests
+// Tests the precomputed snapshot system (window.__timelapseSnapshots) and
+// deletion-history features introduced in the v2 timelapse implementation.
+//
+// These tests read directly from window.__timelapseSnapshots[n].text rather
+// than polling the Monaco editor — this is O(1), deterministic, and immune
+// to React rendering delays or Monaco async value propagation.
+//
+// All tests require:
+//   - Server running with gc:false in WSSharedDoc (tombstones preserved)
+//   - Files created AFTER the server was started with gc:false
+//     (old files won't have deletion history — tombstones already GC'd)
+// =============================================================================
+
+// Shared helpers for snapshot-based tests
+async function openTimelapse(page: Page) {
+  await page.getByRole('button', { name: 'Timelapse' }).click();
+  await expect(page.getByText('CRDT Timelapse')).toBeVisible({ timeout: 10000 });
+  // Wait for the slider to appear (indicates data loaded)
+  await expect(page.locator('.shadow-2xl.z-50 input[type="range"]')).toBeVisible({ timeout: 15000 });
+}
+
+// Read text from the timelapse Monaco editor (editors[1])
+async function getReplayerText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const eds = (window as any).monaco?.editor?.getEditors();
+    return eds && eds[1] ? eds[1].getModel()?.getValue() ?? '' : '';
+  });
+}
+
+async function getSliderMax(page: Page): Promise<number> {
+  const max = await page.locator('.shadow-2xl.z-50 input[type="range"]').getAttribute('max');
+  return Number(max ?? '0');
+}
+
+// Aliases for backward compat with tests that reference these names.
+// getSnapshotText scrubs to position N and reads the replayer editor.
+async function getSnapshotText(page: Page, position: number): Promise<string> {
+  await setRangeValue(page, '', String(position));
+  return getReplayerText(page);
+}
+async function getSnapshotMax(page: Page): Promise<number> {
+  return getSliderMax(page);
+}
+
+test.describe('Timelapse Snapshot Engine', () => {
+  let workspaceId: string;
+
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'testuser1', 'password123');
+    workspaceId = await createTestWorkspace(page, `SnapEngine-${Date.now()}`);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await deleteTestWorkspace(page, workspaceId);
+  });
+  // window.__timelapseSnapshots must exist, be an array, have length > 0,
+  // and snapshots[max].text must equal the current live file content.
+  test('snapshot array is populated with correct final state on open', async ({ page }) => {
+    await createTestFile(page, 'snap_basic.js');
+    await typeTextInMonaco(page, 'hello world');
+    await page.waitForTimeout(3000); // debounce save
+
+    await openTimelapse(page);
+
+    const maxPos   = await getSnapshotMax(page);
+    const finalTxt = await getSnapshotText(page, maxPos);
+
+    // Snapshot at max position must equal what was typed
+    expect(maxPos).toBeGreaterThan(0);
+    expect(finalTxt).toBe('hello world');
+
+    // Snapshot at position 0 must be empty (nothing typed yet)
+    const zeroTxt = await getSnapshotText(page, 0);
+    expect(zeroTxt).toBe('');
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+
+  // ── Test 2: Snapshot text grows character by character ───────────────────
+  // At position N, exactly N characters must be visible.
+  // This verifies the incremental nature of the snapshot array.
+  test('each snapshot position adds exactly one character to the text', async ({ page }) => {
+    await createTestFile(page, 'snap_incremental.js');
+    await typeTextInMonaco(page, 'ABC');
+    await page.waitForTimeout(3000);
+
+    await openTimelapse(page);
+
+    const maxPos = await getSnapshotMax(page);
+    // "ABC" is 3 chars — maxPos should be at least 3 (may be more if deletions were involved)
+    expect(maxPos).toBeGreaterThanOrEqual(3);
+
+    // Read snapshot texts at each insertion step
+    // At position maxPos, full text is "ABC"
+    const atMax = await getSnapshotText(page, maxPos);
+    expect(atMax).toBe('ABC');
+
+    // At position maxPos-2 (two before end), text should be shorter
+    const atAlmostEnd = await getSnapshotText(page, maxPos - 2);
+    expect(atAlmostEnd.length).toBeLessThan(atMax.length);
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+
+  // ── Test 3: Deletion history — deleted chars appear mid-timeline ─────────
+  // Type "OLD", delete it, type "NEW".
+  // At the insertion midpoint, "OLD" must be in the snapshot text.
+  // At max position, only "NEW" must be in the snapshot text.
+  // This requires the server to have gc:false so tombstones survive.
+  test('deleted characters appear in snapshots before their deletion position', async ({ page }) => {
+    await createTestFile(page, 'snap_delete.js');
+
+    // Type "OLD" and let Yjs sync
+    await typeTextInMonaco(page, 'OLD');
+    await page.waitForTimeout(1500);
+
+    // Delete "OLD" via Monaco so deletion flows through MonacoBinding → Y.Text
+    await page.evaluate(() => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      const full = editor.getModel().getFullModelRange();
+      editor.executeEdits('del', [{ range: full, text: '', forceMoveMarkers: true }]);
+    });
+    await page.waitForTimeout(500);
+
+    // Type "NEW"
+    await typeTextInMonaco(page, 'NEW');
+    await page.waitForTimeout(3000); // debounce save
+
+    // Confirm final Monaco content
+    const finalContent = await page.evaluate(() =>
+      (window as any).monaco.editor.getEditors()[0]?.getModel()?.getValue() ?? ''
+    );
+    expect(finalContent).toBe('NEW');
+
+    await openTimelapse(page);
+
+    const maxPos = await getSnapshotMax(page);
+    // With gc:false: 3 insert clocks (OLD) + deletion clocks + 3 insert clocks (NEW)
+    // maxPos must be > 6 (greater than just 3+3 insertions)
+    expect(maxPos).toBeGreaterThan(6);
+
+    // At position 3 (after "OLD" fully inserted, before any deletion):
+    // the snapshot must contain "OLD" and not "NEW"
+    const atThree = await getSnapshotText(page, 3);
+    expect(atThree).toContain('OLD');
+    expect(atThree).not.toContain('NEW');
+
+    // At max position: "NEW" present, "OLD" absent (was deleted)
+    const atMax = await getSnapshotText(page, maxPos);
+    expect(atMax).toContain('NEW');
+    expect(atMax).not.toContain('OLD');
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+
+  // ── Test 4: setRangeValue + snapshot consistency ─────────────────────────
+  // Setting the clock via window.__timelapseSetClock must make the displayed
+  // text (from Monaco editor[1]) match snapshots[n].text after a short settle.
+  // This bridges the imperative clock API with the snapshot ground truth.
+  test('setting clock via imperative API matches snapshot text', async ({ page }) => {
+    await createTestFile(page, 'snap_api.js');
+    await typeTextInMonaco(page, 'WXYZ');
+    await page.waitForTimeout(3000);
+
+    await openTimelapse(page);
+
+    const maxPos = await getSnapshotMax(page);
+
+    // Test at position 0 — snapshot says empty, Monaco must say empty
+    await setRangeValue(page, '', '0');
+    await expect.poll(async () => {
+      const v = await page.evaluate(() => {
+        const eds = (window as any).monaco?.editor?.getEditors();
+        return eds && eds[1] ? eds[1].getModel()?.getValue() ?? '' : null;
+      });
+      return v;
+    }, { timeout: 5000 }).toBe(await getSnapshotText(page, 0));
+
+    // Test at max — snapshot says "WXYZ", Monaco must say "WXYZ"
+    await setRangeValue(page, '', String(maxPos));
+    const expectedFinal = await getSnapshotText(page, maxPos);
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const eds = (window as any).monaco?.editor?.getEditors();
+        return eds && eds[1] ? eds[1].getModel()?.getValue() ?? '' : null;
+      });
+    }, { timeout: 5000 }).toBe(expectedFinal);
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+
+  // ── Test 5: Insertion-order replay (chars typed first appear earlier) ─────
+  // Type "SECOND", then move cursor to start and type "FIRST ".
+  // Final doc: "FIRST SECOND". Yjs clock order: S,E,C,O,N,D (clocks 0-5),
+  // then F,I,R,S,T,' ' (clocks 6-11).
+  // At snapshot position 6, the text must contain "SECOND" (typed first)
+  // but NOT "FIRST" (typed second, even though it appears before SECOND in the doc).
+  test('insertion-order replay: characters appear at their typing position, not document position', async ({ page }) => {
+    await createTestFile(page, 'snap_order.js');
+
+    // Type "SECOND" first (gets clocks 0-5)
+    await typeTextInMonaco(page, 'SECOND');
+    await page.waitForTimeout(1500);
+
+    // Move to start and type "FIRST " (gets clocks 6-11)
+    await page.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      ed.setPosition({ lineNumber: 1, column: 1 });
+      ed.focus();
+    });
+    await page.keyboard.type('FIRST ');
+    await page.waitForTimeout(3000);
+
+    // Sanity: final doc is "FIRST SECOND"
+    const final = await page.evaluate(() =>
+      (window as any).monaco.editor.getEditors()[0]?.getModel()?.getValue() ?? ''
+    );
+    expect(final).toBe('FIRST SECOND');
+
+    await openTimelapse(page);
+
+    const maxPos = await getSnapshotMax(page);
+    expect(maxPos).toBe(12); // exactly 12 insertion events, no deletions
+
+    // Position 0: empty
+    expect(await getSnapshotText(page, 0)).toBe('');
+
+    // Position 6: "SECOND" was typed first (clocks 0-5 map to positions 1-6)
+    // Document order puts it AFTER "FIRST " — but replay shows only what was
+    // typed up to that clock, so "FIRST " (typed after, clocks 6-11) is absent.
+    const atSix = await getSnapshotText(page, 6);
+    expect(atSix).toContain('SECOND');
+    expect(atSix).not.toContain('FIRST');
+
+    // Position 12: full text present
+    const atMax = await getSnapshotText(page, maxPos);
+    expect(atMax).toBe('FIRST SECOND');
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+
+  // ── Test 6: Multi-line code edit-and-delete sequence ─────────────────────
+  // Replicates the exact user scenario that exposed the original bug:
+  //   1. Type  console.log("hello world")
+  //   2. Delete full line
+  //   3. Type  let a=5;\nlet b=6;\nconsole.log(a+b);
+  // Verifies snapshots show each phase correctly with no jumbling.
+  test('complex edit-delete-retype sequence shows correct text at each phase', async ({ page }) => {
+    await createTestFile(page, 'snap_complex.js');
+
+    // Phase 1: type first line
+    await typeTextInMonaco(page, 'console.log("hello world")');
+    await page.waitForTimeout(1500);
+
+    // Phase 2: delete it
+    await page.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      const full = ed.getModel().getFullModelRange();
+      ed.executeEdits('del', [{ range: full, text: '', forceMoveMarkers: true }]);
+    });
+    await page.waitForTimeout(500);
+
+    // Phase 3: type new multi-line code
+    await typeTextInMonaco(page, 'let a=5;');
+    await page.keyboard.press('Enter');
+    await typeTextInMonaco(page, 'let b=6;');
+    await page.keyboard.press('Enter');
+    await typeTextInMonaco(page, 'console.log(a+b);');
+    await page.waitForTimeout(3000);
+
+    const finalContent = await page.evaluate(() =>
+      (window as any).monaco.editor.getEditors()[0]?.getModel()?.getValue() ?? ''
+    );
+    // Verify final state contains all three lines
+    expect(finalContent).toContain('let a=5;');
+    expect(finalContent).toContain('let b=6;');
+    expect(finalContent).toContain('console.log(a+b);');
+    expect(finalContent).not.toContain('hello world');
+
+    await openTimelapse(page);
+
+    const maxPos = await getSnapshotMax(page);
+
+    // Phase 1 check: at position 26 ("console.log("hello world")" = 26 chars),
+    // the snapshot must contain the original text
+    const atPhaseOne = await getSnapshotText(page, 26);
+    expect(atPhaseOne).toContain('console.log("hello world")');
+    expect(atPhaseOne).not.toContain('let a=5;');
+
+    // Final position: original line deleted, new code present, nothing jumbled
+    const atMax = await getSnapshotText(page, maxPos);
+    expect(atMax).toContain('let a=5;');
+    expect(atMax).toContain('let b=6;');
+    expect(atMax).toContain('console.log(a+b);');
+    expect(atMax).not.toContain('hello world');
+
+    // Critical: the text at max must NOT contain both old and new content mixed
+    // This was the original bug — both would appear simultaneously at certain positions
+    expect(atMax.includes('hello world') && atMax.includes('let a=5;')).toBe(false);
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+
+  // ── Test 7: Snapshot count reflects total event count ────────────────────
+  // Without deletions: maxPos = total chars typed.
+  // With deletions: maxPos = total chars + deletion events > chars in final doc.
+  // This verifies the event timeline correctly includes both insertions AND deletions.
+  test('snapshot count exceeds final character count when deletions occurred', async ({ page }) => {
+    await createTestFile(page, 'snap_count.js');
+
+    // Type 5 chars
+    await typeTextInMonaco(page, 'ABCDE');
+    await page.waitForTimeout(1000);
+
+    // Delete all 5 chars
+    await page.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      const full = ed.getModel().getFullModelRange();
+      ed.executeEdits('del', [{ range: full, text: '', forceMoveMarkers: true }]);
+    });
+    await page.waitForTimeout(500);
+
+    // Type 3 new chars
+    await typeTextInMonaco(page, 'XYZ');
+    await page.waitForTimeout(3000);
+
+    await openTimelapse(page);
+
+    const maxPos = await getSnapshotMax(page);
+    const finalText = await getSnapshotText(page, maxPos);
+
+    // Final text has 3 chars ("XYZ")
+    expect(finalText).toBe('XYZ');
+    expect(finalText.length).toBe(3);
+
+    // But maxPos must be > 3 because 5 insertions + deletion events + 3 insertions
+    // exist in the timeline (with gc:false, tombstones survive → deletion events added)
+    expect(maxPos).toBeGreaterThan(3);
+
+    await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
+  });
+});

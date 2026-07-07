@@ -846,7 +846,325 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // Must succeed without throwing a null pointer or mapping error
   expect(restoreStatus).toBe(200);
 });
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 12: Diff Engine — NEW, DEL, MOD, Nested Paths, and Large Payloads
+  // Verifies the backend diff algorithm correctly identifies file states by comparing
+  // live workspace files against snapshot records, preserves directory structures,
+  // and efficiently handles files >10KB without truncation.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 12: Diff Engine — NEW, DEL, MOD, Nested Paths, and Large Payloads
+  // ═══════════════════════════════════════════════════════════════════════════════
+  test('12. snapshot diff identifies NEW, DEL, MOD states, preserves paths, and handles large files', async ({ page }) => {
+    const timestamp = Date.now();
+    await loginUser(page, `Alice_Diff_${timestamp}`);
+
+    // 1. Setup Workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Diff_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(page);
+
+    // Generate large payload (>10KB)
+    const largeContent = "const data = 'A';\n".repeat(600); 
+
+    // 2. Create Initial Files & Strictly Set Content via PUT
+    await page.evaluate(async ({ wsId, payload }) => {
+      const token = localStorage.getItem('token');
+      
+      // Step A: Create empty files
+      await fetch(`/api/workspace/${wsId}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: 'src/components/mod.js', type: 'file' })
+      });
+      await fetch(`/api/workspace/${wsId}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: 'del.js', type: 'file' })
+      });
+
+      // Step B: Fetch files to get their IDs
+      const files = await fetch(`/api/workspace/${wsId}/files`, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).then(r => r.json());
+
+      const modFile = files.find((f: any) => f.name === 'src/components/mod.js');
+      const delFile = files.find((f: any) => f.name === 'del.js');
+
+      // Step C: PUT the content to guarantee it is saved in the DB before snapshot
+      await fetch(`/api/workspace/${wsId}/files/${modFile.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: payload })
+      });
+      await fetch(`/api/workspace/${wsId}/files/${delFile.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: '// to be deleted' })
+      });
+    }, { wsId: workspaceId, payload: largeContent });
+
+    await page.waitForTimeout(2000); // Give DB a moment to settle
+
+    // 3. Take Snapshot (Baseline)
+    const snapRes = await page.evaluate(async (wsId) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'Baseline' }),
+      });
+      return res.json();
+    }, workspaceId);
+    const snapshotId = snapRes.id;
+
+    // 4. Mutate Workspace State (Trigger MOD, DEL, NEW)
+    await page.evaluate(async ({ wsId, payload }) => {
+      const token = localStorage.getItem('token');
+      
+      const files = await fetch(`/api/workspace/${wsId}/files`, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).then(r => r.json());
+
+      const modFile = files.find((f: any) => f.name === 'src/components/mod.js');
+      const delFile = files.find((f: any) => f.name === 'del.js');
+
+      // MOD
+      await fetch(`/api/workspace/${wsId}/files/${modFile.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: payload + '\n// NEW LINE' })
+      });
+
+      // DEL
+      await fetch(`/api/workspace/${wsId}/files/${delFile.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // NEW
+      const newFile = await fetch(`/api/workspace/${wsId}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: 'new.js', type: 'file' })
+      }).then(r => r.json());
+
+      await fetch(`/api/workspace/${wsId}/files/${newFile.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: '// brand new' })
+      });
+    }, { wsId: workspaceId, payload: largeContent });
+
+    await page.waitForTimeout(1000);
+
+    // 5. Fetch Diff
+    const diffFiles = await page.evaluate(async ({ wsId, snapId }) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      return res.json();
+    }, { wsId: workspaceId, snapId: snapshotId });
+
+    // 6. Assertions for Badges & Content
+    const modDiff = diffFiles.find((f: any) => f.path === 'src/components/mod.js' || f.name === 'src/components/mod.js');
+    const delDiff = diffFiles.find((f: any) => f.path === 'del.js' || f.name === 'del.js');
+    const newDiff = diffFiles.find((f: any) => f.path === 'new.js' || f.name === 'new.js');
+
+    expect(modDiff).toBeDefined();
+    expect(modDiff.snapshot_content).toBe(largeContent);
+    expect(modDiff.live_content).toBe(largeContent + '\n// NEW LINE');
+    
+    expect(delDiff).toBeDefined();
+    expect(delDiff.snapshot_content).toBe('// to be deleted');
+    expect(delDiff.live_content).toBeFalsy(); 
+
+    expect(newDiff).toBeDefined();
+    expect(newDiff.snapshot_content).toBeFalsy();
+    expect(newDiff.live_content).toBe('// brand new');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 13: Metadata & Sorting
+  // Verifies labels, creator tracking, and strict descending chronological ordering.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  test('13. correctly saves labels, creator username, and returns list in newest-first order', async ({ page }) => {
+    const timestamp = Date.now();
+    const username = `Alice_Meta_${timestamp}`;
+    await loginUser(page, username);
+
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Meta_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(page);
+
+    // Create Snapshots with slight delays to guarantee chronological separation
+    await page.evaluate(async (wsId) => {
+      await fetch(`/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'First Snapshot' })
+      });
+    }, workspaceId);
+
+    await page.waitForTimeout(1000);
+
+    await page.evaluate(async (wsId) => {
+      await fetch(`/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'Second Snapshot' })
+      });
+    }, workspaceId);
+
+    const snapshots = await page.evaluate(async (wsId) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      return res.json();
+    }, workspaceId);
+
+    expect(snapshots.length).toBe(2);
+    
+    // Ensure newest-first sorting
+    expect(snapshots[0].label).toBe('Second Snapshot');
+    expect(snapshots[1].label).toBe('First Snapshot');
+
+    // Ensure creator is correctly bound
+    expect(snapshots[0].created_by).toBe(username);
+    expect(snapshots[1].created_by).toBe(username);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 14: Real-time Seamless Restore & Yjs Document Reset
+  // Ensures restores broadcast via WebSocket so clients update instantly without 
+  // page reloads, and proves the Yjs server clears its in-memory document state 
+  // so reconnecting clients don't accidentally fetch "ghost" CRDT edits.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 14: Real-time Seamless Restore & Yjs Document Reset
+  // ═══════════════════════════════════════════════════════════════════════════════
+  test('14. broadcasts snapshot-restored event for seamless sync and resets yjs_state to prevent CRDT ghosting', async ({ page, context }) => {
+    const alicePage = page;
+    let bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+
+    await loginUser(alicePage, `Alice_Sync_${timestamp}`);
+    await loginUser(bobPage, `Bob_Sync_${timestamp}`);
+
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Sync_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await createFile(alicePage, 'live.js');
+    await alicePage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    
+    await alicePage.evaluate(() => {
+      (window as any).monaco.editor.getEditors()[0].getModel().setValue('// BASELINE DATA');
+    });
+    await alicePage.waitForTimeout(2000);
+
+    const snapRes = await alicePage.evaluate(async (wsId) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'Base' })
+      });
+      return res.json();
+    }, workspaceId);
+    
+    await inviteUser(alicePage, `Bob_Sync_${timestamp}`, 'editor');
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('live.js').click();
+    
+    // FIX: Wait for Yjs sync on Bob's first connection
+    await waitForEditorModel(bobPage, 'live.js');
+
+    await alicePage.evaluate(() => {
+      (window as any).monaco.editor.getEditors()[0].getModel().setValue('// MISTAKE DATA');
+    });
+    
+    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 5000 }).toBe('// MISTAKE DATA');
+
+    await alicePage.evaluate(async ({ wsId, snapId }) => {
+      await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+    }, { wsId: workspaceId, snapId: snapRes.id });
+
+    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('// BASELINE DATA');
+
+    await bobPage.close();
+    
+    bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    await loginUser(bobPage, `Bob_Sync_${timestamp}`);
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('live.js').click();
+    
+    // FIX: Replaced raw selector wait with your robust utility function
+    // This ensures Monaco mounts AND the server completes the WebSocket CRDT sync
+    await waitForEditorModel(bobPage, 'live.js');
+
+    const freshBobValue = await getEditorValue(bobPage);
+    expect(freshBobValue).toBe('// BASELINE DATA');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 15: Database Integrity — Cascading Deletes
+  // Ensures that deleting a workspace properly triggers ON DELETE CASCADE in Postgres,
+  // wiping all associated snapshot records and diff contents to prevent data leaks.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  test('15. cascades workspace deletion to wipe associated snapshots from the database', async ({ page }) => {
+    const timestamp = Date.now();
+    await loginUser(page, `Alice_Cascade_${timestamp}`);
+
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Cascade_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(page);
+
+    // Create a Snapshot
+    const snapRes = await page.evaluate(async (wsId) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'Doomed Snapshot' })
+      });
+      return res.json();
+    }, workspaceId);
+    
+    expect(snapRes.id).toBeTruthy();
+
+    // Delete the Workspace
+    const deleteRes = await page.evaluate(async (wsId) => {
+      const res = await fetch(`/api/workspace/${wsId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      return res.status;
+    }, workspaceId);
+
+    expect(deleteRes).toBe(200); // Or 204 depending on your API standard
+
+    // Attempt to fetch the snapshots for the deleted workspace
+    const postDeleteSnapshots = await page.evaluate(async (wsId) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      return res.status;
+    }, workspaceId);
+
+    // Should return 404 Not Found (or 403 because Alice no longer owns a workspace that doesn't exist)
+    expect([403, 404]).toContain(postDeleteSnapshots);
+  });
 
 
-
-});
+})
