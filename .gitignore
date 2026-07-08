@@ -4,3 +4,5 @@
 backend/workspace_data/
 terminal_history/
 interview/
+test-results/
+playwright-report/
