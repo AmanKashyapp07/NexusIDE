@@ -300,7 +300,29 @@ The project is designed to be fully deployable on cloud VMs (e.g., Oracle VM) un
 ---
 
 ## Engineering Learnings
-
+ 
 * **CRDTs vs OT:** Implementing Yjs proved that state convergence is highly reliable, but debouncing updates is critical to scale database writes.
 * **Warm Pools:** Pre-warming Docker containers is mandatory to build interactive web tools. Instantiating resources asynchronously solves perceived startup delays.
 * **WebSocket Streams:** Pipelining standard JSON-RPC language server streams and standard I/O files directly through raw WebSocket connections simplifies backend routing significantly.
+ 
+---
+ 
+## Future Plans & Architectural Roadmap
+ 
+### 1. Migrating to Git-Based Content-Addressable Snapshots
+To scale workspace snapshotting for larger filesystems and longer histories, we plan to transition the database architecture to the Git-like object model developed and verified on our `v2` branch. 
+ 
+#### Implementation Comparison: Current vs. Git-Based (v2)
+ 
+| Architectural Dimension | Current Implementation (Production) | Git-Based Snapshotting (v2 Branch) |
+| :--- | :--- | :--- |
+| **Storage Model** | Flat recursive representation; copies path-to-content rows entirely per snapshot. | Content-addressable storage via structural hashing (`git_blobs`, `git_trees`, `git_commits`). |
+| **Content Deduplication** | None. Duplicate records are created for unchanged files across checkpoints. | Maximum deduplication. Identical files point to a single cryptographic hash, occupying zero extra bytes. |
+| **Diffing Mechanics** | Relies on manual full-text database joins and string compares. | Fast hash-based comparisons (O(1) checks on identical sub-trees). |
+| **History Limits** | Restricted to 10 snapshots max per workspace to prevent DB storage bloat. | Negligible storage overhead; scales safely to hundreds of commits/checkpoints. |
+ 
+### 2. High-Density Sandboxing with microVMs
+While Docker containers provide clean namespace isolation, upgrading to microVM architectures (e.g., AWS Firecracker) is planned to secure host kernels against advanced container escape exploits during arbitrary user code execution.
+ 
+### 3. Stateless WebSocket Clustering
+Transition the Yjs WebSocket document handlers to stateless server instances behind a load balancer, orchestrating collaborative state-merging through a shared Redis Pub/Sub adapter.
