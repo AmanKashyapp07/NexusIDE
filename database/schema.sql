@@ -5,6 +5,9 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- Drop existing tables to ensure a clean slate (Idempotent)
 DROP TABLE IF EXISTS execution_history CASCADE;
 DROP TABLE IF EXISTS file_updates CASCADE;
+DROP TABLE IF EXISTS git_commits CASCADE;
+DROP TABLE IF EXISTS git_trees CASCADE;
+DROP TABLE IF EXISTS git_blobs CASCADE;
 DROP TABLE IF EXISTS snapshot_files CASCADE;
 DROP TABLE IF EXISTS workspace_snapshots CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
@@ -74,6 +77,37 @@ CREATE INDEX idx_collaborators_user ON workspace_collaborators(user_id);
 -- 4. FILES & DIRECTORIES TABLE
 CREATE TYPE node_type AS ENUM ('file', 'directory');
 
+-- Git-Like Storage Tables
+CREATE TABLE git_blobs (
+    hash CHAR(64) PRIMARY KEY,
+    data BYTEA NOT NULL,
+    content TEXT,
+    size_bytes BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE git_trees (
+    hash CHAR(64) PRIMARY KEY,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    content JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_git_trees_workspace ON git_trees(workspace_id);
+
+CREATE TABLE git_commits (
+    hash CHAR(64) PRIMARY KEY,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    tree_hash CHAR(64) NOT NULL REFERENCES git_trees(hash),
+    parent_hash CHAR(64) REFERENCES git_commits(hash) ON DELETE SET NULL,
+    author_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_git_commits_workspace ON git_commits(workspace_id);
+CREATE INDEX idx_git_commits_parent ON git_commits(parent_hash);
+
 CREATE TABLE files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -82,6 +116,7 @@ CREATE TABLE files (
     type node_type NOT NULL,
     content TEXT, 
     yjs_state BYTEA, -- CRDT state persistence for Yjs
+    blob_hash CHAR(64) REFERENCES git_blobs(hash), -- Reference to current Git blob (optional link)
     author_map JSONB DEFAULT '{}'::jsonb, -- clientID→{userId,username,color} accumulated across all sessions
     language VARCHAR(50), 
     size_bytes BIGINT DEFAULT 0,
@@ -135,45 +170,20 @@ CREATE TABLE file_updates (
 
 CREATE INDEX idx_file_updates_file ON file_updates(file_id);
 
--- 6. WORKSPACE SNAPSHOTS
--- Stores point-in-time snapshots of a workspace (max 10 per workspace).
--- Each snapshot captures a label, who created it, and when.
--- snapshot_files stores the flattened file content at snapshot time (no parent_id
--- hierarchy needed — just path + content for fast diff rendering).
-CREATE TABLE workspace_snapshots (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    label VARCHAR(255) NOT NULL DEFAULT 'Snapshot',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_snapshots_workspace ON workspace_snapshots(workspace_id);
-
-CREATE TABLE snapshot_files (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    snapshot_id UUID NOT NULL REFERENCES workspace_snapshots(id) ON DELETE CASCADE,
-    path TEXT NOT NULL,       -- e.g. "src/index.js" (relative, using / separator)
-    content TEXT,
-    language VARCHAR(50)
-);
-
-CREATE INDEX idx_snapshot_files_snapshot ON snapshot_files(snapshot_id);
-
--- Trigger: enforce max 10 snapshots per workspace (oldest evicted automatically)
-CREATE OR REPLACE FUNCTION evict_old_snapshots()
+-- Trigger: enforce max 10 commits/snapshots per workspace (oldest evicted automatically)
+CREATE OR REPLACE FUNCTION evict_old_commits()
 RETURNS TRIGGER AS $$
 DECLARE
   excess_count INTEGER;
 BEGIN
   SELECT COUNT(*) - 10 INTO excess_count
-  FROM workspace_snapshots
+  FROM git_commits
   WHERE workspace_id = NEW.workspace_id;
 
   IF excess_count > 0 THEN
-    DELETE FROM workspace_snapshots
-    WHERE id IN (
-      SELECT id FROM workspace_snapshots
+    DELETE FROM git_commits
+    WHERE hash IN (
+      SELECT hash FROM git_commits
       WHERE workspace_id = NEW.workspace_id
       ORDER BY created_at ASC
       LIMIT excess_count
@@ -184,6 +194,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER enforce_snapshot_limit
-AFTER INSERT ON workspace_snapshots
-FOR EACH ROW EXECUTE PROCEDURE evict_old_snapshots();
+CREATE TRIGGER enforce_commit_limit
+AFTER INSERT ON git_commits
+FOR EACH ROW EXECUTE PROCEDURE evict_old_commits();

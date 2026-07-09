@@ -12,6 +12,16 @@ export default defineConfig({
   server: {
     fs: {
       allow: ['..']
+    },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'http://localhost:4000',
+        ws: true,
+      },
     }
   },
   optimizeDeps: {

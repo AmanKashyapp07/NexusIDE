@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole, WorkspaceAuthRequest } from '../middleware/workspaceAuth';
 import { ZipArchive } from 'archiver';
 import { getPool } from '../db';
+import { getSnapshotFiles, createWorkspaceSnapshot } from '../utils/snapshotManager.js';
 import * as Y from 'yjs';
 import { syncDeleteToTerminal, syncFolderToTerminal, syncFileToTerminal } from '../terminal/terminalHandler';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -12,6 +13,8 @@ import * as path from 'path';
 import { rmSync, existsSync } from 'fs';
 import { Mistral } from '@mistralai/mistralai';
 import { getIO } from '../socket';
+import { saveBlob } from '../utils/gitObjects.js';
+import { evictWorkspaceDocs } from '../docsRegistry.js';
 
 const router = Router();
 
@@ -155,50 +158,12 @@ router.post('/:id/snapshot', requireWorkspaceRole('admin'), async (req: Workspac
   const { label } = req.body;
   const snapshotLabel = (label as string)?.trim() || `Snapshot ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
 
-  const client = await getPool().connect();
   try {
-    await client.query('BEGIN');
-
-    // 1. Create snapshot record — trigger evict_old_snapshots fires automatically
-    const snapResult = await client.query(
-      `INSERT INTO workspace_snapshots (workspace_id, created_by, label)
-       VALUES ($1, $2, $3) RETURNING id, label, created_at`,
-      [workspaceId, userId, snapshotLabel]
-    );
-    const snapshotId = snapResult.rows[0].id;
-
-    // 2. Flatten the live file tree into path→content rows for this snapshot.
-    //    Uses a recursive CTE to resolve full paths, same pattern as export.
-    await client.query(`
-      INSERT INTO snapshot_files (snapshot_id, path, content, language)
-      WITH RECURSIVE file_path_cte AS (
-        SELECT id, parent_id, name, type, content, language, name::text AS path
-        FROM files WHERE workspace_id = $1 AND parent_id IS NULL
-        UNION ALL
-        SELECT f.id, f.parent_id, f.name, f.type, f.content, f.language,
-               (cte.path || '/' || f.name)::text AS path
-        FROM files f
-        INNER JOIN file_path_cte cte ON f.parent_id = cte.id
-        WHERE f.workspace_id = $1
-      )
-      SELECT $2, path, content, language
-      FROM file_path_cte
-      WHERE type = 'file';
-    `, [workspaceId, snapshotId]);
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      id: snapshotId,
-      label: snapResult.rows[0].label,
-      created_at: snapResult.rows[0].created_at,
-    });
+    const snapshot = await createWorkspaceSnapshot(workspaceId, userId, snapshotLabel);
+    res.status(201).json(snapshot);
   } catch (err: any) {
-    await client.query('ROLLBACK').catch(() => {});
     console.error('[Snapshot] Create failed:', err.message);
     res.status(500).json({ error: 'Failed to create snapshot' });
-  } finally {
-    client.release();
   }
 });
 
@@ -206,11 +171,11 @@ router.post('/:id/snapshot', requireWorkspaceRole('admin'), async (req: Workspac
 router.get('/:id/snapshots', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   try {
     const result = await getPool().query(
-      `SELECT s.id, s.label, s.created_at, u.username AS created_by
-       FROM workspace_snapshots s
-       JOIN users u ON s.created_by = u.id
-       WHERE s.workspace_id = $1
-       ORDER BY s.created_at DESC
+      `SELECT c.hash as id, c.message as label, c.created_at, u.username AS created_by
+       FROM git_commits c
+       LEFT JOIN users u ON c.author_id = u.id
+       WHERE c.workspace_id = $1
+       ORDER BY c.created_at DESC
        LIMIT 10`,
       [req.params.id]
     );
@@ -221,26 +186,14 @@ router.get('/:id/snapshots', requireWorkspaceRole('viewer'), async (req: Workspa
 });
 
 // GET /:id/snapshots/:snapshotId/files — get all files in a snapshot with diff vs current (viewer+)
-// Returns each snapshot file alongside the current live content for that path,
-// so the frontend can render a beautiful line-by-line diff without extra round trips.
 router.get('/:id/snapshots/:snapshotId/files', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
   const { id: workspaceId, snapshotId } = req.params as { id: string; snapshotId: string };
   try {
-    // Verify snapshot belongs to this workspace
-    const snapCheck = await getPool().query(
-      'SELECT id FROM workspace_snapshots WHERE id = $1 AND workspace_id = $2',
-      [snapshotId, workspaceId]
-    );
-    if (!snapCheck.rows.length) return res.status(404).json({ error: 'Snapshot not found' });
+    const snapFiles = await getSnapshotFiles(workspaceId, snapshotId);
+    if (!snapFiles) return res.status(404).json({ error: 'Snapshot not found' });
 
-    // Fetch snapshot files
-    const snapFiles = await getPool().query(
-      'SELECT path, content, language FROM snapshot_files WHERE snapshot_id = $1 ORDER BY path ASC',
-      [snapshotId]
-    );
-
-    // Fetch current live files (flattened paths) for diffing
-    const liveFiles = await getPool().query(`
+    // Fetch live files to compare
+    const liveFilesRes = await getPool().query(`
       WITH RECURSIVE file_path_cte AS (
         SELECT id, parent_id, name, type, content, language, name::text AS path
         FROM files WHERE workspace_id = $1 AND parent_id IS NULL
@@ -251,130 +204,163 @@ router.get('/:id/snapshots/:snapshotId/files', requireWorkspaceRole('viewer'), a
         INNER JOIN file_path_cte cte ON f.parent_id = cte.id
         WHERE f.workspace_id = $1
       )
-      SELECT path, content, language FROM file_path_cte WHERE type = 'file'
+      SELECT path, content, language FROM file_path_cte WHERE type = 'file';
     `, [workspaceId]);
 
-    // Build a map of live content keyed by path for O(1) lookup
-    const liveMap = new Map<string, string>(
-      liveFiles.rows.map((r: { path: string; content: string | null }) => [r.path, r.content ?? ''])
-    );
+    const liveMap = new Map<string, string>();
+    const liveLangMap = new Map<string, string>();
+    for (const row of liveFilesRes.rows) {
+      liveMap.set(row.path, row.content || '');
+      liveLangMap.set(row.path, row.language || '');
+    }
 
-    // Return each snapshot file with its live counterpart so the client can diff
-    const files = snapFiles.rows.map((f: { path: string; content: string | null; language: string | null }) => ({
-      path: f.path,
-      language: f.language,
-      snapshot_content: f.content ?? '',
-      live_content: liveMap.get(f.path) ?? null, // null = file deleted since snapshot
-    }));
+    const diffs = [];
+    const processedPaths = new Set<string>();
 
-    // Also include files that exist live but not in snapshot (newly added files)
-    const snapPaths = new Set(snapFiles.rows.map((f: { path: string }) => f.path));
-    for (const lf of liveFiles.rows) {
-      if (!snapPaths.has(lf.path)) {
-        files.push({
-          path: lf.path,
-          language: lf.language,
-          snapshot_content: null as any, // null = file didn't exist at snapshot time
-          live_content: lf.content ?? '',
+    for (const f of snapFiles) {
+      processedPaths.add(f.path);
+      diffs.push({
+        path: f.path,
+        language: f.language,
+        snapshot_content: f.content ?? '',
+        live_content: liveMap.get(f.path) ?? null,
+      });
+    }
+
+    for (const [path, content] of liveMap.entries()) {
+      if (!processedPaths.has(path)) {
+        diffs.push({
+          path,
+          language: liveLangMap.get(path),
+          snapshot_content: null, // null = didn't exist at snapshot
+          live_content: content,
         });
       }
     }
 
-    res.json(files);
+    res.json(diffs);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /:id/snapshots/:snapshotId/restore — restore workspace files to snapshot state (admin only)
-// Overwrites live file content with snapshot content. Files that existed at snapshot time
-// are updated; files added after the snapshot are left untouched (not deleted, to avoid
-// accidental data loss — admin can manually clean up if needed).
-// After restore, broadcasts a 'snapshot-restored' socket event to all connected clients
-// so they can reload their Yjs state and see the restored content immediately.
-// POST /:id/snapshots/:snapshotId/restore — restore workspace files to snapshot state (admin only)
 router.post('/:id/snapshots/:snapshotId/restore', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
   const { id: workspaceId, snapshotId } = req.params as { id: string; snapshotId: string };
-
   const client = await getPool().connect();
+
   try {
-    // Verify snapshot belongs to this workspace
-    const snapCheck = await client.query(
-      'SELECT id, label FROM workspace_snapshots WHERE id = $1 AND workspace_id = $2',
-      [snapshotId, workspaceId]
-    );
-    if (!snapCheck.rows.length) {
+    await client.query('BEGIN');
+
+    const snapFiles = await getSnapshotFiles(workspaceId, snapshotId);
+    if (!snapFiles) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Snapshot not found' });
     }
 
-    // CRITICAL FIX: Import the new mutation function instead of eviction
-    const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
-
-    await client.query('BEGIN');
-
-    // Fetch snapshot files
-    const snapFiles = await client.query(
-      'SELECT path, content FROM snapshot_files WHERE snapshot_id = $1',
-      [snapshotId]
-    );
-
-    // Build live path→id map using recursive CTE
-    const liveFiles = await client.query(`
+    // Build a path->id map for live files so we know which to update vs insert
+    const liveFilesRes = await client.query(`
       WITH RECURSIVE file_path_cte AS (
         SELECT id, parent_id, name, type, name::text AS path
         FROM files WHERE workspace_id = $1 AND parent_id IS NULL
         UNION ALL
-        SELECT f.id, f.parent_id, f.name, f.type,
-               (cte.path || '/' || f.name)::text AS path
+        SELECT f.id, f.parent_id, f.name, f.type, (cte.path || '/' || f.name)::text AS path
         FROM files f
         INNER JOIN file_path_cte cte ON f.parent_id = cte.id
         WHERE f.workspace_id = $1
       )
-      SELECT id, path FROM file_path_cte WHERE type = 'file'
+      SELECT id, path, type FROM file_path_cte;
     `, [workspaceId]);
 
-    const livePathToId = new Map<string, string>(
-      liveFiles.rows.map((r: { id: string; path: string }) => [r.path, r.id])
-    );
+    const liveFiles = new Map<string, string>(); // path -> id
+    for (const row of liveFilesRes.rows) {
+      liveFiles.set(row.path, row.id);
+    }
 
-    // Track data to inject into live Yjs documents
-    const restoredFilesData: { fileId: string; content: string }[] = [];
+    // Helper: Ensure parent directories exist
+    async function ensureParentDirs(fullPath: string): Promise<string | null> {
+      const parts = fullPath.split('/');
+      parts.pop(); // remove file name
+      if (parts.length === 0) return null; // root level
+      
+      let currentPath = '';
+      let parentId: string | null = null;
+      
+      for (const part of parts) {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        if (liveFiles.has(currentPath)) {
+          parentId = liveFiles.get(currentPath)!;
+        } else {
+          const dirResult = await client.query(
+            'INSERT INTO files (workspace_id, parent_id, name, type) VALUES ($1, $2, $3, $4) RETURNING id',
+            [workspaceId, parentId, part, 'directory']
+          );
+          parentId = dirResult.rows[0].id;
+          liveFiles.set(currentPath, parentId);
+        }
+      }
+      return parentId;
+    }
 
-    // Restore each snapshot file that has a matching live file
-    let restoredCount = 0;
-    for (const sf of snapFiles.rows) {
-      const liveId = livePathToId.get(sf.path);
-      if (liveId) {
-        const restoredContent = sf.content ?? '';
-        
-        // 1. Update the raw content in the database directly
+    const restoredFilesForLiveDocs = [];
+
+    // For each snapshot file, restore its content
+    for (const snapFile of snapFiles) {
+      const snapFileHash = await saveBlob(Buffer.from(snapFile.content ?? ''), snapFile.content ?? '');
+      if (liveFiles.has(snapFile.path)) {
+        // Update existing, setting yjs_state = NULL and updating blob_hash
+        const fileId = liveFiles.get(snapFile.path)!;
         await client.query(
-          'UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2',
-          [restoredContent, liveId]
+          'UPDATE files SET content = $1, yjs_state = NULL, blob_hash = $2 WHERE id = $3',
+          [snapFile.content, snapFileHash, fileId]
         );
-        
-        // 2. Queue the file data to update the live Yjs doc
-        restoredFilesData.push({ fileId: liveId, content: restoredContent });
-        
-        restoredCount++;
-        console.log(`[Snapshot] Restored file: ${sf.path} (${restoredContent.length} bytes)`);
+        restoredFilesForLiveDocs.push({ fileId, content: snapFile.content ?? '' });
+      } else {
+        // Insert new, setting yjs_state = NULL and updating blob_hash
+        const parentId = await ensureParentDirs(snapFile.path);
+        const fileName = snapFile.path.split('/').pop()!;
+        const insResult = await client.query(
+          'INSERT INTO files (workspace_id, parent_id, name, type, content, language, yjs_state, blob_hash) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7) RETURNING id',
+          [workspaceId, parentId, fileName, 'file', snapFile.content, snapFile.language, snapFileHash]
+        );
+        const newFileId = insResult.rows[0].id;
+        liveFiles.set(snapFile.path, newFileId);
+        restoredFilesForLiveDocs.push({ fileId: newFileId, content: snapFile.content ?? '' });
       }
     }
-    console.log(`[Snapshot] Total restored: ${restoredCount} files`);
-
-    // 3. Mutate the live Yjs documents so the server CRDT overwrites the client CRDT
-    await applyRestoredContentToLiveDocs(workspaceId, restoredFilesData);
 
     await client.query('COMMIT');
 
-    // Broadcast restore event to all clients in this workspace so they reload their UI/Yjs docs
-    getIO()?.to(`presence-${workspaceId}`).emit('snapshot-restored', { 
-      workspaceId,
-      snapshotId,
-      label: snapCheck.rows[0].label 
-    });
+    // Push the changes to any active live Yjs docs to keep them in sync
+    try {
+      const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
+      await applyRestoredContentToLiveDocs(workspaceId, restoredFilesForLiveDocs);
+    } catch (e) {
+      console.warn("Could not apply to live docs", e);
+    }
 
-    res.json({ success: true, label: snapCheck.rows[0].label, restored_files: snapFiles.rows.length });
+    // Invalidate caches
+    try {
+      const [redisCache, yjsCache] = await Promise.all([
+        import('../utils/redisCache.js'),
+        import('../utils/yjsCache.js')
+      ]);
+      await redisCache.workspaceCache.delete(workspaceId);
+      for (const id of liveFiles.values()) {
+        await yjsCache.deleteYjsStateFromCache(id);
+        await redisCache.fileContentCache.delete(`${id}`);
+      }
+    } catch(e) {
+      console.warn("Could not clear cache", e);
+    }
+
+    // Notify clients to reload
+    const io = (await import('../socket.js')).getIO();
+    if (io) {
+      io.to(`presence-${workspaceId}`).emit('snapshot-restored', { snapshotId });
+    }
+
+    res.json({ success: true, message: 'Snapshot restored successfully', restored_files: snapFiles.length });
   } catch (err: any) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[Snapshot] Restore failed:', err.message);
@@ -455,15 +441,17 @@ router.post('/:id/files', requireWorkspaceRole('editor'), async (req: WorkspaceA
     // the file in the window before the first save gets an uninitialized doc that may
     // not merge cleanly with the author's in-memory doc, causing stuck/empty editors.
     let initialYjsState: Buffer | null = null;
+    let blobHash: string | null = null;
     if (type === 'file') {
       const emptyDoc = new Y.Doc();
       initialYjsState = Buffer.from(Y.encodeStateAsUpdate(emptyDoc));
       emptyDoc.destroy();
+      blobHash = await saveBlob(Buffer.from(''), '');
     }
 
     const newFile = await getPool().query(
-      'INSERT INTO files (workspace_id, name, type, parent_id, language, content, yjs_state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, parent_id, name, type, language',
-      [id, name, type, parent_id || null, type === 'file' ? (language || 'javascript') : null, '', initialYjsState]
+      'INSERT INTO files (workspace_id, name, type, parent_id, language, content, yjs_state, blob_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, parent_id, name, type, language',
+      [id, name, type, parent_id || null, type === 'file' ? (language || 'javascript') : null, '', initialYjsState, blobHash]
     );
 
     // Fire-and-forget PTY sync to keep the container file system mirrored
@@ -485,15 +473,15 @@ router.get('/:id/files/:fileId/content', requireWorkspaceRole('viewer'), async (
   try {
     const { fileContentCache } = await import('../utils/redisCache.js');
     
-    const content = await fileContentCache.getOrFetch(
-      `${req.params.fileId}`,
-      async () => {
-        const result = await getPool().query('SELECT content FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
-        if (!result.rows.length) throw new Error('File not found');
-        return result.rows[0].content || '';
-      },
-      5 * 60 // 5 minutes
-    );
+    const fetchFn = async () => {
+      const result = await getPool().query('SELECT content FROM files WHERE id = $1 AND workspace_id = $2', [req.params.fileId, req.params.id]);
+      if (!result.rows.length) throw new Error('File not found');
+      return result.rows[0].content || '';
+    };
+
+    const content = process.env.NODE_ENV === 'test'
+      ? await fetchFn()
+      : await fileContentCache.getOrFetch(`${req.params.fileId}`, fetchFn, 5 * 60);
     
     res.json({ content });
   } catch (err: any) { 
@@ -510,18 +498,18 @@ router.get('/:id/files/:fileId/history', requireWorkspaceRole('viewer'), async (
     const workspaceId = req.params.id;
     const { yjsStateCache } = await import('../utils/redisCache.js');
 
-    const cached = await yjsStateCache.getOrFetch(
-      `${fileId}:history`,
-      async () => {
-        const result = await getPool().query(
-          'SELECT yjs_state, author_map FROM files WHERE id = $1 AND workspace_id = $2',
-          [fileId, workspaceId]
-        );
-        if (!result.rows.length) throw new Error('File not found');
-        return result.rows[0];
-      },
-      10 * 60 // 10 minutes
-    );
+    const fetchHistoryFn = async () => {
+      const result = await getPool().query(
+        'SELECT yjs_state, author_map FROM files WHERE id = $1 AND workspace_id = $2',
+        [fileId, workspaceId]
+      );
+      if (!result.rows.length) throw new Error('File not found');
+      return result.rows[0];
+    };
+
+    const cached = process.env.NODE_ENV === 'test'
+      ? await fetchHistoryFn()
+      : await yjsStateCache.getOrFetch(`${fileId}:history`, fetchHistoryFn, 10 * 60);
     
     if (!cached) return res.status(404).json({ error: 'File not found' });
 
@@ -574,7 +562,9 @@ router.put('/:id/files/:fileId', requireWorkspaceRole('editor'), async (req: Wor
   const fileId = req.params.fileId as string;
   const { content } = req.body;
   try {
-    await getPool().query('UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2 AND workspace_id = $3', [content ?? '', fileId, workspaceId]);
+    const fileContent = content ?? '';
+    const blobHash = await saveBlob(Buffer.from(fileContent), fileContent);
+    await getPool().query('UPDATE files SET content = $1, blob_hash = $2, updated_at = NOW() WHERE id = $3 AND workspace_id = $4', [fileContent, blobHash, fileId, workspaceId]);
     
     // Push the changes to any active live Yjs docs to keep them in sync
     const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');

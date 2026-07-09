@@ -11,7 +11,7 @@
  * 5. Redis failure doesn't break file loading
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import jwt from 'jsonwebtoken';
 import WebSocket from 'ws';
 import * as Y from 'yjs';
@@ -21,6 +21,15 @@ import * as decoding from 'lib0/decoding';
 import { getPool } from '../../backend/src/db.js';
 import { server, docs } from '../../backend/src/server.js';
 import { clearYjsCache, getYjsStateFromCache } from '../../backend/src/utils/yjsCache.js';
+
+// Unmock db.js to use real DB instead of collaboration.test.ts mock
+vi.unmock('../../backend/src/db.js');
+
+// Hoist and mock Yjs to prevent duplicate imports across test file contexts
+const YjsInstance = vi.hoisted(() => {
+  return require('yjs');
+});
+vi.mock('yjs', () => YjsInstance);
 
 describe('Yjs Cache - E2E Integration', () => {
   let testUserId: string;
@@ -190,9 +199,9 @@ describe('Yjs Cache - E2E Integration', () => {
     // Verify cache exists
     const cached = await getYjsStateFromCache(testFileId);
     expect(cached).not.toBeNull();
-    if (cached?.yjsState) {
+    if (cached && cached.yjsState) {
       const cachedDoc = new Y.Doc();
-      Y.applyUpdate(cachedDoc, cached.yjsState);
+      Y.applyUpdate(cachedDoc, cached.yjsState as Uint8Array);
       expect(cachedDoc.getText('monaco').toString()).toContain('cached content');
       cachedDoc.destroy();
     }

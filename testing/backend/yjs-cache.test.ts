@@ -11,9 +11,12 @@
  * 5. Redis unavailability doesn't prevent file access
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import * as Y from 'yjs';
 import { getPool } from '../../backend/src/db.js';
+
+// Unmock db.js to use real DB instead of collaboration.test.ts mock
+vi.unmock('../../backend/src/db.js');
 import {
   getYjsStateFromCache,
   setYjsStateToCache,

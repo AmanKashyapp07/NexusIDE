@@ -38,7 +38,7 @@ import { handleTerminalConnection, syncFileToTerminal } from './terminal/termina
 import { handleLspConnection } from './terminal/lspHandler';
 import { cleanupAllWorkspaceContainers, releaseWorkspaceContainer } from './sandbox/workspaceContainer';
 import { getDocsMap } from './docsRegistry.js';
-
+import { saveBlob } from './utils/gitObjects.js';
 const app = express();
 app.use(cors());
 // Compress all HTTP responses (gzip/deflate)
@@ -205,9 +205,10 @@ class WSSharedDoc extends Y.Doc {
           Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
         );
         log('💾 SAVE', `Debounced save doc=${this.name} (${content.length} chars, ${this.authorMap.size} authors)`);
+        const blobHash = await saveBlob(state, content);
         await getPool().query(
-          'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
-          [state, content, JSON.stringify(authorMapJson), this.fileId]
+          'UPDATE files SET blob_hash = $1, yjs_state = $2, content = $3, author_map = $4 WHERE id = $5',
+          [blobHash, state, content, JSON.stringify(authorMapJson), this.fileId]
         );
         
         // Invalidate Redis cache after saving (both HTTP and Yjs caches)
@@ -221,8 +222,8 @@ class WSSharedDoc extends Y.Doc {
             // HTTP endpoint caches
             redisCache.fileContentCache.delete(`${this.fileId}`),
             redisCache.yjsStateCache.delete(`${this.fileId}:history`),
-            // Yjs WebSocket layer cache
-            yjsCache.deleteYjsStateFromCache(this.fileId)
+            // Update Yjs WebSocket layer cache to keep it warm
+            yjsCache.setYjsStateToCache(this.fileId, state, this.authorMap)
           ]);
         } catch (err: any) {
           log('💾 SAVE', `⚠️  Cache invalidation failed: ${err.message}`);
@@ -247,9 +248,10 @@ class WSSharedDoc extends Y.Doc {
         Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
       );
       log('🔒 CLOSE', `Final save doc=${this.name} (${content.length} chars)`);
+      const blobHash = await saveBlob(state, content);
       await getPool().query(
-        'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
-        [state, content, JSON.stringify(authorMapJson), this.fileId]
+        'UPDATE files SET blob_hash = $1, yjs_state = $2, content = $3, author_map = $4 WHERE id = $5',
+        [blobHash, state, content, JSON.stringify(authorMapJson), this.fileId]
       );
       
       // Invalidate Redis cache after final save (both HTTP and Yjs caches)
@@ -263,8 +265,8 @@ class WSSharedDoc extends Y.Doc {
           // HTTP endpoint caches
           redisCache.fileContentCache.delete(`${this.fileId}`),
           redisCache.yjsStateCache.delete(`${this.fileId}:history`),
-          // Yjs WebSocket layer cache
-          yjsCache.deleteYjsStateFromCache(this.fileId)
+          // Update Yjs WebSocket layer cache to keep it warm
+          yjsCache.setYjsStateToCache(this.fileId, state, this.authorMap)
         ]);
       } catch (err: any) {
         log('🔒 CLOSE', `⚠️  Cache invalidation failed: ${err.message}`);
@@ -349,11 +351,10 @@ async function getOrCreateDoc(docName: string): Promise<WSSharedDoc> {
             }
           }
           
-          // Populate cache for next time (async, don't wait)
           if (res.rows[0].yjs_state) {
             import('./utils/yjsCache.js')
               .then(({ setYjsStateToCache }) => setYjsStateToCache(doc.fileId, res.rows[0].yjs_state, doc.authorMap))
-              .catch(() => {});
+              .catch((err) => console.error('[YjsCache import error]', err));
           }
           
           log('📄 BIND', `Database loaded for doc=${docName} (cache MISS)`);

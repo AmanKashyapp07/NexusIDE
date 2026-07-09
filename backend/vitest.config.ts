@@ -11,6 +11,11 @@ export default defineConfig({
     include: ['../testing/backend/**/*.test.ts'],
     exclude: ['**/node_modules/**', 'node_modules/**', '../testing/backend/node_modules/**'],
     reporters: ['verbose'],
+    server: {
+      deps: {
+        inline: ['yjs', 'y-protocols', 'y-websocket']
+      }
+    }
   },
   resolve: {
     alias: {
@@ -22,4 +27,7 @@ export default defineConfig({
       'supertest': path.resolve(__dirname, 'node_modules/supertest'),
     },
   },
+  ssr: {
+    noExternal: ['yjs', 'y-protocols', 'y-websocket']
+  }
 });

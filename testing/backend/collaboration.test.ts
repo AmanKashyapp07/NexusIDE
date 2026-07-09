@@ -17,6 +17,13 @@ import * as Y from 'yjs';
 import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
 import { io as ioClient } from 'socket.io-client';
+import { server, docs } from '../../backend/src/server.js';
+
+// Hoist and mock Yjs to prevent duplicate imports during vi.resetModules()
+const YjsInstance = vi.hoisted(() => {
+  return require('yjs');
+});
+vi.mock('yjs', () => YjsInstance);
 
 // ─── MOCK SETUP ──────────────────────────────────────────────────────────────
 // Must happen before any import that calls getPool(), because ESM hoisting
@@ -79,6 +86,13 @@ vi.mock('../../backend/src/terminal/terminalHandler', () => ({
 }));
 vi.mock('../../backend/src/terminal/lspHandler', () => ({
   handleLspConnection: vi.fn(),
+}));
+
+vi.mock('../../backend/src/utils/yjsCache', () => ({
+  getYjsStateFromCache: vi.fn().mockResolvedValue(null),
+  setYjsStateToCache: vi.fn().mockResolvedValue(true),
+  deleteYjsStateFromCache: vi.fn().mockResolvedValue(true),
+  clearYjsCache: vi.fn().mockResolvedValue(true),
 }));
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -687,7 +701,7 @@ describe('POST /api/auth/test-login', () => {
 
   it('returns existing user JWT on re-login', async () => {
     mockQuery.mockImplementation((sql: string) => {
-      if (sql.includes('SELECT * FROM users'))
+      if (sql.includes('FROM users'))
         return Promise.resolve({ rows: [{ id: OWNER_ID, username: 'existinguser' }] });
       return Promise.resolve({ rows: [] });
     });
@@ -920,60 +934,87 @@ describe('File Tree & Deletion Rigor', () => {
 import { WebsocketProvider } from 'y-websocket';
 
 describe('Multi-User Collaboration Engine (E2E Integration)', () => {
-  let server: any;
   let port: number;
+  let activeProviders: WebsocketProvider[] = [];
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../../backend/src/server.js');
-    server = mod.server;
+    docs.clear();
+    activeProviders = [];
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
   });
 
   afterEach(async () => {
+    for (const provider of activeProviders) {
+      provider.disconnect();
+    }
     await new Promise<void>(resolve => server.close(() => resolve()));
-    vi.resetModules();
+    docs.clear();
   });
 
   it('syncs text live between two Yjs WebSocket clients', async () => {
+    console.log('[DEBUG] Setting up mockQuery...');
     mockQuery.mockImplementation((sql: string) => {
+      console.log('[DEBUG] mockQuery called with SQL:', sql);
       if (sql.includes('SELECT owner_id, is_public FROM workspaces')) return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators')) return Promise.resolve({ rows: [{ role: 'editor' }] });
       if (sql.includes('SELECT content, yjs_state, author_map FROM files')) return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
     });
 
+    console.log('[DEBUG] Connecting wsProviderA...');
     const docA = new Y.Doc();
     const wsProviderA = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docA, { WebSocketPolyfill: WebSocket as any, params: { token: ownerToken } });
 
+    console.log('[DEBUG] Connecting wsProviderB...');
     const docB = new Y.Doc();
     const wsProviderB = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docB, { WebSocketPolyfill: WebSocket as any, params: { token: editorToken } });
 
+    console.log('[DEBUG] Awaiting wsProviderA connection...');
     await new Promise<void>(resolve => {
-      wsProviderA.on('status', (event: any) => { if (event.status === 'connected') resolve(); });
+      wsProviderA.on('status', (event: any) => { 
+        console.log('[DEBUG] wsProviderA status:', event.status);
+        if (event.status === 'connected') resolve(); 
+      });
     });
+    console.log('[DEBUG] wsProviderA connected.');
+
+    console.log('[DEBUG] Awaiting wsProviderB connection...');
     await new Promise<void>(resolve => {
-      wsProviderB.on('status', (event: any) => { if (event.status === 'connected') resolve(); });
+      wsProviderB.on('status', (event: any) => { 
+        console.log('[DEBUG] wsProviderB status:', event.status);
+        if (event.status === 'connected') resolve(); 
+      });
     });
+    console.log('[DEBUG] wsProviderB connected.');
 
     // Wait a tiny bit for the server to send the initial bindState sync to both
+    console.log('[DEBUG] Waiting 100ms for bindState sync...');
     await new Promise(r => setTimeout(r, 100));
 
+    console.log('[DEBUG] Inserting text on docA...');
     docA.getText('monaco').insert(0, 'Hello from A');
     
     // Wait for it to sync to B
-    await new Promise<void>(resolve => {
+    console.log('[DEBUG] Waiting for sync on docB...');
+    await new Promise<void>((resolve, reject) => {
+      const start = Date.now();
       const check = () => {
-        if (docB.getText('monaco').toString() === 'Hello from A') {
+        const textB = docB.getText('monaco').toString();
+        console.log('[DEBUG] docB text:', JSON.stringify(textB));
+        if (textB === 'Hello from A') {
           resolve();
+        } else if (Date.now() - start > 10000) {
+          reject(new Error('Sync timeout! docB text remains: ' + textB));
         } else {
-          setTimeout(check, 10);
+          setTimeout(check, 100);
         }
       };
       check();
     });
 
+    console.log('[DEBUG] Sync verified!');
     expect(docB.getText('monaco').toString()).toBe('Hello from A');
     
     wsProviderA.disconnect();
@@ -990,6 +1031,7 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
 
     const docV = new Y.Doc();
     const wsProviderV = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docV, { WebSocketPolyfill: WebSocket as any, params: { token: viewerToken } });
+    activeProviders.push(wsProviderV);
 
     await new Promise<void>(resolve => {
       wsProviderV.on('status', (event: any) => { if (event.status === 'connected') resolve(); });
@@ -1047,9 +1089,11 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
 
     const docA = new Y.Doc();
     const wsProviderA = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docA, { WebSocketPolyfill: WebSocket as any, params: { token: ownerToken } });
+    activeProviders.push(wsProviderA);
 
     const docB = new Y.Doc();
     const wsProviderB = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docB, { WebSocketPolyfill: WebSocket as any, params: { token: editorToken } });
+    activeProviders.push(wsProviderB);
 
     await Promise.all([
       new Promise<void>(resolve => wsProviderA.on('status', (event: any) => { if (event.status === 'connected') resolve(); })),
