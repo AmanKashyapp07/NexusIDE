@@ -161,6 +161,13 @@ Allows time-traveling history checkpoints without storing duplicate workspaces.
 * **Flattened DB Storage:** Rather than replicating the entire workspace DB rows, we use a recursive Common Table Expression (CTE) to flatten the active file tree structure into a path-to-content map inside the `snapshot_files` database table.
 * **Seamless State Restoring:** When an admin restores a snapshot, the backend modifies PostgreSQL files, runs Yjs transactions to push the restored content directly to active sessions (preserving WebSocket connections), and re-syncs the workspace container.
 * **Eviction Policies:** A PostgreSQL trigger automatically evicts the oldest snapshot once a workspace exceeds 10 snapshots, keeping database bloat bounded.
+* **Future Architecture: Git-Based Content-Addressable Snapshots (Theory):**
+  To scale snapshot storage for larger projects, we designed a Git-like object model for snapshots. Rather than storing flat files, this architecture uses:
+  - **Blobs:** Content-addressable storage where file versions are saved by their SHA-256 hashes (`git_blobs`).
+  - **Trees:** Directory-level JSON structures mapping paths to child blob/tree hashes (`git_trees`).
+  - **Commits:** Immutable log records linking a tree, metadata, and parent commit pointer (`git_commits`).
+  This Git-like approach achieves maximum deduplication (unmodified files across snapshots consume zero additional space) and enables efficient branch diffing.
+  *Note: While implemented and verified locally on the `v2` branch, this approach is kept in theory for future production integration to preserve stability on the currently deployed version.*
 </details>
 
 ---
