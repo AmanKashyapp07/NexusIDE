@@ -24,7 +24,7 @@ interface CodeEditorProps {
   filename?: string;
   language: string;
   currentUser: { username: string; id: string };
-  authorMap?: Record<string, { username: string; color: string }>; // Added for Blame
+  authorMap?: Record<string, { userId?: string; username: string; color: string }>; // Added for Blame
   isBlameOpen?: boolean; // External control for blame visibility
   onBlameToggle?: (open: boolean) => void; // Callback when blame is toggled
   onCodeChange?: (code: string) => void;
@@ -147,17 +147,43 @@ export default function CodeEditor({
     console.log('[CodeEditor] onBlameToggle called with:', newState);
   };
 
+  // Historical author map loaded from backend API when Blame is active
+  const [historicalAuthorMap, setHistoricalAuthorMap] = useState<Record<string, { userId?: string; username: string; color: string }>>({});
+
+  useEffect(() => {
+    if (!showBlame || !workspaceId || !fileId) return;
+
+    let isMounted = true;
+    const token = localStorage.getItem('token');
+    fetch(`/api/workspace/${workspaceId}/files/${fileId}/history`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (isMounted && data.authorMap) {
+          setHistoricalAuthorMap(data.authorMap);
+        }
+      })
+      .catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [showBlame, workspaceId, fileId]);
+
   // Build authorMap from awareness states (map Yjs clientId to user info)
   const liveAuthorMap = useMemo(() => {
-    const map: Record<string, { username: string; color: string }> = {};
+    const map: Record<string, { userId?: string; username: string; color: string }> = {};
     awarenessStates.forEach(([clientId, state]) => {
       if (state.user) {
-        map[String(clientId)] = { username: state.user.name, color: state.user.color };
+        map[String(clientId)] = { 
+          userId: state.user.id,
+          username: state.user.name, 
+          color: state.user.color 
+        };
       }
     });
-    // Merge with provided authorMap (from parent) for historical data
-    return { ...authorMap, ...map };
-  }, [awarenessStates, authorMap]);
+    // Merge with provided authorMap and historical backend authorMap for full user identity mapping
+    return { ...authorMap, ...historicalAuthorMap, ...map };
+  }, [awarenessStates, authorMap, historicalAuthorMap]);
 
   // ===========================================================================
   // [FEATURE] LSP Client — real-time diagnostics, hover, completions
@@ -490,11 +516,14 @@ export default function CodeEditor({
                         className="w-2 h-2 rounded-full mr-2 shrink-0 opacity-80" 
                         style={{ backgroundColor: author.color }} 
                       />
-                      <span className="truncate w-24 mr-2 font-medium text-zinc-300">
+                      <span 
+                        className="truncate w-24 mr-2 font-medium text-zinc-300"
+                        title={author.userId ? `User: ${author.username} (${author.userId})` : author.username}
+                      >
                         {author.username}
                       </span>
                       <span className="truncate flex-1 text-[10px] text-zinc-500 group-hover:text-zinc-400">
-                        Live edit
+                        {author.userId ? `@${author.username}` : 'Live edit'}
                       </span>
                     </>
                   ) : (

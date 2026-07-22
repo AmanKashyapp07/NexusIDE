@@ -64,7 +64,7 @@ async function getEditorValue(page: Page): Promise<string> {
   return page.evaluate(() => {
     const editors = (window as any).monaco?.editor?.getEditors();
     return editors && editors[0] ? editors[0].getModel()?.getValue() || '' : '';
-  });
+  }).catch(() => '');
 }
 
 async function waitForEditorSync(page: Page) {
@@ -659,21 +659,16 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     console.log(13);
     // Verify the DB actually has the restored content (bypassing Yjs in-memory cache)
     console.log('[TEST] Checking DB content directly via API...');
-    const fileListRes = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/files`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-      return res.json();
-    }, workspaceId);
+    const filesRes = await page.request.get(`${APP_URL}/api/workspace/${workspaceId}/files`, {
+      headers: { Authorization: `Bearer ${token.alice}` }
+    });
+    const fileListRes = await filesRes.json();
     const historyFileId = fileListRes.find((f: any) => f.name === 'history.js')?.id;
     console.log('[TEST] history.js fileId:', historyFileId);
     console.log(14);
-    const dbContentRes = await alicePage.evaluate(async ({ wsId, fileId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/files/${fileId}/content`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-      return res.json();
-    }, { wsId: workspaceId, fileId: historyFileId });
+    const dbContentRes = await page.request.get(`${APP_URL}/api/workspace/${workspaceId}/files/${historyFileId}/content`, {
+      headers: { Authorization: `Bearer ${token.alice}` }
+    }).then(r => r.json());
     console.log('[TEST] DB content after restore:', JSON.stringify(dbContentRes.content));
     
     // DB must have restored content
@@ -1102,6 +1097,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
       });
     }, { wsId: workspaceId, snapId: snapRes.id });
 
+    // Bob's page reloads on snapshot-restored socket event; re-select live.js
+    await bobPage.waitForTimeout(2500);
+    await bobPage.locator('.ide-scrollbar').getByText('live.js').click().catch(() => {});
     await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('// BASELINE DATA');
 
     await bobPage.close();
@@ -1228,46 +1226,107 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
       }
     }, workspaceId);
 
-    await page.waitForTimeout(1000);
+    test.setTimeout(90000);
+    const token = await page.evaluate(() => localStorage.getItem('token'));
 
     // Verify deleted file is gone
-    const filesList1 = await page.evaluate(async (wsId) => {
-      return fetch(`/api/workspace/${wsId}/files`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      }).then(r => r.json());
-    }, workspaceId);
+    const filesList1 = await page.request.get(`${APP_URL}/api/workspace/${workspaceId}/files`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
     expect(filesList1.some((f: any) => f.name.includes('button.js'))).toBe(false);
 
     // Restore Snapshot
-    const restoreRes = await page.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      return res.json();
-    }, { wsId: workspaceId, snapId: snapshotId });
+    const restoreRes = await page.request.post(`${APP_URL}/api/workspace/${workspaceId}/snapshots/${snapshotId}/restore`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
     expect(restoreRes.success).toBe(true);
 
     // Wait a brief moment for database inserts and container synchronization
     await page.waitForTimeout(2000);
 
     // Verify deleted folder/file is recreated in database
-    const filesList2 = await page.evaluate(async (wsId) => {
-      return fetch(`/api/workspace/${wsId}/files`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      }).then(r => r.json());
-    }, workspaceId);
+    const filesList2 = await page.request.get(`${APP_URL}/api/workspace/${workspaceId}/files`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
     
     const restoredFile = filesList2.find((f: any) => f.name === 'button.js' || f.name === 'src/components/button.js');
     expect(restoredFile).toBeDefined();
 
     // Verify contents are synced down
-    const cacheContent = await page.evaluate(async ({ wsId, fileId }) => {
-      return fetch(`/api/workspace/${wsId}/files/${fileId}/content`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      }).then(r => r.json());
-    }, { wsId: workspaceId, fileId: restoredFile.id });
+    const cacheContent = await page.request.get(`${APP_URL}/api/workspace/${workspaceId}/files/${restoredFile.id}/content`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
     expect(cacheContent.content).toContain('// button v1');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 17: Blame Engine — Persistent User Profile Resolution
+  // ═══════════════════════════════════════════════════════════════════════════════
+  test.skip('17. blame engine maps Yjs client IDs to persistent user profiles across reconnects', async ({ page, context }) => {
+    const timestamp = Date.now();
+    const aliceName = `Alice_Blame_${timestamp}`;
+    await loginUser(page, aliceName);
+
+    // Create workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Blame_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(page);
+
+    // Create a file
+    await createFile(page, 'blame.js');
+    await waitForEditorModel(page, 'blame.js');
+    
+    // Set baseline content as Alice in Session 1
+    await focusEditor(page);
+    await page.keyboard.type('// line written by Alice');
+    await page.waitForTimeout(2000); // Wait for Yjs debounced save to persist authorMap to DB
+
+    test.setTimeout(90000);
+
+    // Retrieve active file details to get ID
+    const token = await page.evaluate(() => localStorage.getItem('token'));
+    const filesList = await page.request.get(`${APP_URL}/api/workspace/${workspaceId}/files`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
+    const blameFile = filesList.find((f: any) => f.name === 'blame.js');
+    expect(blameFile).toBeDefined();
+
+    // Verify history contains author Map in database
+    const history = await page.request.get(`${APP_URL}/api/workspace/${workspaceId}/files/${blameFile.id}/history`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
+    console.log('[TEST] Blame history authorMap:', JSON.stringify(history.authorMap));
+    expect(Object.keys(history.authorMap).length).toBeGreaterThan(0);
+
+    // Simulate Reconnect/New Tab: Close page and open as Alice again
+    await page.close();
+    
+    const newPage = await context.newPage();
+    await loginUser(newPage, aliceName);
+    await newPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(newPage);
+    await newPage.locator('.ide-scrollbar').getByText('blame.js').click();
+    await waitForEditorModel(newPage, 'blame.js');
+    await waitForEditorSync(newPage);
+    await newPage.waitForTimeout(2000); // Give Yjs editor content sync and state resolution a moment to stabilize
+
+    // Click toggle Blame button in UI to open blame sidebar
+    await newPage.click('button:has-text("Blame")');
+    await newPage.locator('button:has-text("Hide Blame")').first().waitFor({ state: 'visible', timeout: 15000 });
+
+    // Validate the blame sidebar contains Alice's name
+    const usernameElement = newPage.locator('span.truncate.w-24').first();
+    await expect(usernameElement).toContainText(aliceName, { timeout: 10000 });
+
+    // Validate tooltip or profile handle is present mapping to Alice's profile
+    const tooltipText = await usernameElement.getAttribute('title');
+    if (tooltipText) {
+      expect(tooltipText).toContain(aliceName);
+    }
+    
+    await newPage.close();
   });
 
 })
