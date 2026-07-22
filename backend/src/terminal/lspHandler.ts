@@ -50,8 +50,10 @@ export async function handleLspConnection(ws: WebSocket, req: IncomingMessage): 
 
   try {
     const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-    const [_, __, wsId, lang] = url.pathname.split('/').filter(Boolean);
-    workspaceId = wsId || '';
+    const parts = url.pathname.split('/').filter(Boolean);
+    const lspIdx = parts.indexOf('lsp');
+    const workspaceId = lspIdx !== -1 ? parts[lspIdx + 1] || '' : '';
+    const lang = lspIdx !== -1 ? parts[lspIdx + 2] || '' : '';
     const token = url.searchParams.get('token');
 
     if (!workspaceId || !lang || !token) {
@@ -91,7 +93,9 @@ export async function handleLspConnection(ws: WebSocket, req: IncomingMessage): 
     }
 
     const cmd = lang === 'python' ? ['pyright-langserver', '--stdio'] 
-              : ['javascript', 'typescript'].includes(lang) ? ['typescript-language-server', '--stdio'] : null;
+              : ['javascript', 'typescript'].includes(lang) 
+              ? ['typescript-language-server', '--stdio'] 
+              : null;
     if (!cmd) {
       console.warn('[LSP Close]: Unsupported LSP language:', lang);
       return ws.close(4000, `Unsupported LSP: ${lang}`);

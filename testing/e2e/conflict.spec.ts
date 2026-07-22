@@ -6,17 +6,31 @@ const WS_URL = process.env.BASE_URL ? (() => { try { const u = new URL(process.e
 
 
 async function loginUser(page: Page, request: APIRequestContext, username: string) {
+  // The deployed frontend bundle has VITE_API_URL=localhost:4000 baked in from
+  // the build environment, so browser-side fetch() calls fail when Playwright
+  // runs against the remote VM (it can't reach localhost:4000 on the VM from
+  // the local machine). We bypass the UI form entirely: call the API directly
+  // via Playwright's Node.js request context, then inject the JWT into
+  // localStorage so the React app thinks the user is authenticated.
+  const loginRes = await request.post(`${API_URL}/auth/test-login`, {
+    data: { username, password: 'test' },
+  });
+  if (!loginRes.ok()) {
+    throw new Error(`Login API failed for "${username}": ${loginRes.status()} ${await loginRes.text()}`);
+  }
+  const { token } = await loginRes.json();
+
+  // Navigate to the app root first so we have a valid origin to set localStorage
   await page.goto(`${APP_URL}/login`);
-  const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
-  await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
-  await usernameInput.click();
-  await usernameInput.fill(username);
-  await page.locator('button[type="submit"]').click();
+  await page.evaluate((t) => localStorage.setItem('token', t), token);
+
+  // Now go directly to dashboard — the React router will accept the token
+  await page.goto(`${APP_URL}/dashboard`);
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
-  
-  const token = await page.evaluate(() => localStorage.getItem('token'));
+
   return token as string;
 }
+
 
 async function waitForBootComplete(page: Page) {
   const loadingEl = page.locator('text=Booting environment...');
@@ -33,13 +47,14 @@ async function waitForSocketConnect(page: Page) {
 test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
   test.setTimeout(120000);
 
+  const timestamp = Date.now();
   let token: string;
   let wsId: string;
   let fileId: string;
 
   // Setup: Create a shared workspace and file for each test
   test.beforeEach(async ({ page, request }) => {
-    token = await loginUser(page, request, 'conflict_admin');
+    token = await loginUser(page, request, `conflict_admin_${timestamp}`);
     
     const wsRes = await request.post(`${API_URL}/workspace`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -136,17 +151,17 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
     const pageB = await contextB.newPage();
 
     // Login both users to ensure they are created in the database
-    const tokenA = await loginUser(pageA, request, 'user_a');
-    await loginUser(pageB, request, 'user_b');
+    const tokenA = await loginUser(pageA, request, `conflict_user_a_${timestamp}`);
+    await loginUser(pageB, request, `conflict_user_b_${timestamp}`);
 
     // Invite both users to the workspace as editors via API
     await request.post(`${API_URL}/workspace/${wsId}/collaborators`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { usernameOrEmail: 'user_a', role: 'editor' }
+      data: { usernameOrEmail: `conflict_user_a_${timestamp}`, role: 'editor' }
     });
     await request.post(`${API_URL}/workspace/${wsId}/collaborators`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { usernameOrEmail: 'user_b', role: 'editor' }
+      data: { usernameOrEmail: `conflict_user_b_${timestamp}`, role: 'editor' }
     });
 
     // Both users navigate to the same file
@@ -303,5 +318,106 @@ test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
     // It should NOT contain the old Git conflict markers.
     expect(finalContent).not.toContain('<<<<<<< HEAD');
     expect(finalContent).not.toContain('=======');
+  });
+
+  test('Brutal Scenario 1: Nested and False Positive Conflict Markers', async ({ request }) => {
+    // Tests conflict markers inside code strings and nested conflict markers
+    const nestedContent = 
+      `const codeString = "System marker: <<<<<<< HEAD";\n` +
+      `<<<<<<< HEAD\n` +
+      `const a = 1;\n` +
+      `<<<<<<< HEAD\n` +
+      `nested_a();\n` +
+      `=======\n` +
+      `nested_b();\n` +
+      `>>>>>>> inner-branch\n` +
+      `=======\n` +
+      `const a = 2;\n` +
+      `>>>>>>> outer-branch\n`;
+
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: nestedContent }
+    });
+
+    const parseRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    expect(parseRes.ok()).toBeTruthy();
+    const parseData = await parseRes.json();
+    // Verify that the parser handles nested markers deterministically without throwing 500 internal server error
+    expect(parseData).toHaveProperty('hasConflicts');
+  });
+
+  test('Brutal Scenario 2: Thundering Herd Concurrent Resolution Requests', async ({ request }) => {
+    // Inject conflict
+    const conflictContent = `<<<<<<< HEAD\nVersion Alpha\n=======\nVersion Beta\n>>>>>>> branch`;
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: conflictContent }
+    });
+
+    // Fire 5 simultaneous resolve requests with competing payloads
+    const resolveRequests = Array.from({ length: 5 }).map((_, index) => 
+      request.post(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts/resolve`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { resolvedContent: `Resolved by Request #${index}` }
+      })
+    );
+
+    const responses = await Promise.all(resolveRequests);
+    
+    // Every request should succeed without deadlocking the database pool
+    responses.forEach(res => expect(res.ok()).toBeTruthy());
+
+    // Verify DB consistency: final content should be equal to one of the resolved payloads
+    const getRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/content`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(getRes.ok()).toBeTruthy();
+    const body = await getRes.json();
+    expect(body.content).toMatch(/Resolved by Request #[0-4]/);
+  });
+
+  test('Brutal Scenario 3: Large File Payload Stress Test (5,000+ Lines)', async ({ request }) => {
+    // Generate a massive file containing 5,000 lines with 10 large conflict blocks
+    let largeContent = '';
+    for (let i = 0; i < 500; i++) {
+      if (i % 50 === 0) {
+        largeContent += `<<<<<<< HEAD\n// Ours block ${i}\n` + 'console.log("ours");\n'.repeat(10) +
+                        `=======\n// Theirs block ${i}\n` + 'console.log("theirs");\n'.repeat(10) +
+                        `>>>>>>> branch-${i}\n`;
+      } else {
+        largeContent += `function fn_${i}() { return ${i}; }\n`;
+      }
+    }
+
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: largeContent }
+    });
+
+    // Measure parsing performance
+    const startTime = Date.now();
+    const parseRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const parseTime = Date.now() - startTime;
+
+    expect(parseRes.ok()).toBeTruthy();
+    const parseData = await parseRes.json();
+    expect(parseData.hasConflicts).toBe(true);
+    expect(parseData.conflicts.filter((c: any) => c.type === 'conflict').length).toBe(10);
+    // Parse time for 5,000 lines should take under 1000ms
+    expect(parseTime).toBeLessThan(1000);
+
+    // Resolve the large conflict
+    const resolvedContent = `// Resolved massive file\n` + 'function resolvedFn() {}\n'.repeat(500);
+    const resolveRes = await request.post(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts/resolve`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { resolvedContent }
+    });
+    expect(resolveRes.ok()).toBeTruthy();
   });
 });

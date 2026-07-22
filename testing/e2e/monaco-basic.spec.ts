@@ -1,14 +1,33 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 
 const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
+const API_URL = (() => {
+  const base = process.env.BASE_URL;
+  if (!base) return 'http://localhost:4000/api';
+  try {
+    const u = new URL(base);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = '4000';
+    u.pathname = '/api';
+    return u.toString().replace(/\/$/, '');
+  } catch { return 'http://localhost:4000/api'; }
+})();
+
+async function loginUser(page: Page, request: APIRequestContext, username: string) {
+  const res = await request.post(`${API_URL}/auth/test-login`, {
+    data: { username, password: 'test' },
+  });
+  if (!res.ok()) throw new Error(`Login failed for "${username}": ${res.status()} ${await res.text()}`);
+  const { token } = await res.json();
+  await page.goto(`${APP_URL}/login`);
+  await page.evaluate((t) => localStorage.setItem('token', t), token);
+  await page.goto(`${APP_URL}/dashboard`);
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+}
 
 test.describe('Monaco Editor Basic Functions', () => {
 
-  test('1. verify monaco global type and instance structure', async ({ page }) => {
-    await page.goto(`${APP_URL}/login`);
-    await page.fill('input[placeholder="Username (e.g. alice, bob)"]', 'testmonaco');
-    await page.click('button[type="submit"]');
-    await page.waitForURL(/\/dashboard/);
+  test('1. verify monaco global type and instance structure', async ({ page, request }) => {
+    await loginUser(page, request, 'testmonaco');
     await page.fill('input[placeholder="e.g. React-Sandbox"]', 'MonacoCheck');
     await page.click('button:has-text("Create Now")');
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
@@ -30,11 +49,8 @@ test.describe('Monaco Editor Basic Functions', () => {
     expect(models).toBeGreaterThan(0);
   });
 
-  test('2. verify monaco edit undo history', async ({ page }) => {
-    await page.goto(`${APP_URL}/login`);
-    await page.fill('input[placeholder="Username (e.g. alice, bob)"]', 'testundo');
-    await page.click('button[type="submit"]');
-    await page.waitForURL(/\/dashboard/);
+  test('2. verify monaco edit undo history', async ({ page, request }) => {
+    await loginUser(page, request, 'testundo');
     await page.fill('input[placeholder="e.g. React-Sandbox"]', 'MonacoUndo');
     await page.click('button:has-text("Create Now")');
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
@@ -68,11 +84,8 @@ test.describe('Monaco Editor Basic Functions', () => {
     expect(valAfter).toBe('Hello');
   });
 
-  test('3. verify monaco model URI paths', async ({ page }) => {
-    await page.goto(`${APP_URL}/login`);
-    await page.fill('input[placeholder="Username (e.g. alice, bob)"]', 'testuri');
-    await page.click('button[type="submit"]');
-    await page.waitForURL(/\/dashboard/);
+  test('3. verify monaco model URI paths', async ({ page, request }) => {
+    await loginUser(page, request, 'testuri');
     await page.fill('input[placeholder="e.g. React-Sandbox"]', 'UriTest');
     await page.click('button:has-text("Create Now")');
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
