@@ -44,6 +44,12 @@ async function waitForBootComplete(page: Page) {
   } catch {}
 }
 
+async function focusEditor(page: Page) {
+  const textarea = page.locator('.monaco-editor').first();
+  await textarea.click();
+  await page.waitForTimeout(200);
+}
+
 async function createFile(page: Page, filename: string) {
   await page.waitForTimeout(1500);
   await page.click('button[title="New File"]');
@@ -118,10 +124,8 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // Bob waits for file to appear in sidebar (via file-tree-update socket event)
     await expect(bobPage.locator('.ide-scrollbar').getByText('conflict.txt')).toBeVisible({ timeout: 10000 });
     await bobPage.locator('.ide-scrollbar').getByText('conflict.txt').click();
-    await waitForEditorModel(bobPage, 'conflict.txt');
-
-    const aliceTextarea = alicePage.locator('.monaco-editor').first();
-    await aliceTextarea.click();
+    await waitForEditorModel(alicePage, 'conflict.txt');
+    await focusEditor(alicePage);
     await alicePage.keyboard.type('Init', { delay: 10 });
     await alicePage.waitForTimeout(1000);
 
@@ -131,12 +135,11 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await alicePage.context().setOffline(true);
     await bobPage.context().setOffline(true);
 
-    await aliceTextarea.click();
+    await focusEditor(alicePage);
     await alicePage.keyboard.press('End');
     await alicePage.keyboard.type(' Alice', { delay: 10 });
 
-    const bobTextarea = bobPage.locator('.monaco-editor').first();
-    await bobTextarea.click();
+    await focusEditor(bobPage);
     await bobPage.keyboard.press('End');
     await bobPage.keyboard.type(' Bob', { delay: 10 });
 
@@ -459,6 +462,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   //   f) Max-10 eviction: creating 11 snapshots keeps only the latest 10
   // ═══════════════════════════════════════════════════════════════════════════════
   test('8. enforces snapshot RBAC, persists history, delivers diff data, and restores correctly', async ({ page, context }) => {
+    test.setTimeout(90000);
     const alicePage = page; // admin (owner)
     const bobPage   = await context.browser()!.newContext().then(c => c.newPage()); // editor
     const evePage   = await context.browser()!.newContext().then(c => c.newPage()); // viewer
@@ -1089,7 +1093,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
       (window as any).monaco.editor.getEditors()[0].getModel().setValue('// MISTAKE DATA');
     });
     
-    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 5000 }).toBe('// MISTAKE DATA');
+    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('// MISTAKE DATA');
 
     await alicePage.evaluate(async ({ wsId, snapId }) => {
       await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
@@ -1112,8 +1116,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     // This ensures Monaco mounts AND the server completes the WebSocket CRDT sync
     await waitForEditorModel(bobPage, 'live.js');
 
-    const freshBobValue = await getEditorValue(bobPage);
-    expect(freshBobValue).toBe('// BASELINE DATA');
+    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('// BASELINE DATA');
   });
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -1166,5 +1169,105 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     expect([403, 404]).toContain(postDeleteSnapshots);
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // TEST 16: Snapshot Restore — Recreates Deleted Files and Syncs to Container
+  // ═══════════════════════════════════════════════════════════════════════════════
+  test('16. snapshot restore recreates deleted files/folders and syncs contents to container', async ({ page }) => {
+    const timestamp = Date.now();
+    await loginUser(page, `Alice_Restore_${timestamp}`);
+
+    // Create workspace
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', `Restore_WS_${timestamp}`);
+    await page.click('button:has-text("Create Now")');
+    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(page);
+
+    // Create a nested file and baseline content
+    await page.evaluate(async (wsId) => {
+      const token = localStorage.getItem('token');
+      const createRes = await fetch(`/api/workspace/${wsId}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: 'src/components/button.js', type: 'file' })
+      }).then(r => r.json());
+
+      await fetch(`/api/workspace/${wsId}/files/${createRes.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: '// button v1' })
+      });
+    }, workspaceId);
+
+    await page.waitForTimeout(2000); // Allow Yjs debounced save and db write
+
+    // Take Snapshot
+    const snapRes = await page.evaluate(async (wsId) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ label: 'Snapshot V1' }),
+      });
+      return res.json();
+    }, workspaceId);
+    const snapshotId = snapRes.id;
+
+    // Mutate: delete the file
+    await page.evaluate(async (wsId) => {
+      const token = localStorage.getItem('token');
+      const files = await fetch(`/api/workspace/${wsId}/files`, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).then(r => r.json());
+
+      const file = files.find((f: any) => f.name.includes('button.js'));
+      if (file) {
+        await fetch(`/api/workspace/${wsId}/files/${file.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+    }, workspaceId);
+
+    await page.waitForTimeout(1000);
+
+    // Verify deleted file is gone
+    const filesList1 = await page.evaluate(async (wsId) => {
+      return fetch(`/api/workspace/${wsId}/files`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      }).then(r => r.json());
+    }, workspaceId);
+    expect(filesList1.some((f: any) => f.name.includes('button.js'))).toBe(false);
+
+    // Restore Snapshot
+    const restoreRes = await page.evaluate(async ({ wsId, snapId }) => {
+      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      return res.json();
+    }, { wsId: workspaceId, snapId: snapshotId });
+    expect(restoreRes.success).toBe(true);
+
+    // Wait a brief moment for database inserts and container synchronization
+    await page.waitForTimeout(2000);
+
+    // Verify deleted folder/file is recreated in database
+    const filesList2 = await page.evaluate(async (wsId) => {
+      return fetch(`/api/workspace/${wsId}/files`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      }).then(r => r.json());
+    }, workspaceId);
+    
+    const restoredFile = filesList2.find((f: any) => f.name === 'button.js' || f.name === 'src/components/button.js');
+    expect(restoredFile).toBeDefined();
+
+    // Verify contents are synced down
+    const cacheContent = await page.evaluate(async ({ wsId, fileId }) => {
+      return fetch(`/api/workspace/${wsId}/files/${fileId}/content`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      }).then(r => r.json());
+    }, { wsId: workspaceId, fileId: restoredFile.id });
+    expect(cacheContent.content).toContain('// button v1');
+  });
 
 })

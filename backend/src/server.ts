@@ -619,19 +619,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('join-voice-room', async ({ workspaceId }) => {
-    socket.join(workspaceId);
-    socket.data.workspaceId = workspaceId;
-    socket.to(workspaceId).emit('user-joined-voice', { socketId: socket.id, user: socket.data.user });
-    socket.emit('existing-voice-users', (await io.in(workspaceId).fetchSockets()).filter(s => s.id !== socket.id).map(s => ({ socketId: s.id, user: s.data.user })));
-  });
-
-  socket.on('webrtc-offer', ({ offer, to, user }) => socket.to(to).emit('webrtc-offer', { offer, from: socket.id, user }));
-  socket.on('webrtc-answer', ({ answer, to }) => socket.to(to).emit('webrtc-answer', { answer, from: socket.id }));
-  socket.on('webrtc-ice-candidate', ({ candidate, to }) => socket.to(to).emit('webrtc-ice-candidate', { candidate, from: socket.id }));
-
   socket.on('disconnect', () => {
-    if (socket.data.workspaceId) io.to(socket.data.workspaceId).emit('user-left-voice', socket.id);
     const wsId = socket.data.presenceWorkspaceId;
     if (wsId) {
       workspacePresence.get(wsId)?.delete(socket.id);

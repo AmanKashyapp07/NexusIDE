@@ -5,10 +5,6 @@ import tar from 'tar-stream';
 import { existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 
-// this file manages the lifecycle of workspace containers, including creation, reference counting, and cleanup.
-// [UX/DX] Universal Execution Script
-// Injected into every container so users can just type `run index.js` or `run main.cpp` 
-// without needing to know specific compiler flags or runtime commands.
 const RUN_SCRIPT = `#!/bin/sh
 if [ -z "$1" ]; then echo "Usage: run <filename>"; exit 1; fi
 file="$1"; ext="\${file##*.}"
@@ -20,7 +16,7 @@ case "$ext" in
   java) javac "$file" -d /tmp && java -cp /tmp "\${file%.*}" ;;
   sh) sh "$file" ;;
   *) echo "Unsupported: .$ext"; exit 1 ;;
-esac`; // this is like alias for the user to run files without needing to know the specific command for each language.
+esac`;
 
 export interface WorkspaceContainerRef {
   container: Docker.Container;
@@ -30,19 +26,32 @@ export interface WorkspaceContainerRef {
   cleanupTimeout?: NodeJS.Timeout | null;
   lastActivityMs?: number;
 }
-// workspace containers are used for running user code in a secure, isolated environment. Each user in a workspace gets their own container, but if they open multiple tabs, they share the same container. This is important for resource efficiency and session persistence.
-// [STATE MANAGEMENT] Active Session Registry
-// Maps `${userId}-${workspaceId}` to a container reference. every user in a workspace gets their own container, but if they open multiple tabs, they share the same container. This is important for resource efficiency and session persistence. 
-// Enables container multiplexing: if a user opens the same workspace in 5 browser tabs, 
-// they share 1 underlying container instead of booting 5, saving massive RAM and CPU.
+
 const activeWorkspaceContainers = new Map<string, WorkspaceContainerRef>();
 
+/**
+ * Purpose: Spawns or retrieves an active container allocated for a user workspace session.
+ * Under the Hood:
+ *   1. Checks activeWorkspaceContainers for an existing user-workspace key reference.
+ *   2. If a reference exists, clears its cleanup timeout, increments refCount, and returns it.
+ *   3. If a reference does not exist, pops a warm container from the WarmPoolManager.
+ *   4. Creates the host-side workspace directory mapped to the bind mount.
+ *   5. Executes a recursive CTE database query to fetch the file structure in a single query.
+ *   6. Compiles an in-memory tar archive of the files and directories.
+ *   7. Pipes the tar stream into a container process running `tar -x -C /workspaces/<workspaceId>`.
+ *   8. Moves the runtime run script and triggers a background `npm install` execution.
+ *   9. Maps the container reference in activeWorkspaceContainers.
+ * Design Decisions: Reference counting allows multiple browser tabs to share a single container instance.
+ *                   Streaming tar archives directly in memory avoids temporary host-side disk write latency.
+ * Complexity: Time Complexity: File tree DB fetch O(N), file extraction O(N * F) where N is file count 
+ *             and F is file size; Space Complexity O(N) memory allocation.
+ * Security & Failure Cases: Catches environment setup errors to ensure the container is still registered 
+ *                           even if a post-creation script fails.
+ */
 export async function getOrCreateWorkspaceContainer(userId: string, workspaceId: string): Promise<Docker.Container> {
   const key = `${userId}-${workspaceId}`;
   const existingRef = activeWorkspaceContainers.get(key);
   
-  // [ARCHITECTURE] Reference Counting
-  // If the container is already running for this user's workspace, increment the refCount and return it instantly.
   if (existingRef) {
     if (existingRef.cleanupTimeout) {
       clearTimeout(existingRef.cleanupTimeout);
@@ -54,17 +63,9 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
 
   const { container, id, hostPort } = await warmPoolManager.popTerminalContainer();
 
-  // [PERSISTENT STORAGE] Create Host-Side Workspace Directory
-  // Each workspace gets a dedicated folder on the host machine. Because the entire
-  // workspace_data/ directory is bind-mounted into the container at /workspaces,
-  // this folder is instantly visible inside the container at /workspaces/<workspaceId>.
   const wsHostDir = path.join(WORKSPACE_DATA_DIR, workspaceId);
   if (!existsSync(wsHostDir)) mkdirSync(wsHostDir, { recursive: true });
 
-  // [DATA HYDRATION] Recursive Tree Traversal
-  // Pulls the entire virtual filesystem from Postgres in a single query using a Recursive CTE, 
-  // avoiding the N+1 query problem when loading deeply nested folder structures.
-  // Files are extracted into the host-side bind mount, so the container sees them immediately.
   const filesRes = await getPool().query(
     `WITH RECURSIVE file_path_cte AS (
       SELECT id, parent_id, name, type, content, name::text as path FROM files WHERE workspace_id = $1 AND parent_id IS NULL
@@ -75,19 +76,24 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
     [workspaceId]
   );
 
-  // [ARCHITECTURE] Streamed File Injection into Bind Mount
-  // We pipe a tar stream into a `tar -x` process inside the container, extracting
-  // directly into the workspace's bind-mounted directory for native-speed file I/O.
   const wsContainerPath = `/workspaces/${workspaceId}`;
   const pack = tar.pack();
   for (const file of filesRes.rows) {
-    if (file.type === 'file') pack.entry({ name: file.path }, file.content || '');
-    else pack.entry({ name: file.path, type: 'directory' });
+    if (file.type === 'file') {
+      pack.entry({ name: file.path }, file.content || '');
+    } else {
+      pack.entry({ name: file.path, type: 'directory' });
+    }
   }
   pack.entry({ name: '.run.sh' }, RUN_SCRIPT);
   pack.finalize();
 
-  const exec = await container.exec({ Cmd: ['tar', '-x', '-C', wsContainerPath], AttachStdin: true, AttachStdout: true, AttachStderr: true });
+  const exec = await container.exec({ 
+    Cmd: ['tar', '-x', '-C', wsContainerPath], 
+    AttachStdin: true, 
+    AttachStdout: true, 
+    AttachStderr: true 
+  });
   const stream = await exec.start({ hijack: true, stdin: true });
   
   await new Promise<void>((resolve, reject) => {
@@ -97,16 +103,19 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
     pack.on('error', reject);
   });
 
-  // [SYSTEM SETUP] Bootstrap Environment
-  // 1. Move the universal run script to bin so it's globally available.
-  // 2. [UX] Fire-and-forget `npm install` in the background (using Detach: true). 
-  //    The user gets control of the terminal instantly while heavy dependencies install invisibly.
   try {
-    const setupExec = await container.exec({ Cmd: ['sh', '-c', `cp ${wsContainerPath}/.run.sh /usr/local/bin/run && chmod +x /usr/local/bin/run && rm -f ${wsContainerPath}/.run.sh`] });
+    const setupExec = await container.exec({ 
+      Cmd: ['sh', '-c', `cp ${wsContainerPath}/.run.sh /usr/local/bin/run && chmod +x /usr/local/bin/run && rm -f ${wsContainerPath}/.run.sh`] 
+    });
     const setupStream = await setupExec.start({ hijack: true, stdin: false });
-    await new Promise<void>((res) => { setupStream.on('end', res); setupStream.on('error', res); });
+    await new Promise<void>((res) => { 
+      setupStream.on('end', res); 
+      setupStream.on('error', res); 
+    });
 
-    const installExec = await container.exec({ Cmd: ['sh', '-c', `cd ${wsContainerPath} && if [ -f package.json ] && [ ! -d node_modules ]; then npm install; fi`] });
+    const installExec = await container.exec({ 
+      Cmd: ['sh', '-c', `cd ${wsContainerPath} && if [ -f package.json ] && [ ! -d node_modules ]; then npm install; fi`] 
+    });
     installExec.start({ Detach: true, hijack: false }).catch(() => {});
   } catch (err) {
     console.error(`[WorkspaceContainer] Setup failed for ${key}:`, err);
@@ -116,14 +125,19 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
   return container;
 }
 
+/**
+ * Purpose: Decrements container references and manages dynamic cleanup timeouts.
+ * Under the Hood: 
+ *   - Decrements reference counts when a user closes a tab.
+ *   - Once the reference count hits 0, starts a 5-minute timeout.
+ *   - When the timer fires, removes the container instance from Docker and deletes the entry.
+ * Complexity: Time Complexity O(1), Space Complexity O(1).
+ */
 export async function releaseWorkspaceContainer(userId: string, workspaceId: string): Promise<void> {
   const key = `${userId}-${workspaceId}`;
   const ref = activeWorkspaceContainers.get(key);
   if (!ref) return;
 
-  // [LIFECYCLE] Reference Decrementing
-  // When a user closes a tab, we decrement. We ONLY destroy the container if refCount hits 0,
-  // ensuring we don't kill the session if they still have other browser tabs open.
   ref.refCount--;
 
   if (ref.refCount <= 0) {
@@ -136,12 +150,17 @@ export async function releaseWorkspaceContainer(userId: string, workspaceId: str
       if (currentRef && currentRef.refCount <= 0) {
         activeWorkspaceContainers.delete(key);
         await currentRef.container.remove({ force: true }).catch(() => {});
-        warmPoolManager.releaseTerminalContainer(); // Notify the pool manager to scale down if needed
+        warmPoolManager.releaseTerminalContainer();
       }
     }, gracePeriod);
   }
 }
 
+/**
+ * Purpose: Cleans up and deletes all running workspace containers during server shutdown.
+ * Under the Hood: Iterates through registry map values, clears timeouts, and removes instances.
+ * Complexity: Time Complexity O(C) where C is active container count, Space Complexity O(1).
+ */
 export async function cleanupAllWorkspaceContainers(): Promise<void> {
   for (const [key, ref] of activeWorkspaceContainers.entries()) {
     if (ref.cleanupTimeout) {
@@ -152,7 +171,6 @@ export async function cleanupAllWorkspaceContainers(): Promise<void> {
   activeWorkspaceContainers.clear();
 }
 
-// Accessor methods condensed to implicit returns
 export const getRunningContainer = (userId: string, workspaceId: string): Docker.Container | null => 
   activeWorkspaceContainers.get(`${userId}-${workspaceId}`)?.container || null;
 
@@ -167,9 +185,7 @@ export function touchWorkspaceActivity(userId: string, workspaceId: string): voi
   }
 }
 
-// [RESOURCE MANAGEMENT] Global AFK Sweeper
-// Scans active containers every 5 minutes. If a container hasn't received a heartbeat
-// in over 30 minutes, forcefully kill it to prevent orphaned containers from draining resources.
+// Global AFK Sweeper: Cleans up containers that have been inactive for more than 30 minutes.
 setInterval(async () => {
   const now = Date.now();
   for (const [key, ref] of activeWorkspaceContainers.entries()) {

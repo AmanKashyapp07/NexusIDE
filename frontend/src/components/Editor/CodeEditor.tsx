@@ -48,28 +48,6 @@ const getUserColor = (username: string) => {
   return COLORS[Math.abs(hash) % COLORS.length];
 };
 
-class AutocompleteCache {
-  private capacity: number;
-  private cache: Map<string, string>;
-  constructor(capacity = 50) {
-    this.capacity = capacity;
-    this.cache = new Map();
-  }
-  get(key: string): string | undefined {
-    if (!this.cache.has(key)) return undefined;
-    const value = this.cache.get(key)!;
-    this.cache.delete(key);
-    this.cache.set(key, value);
-    return value;
-  }
-  set(key: string, value: string): void {
-    if (this.cache.has(key)) this.cache.delete(key);
-    else if (this.cache.size >= this.capacity) this.cache.delete(this.cache.keys().next().value!);
-    this.cache.set(key, value);
-  }
-}
-const ghostTextCache = new AutocompleteCache(50);
-
 // ===========================================================================
 // [BLAME FEATURE] Chronological Author Extraction
 // ===========================================================================
@@ -401,104 +379,6 @@ export default function CodeEditor({
     onJumpComplete?.();
   }, [jumpToUserId, editor, onJumpComplete]);
 
-  // ===========================================================================
-  // [INTEGRATION] Autocomplete Provider - DISABLED
-  // ===========================================================================
-  // Autocomplete is turned off to reduce distractions
-  /*
-  useEffect(() => {
-    if (!editor || !monacoInstance || readOnly) return;
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    let activeAbortController: AbortController | null = null;
-    const emptyCompletions = { items: [] };
-
-    const provider = monacoInstance.languages.registerInlineCompletionsProvider('*', {
-      provideInlineCompletions: async (model, position, _context, token) => {
-        const startLine = Math.max(1, position.lineNumber - 500);
-        const endLine = Math.min(model.getLineCount(), position.lineNumber + 500);
-
-        const textUntilPosition = model.getValueInRange({
-          startLineNumber: startLine, startColumn: 1,
-          endLineNumber: position.lineNumber, endColumn: position.column,
-        });
-        const textAfterPosition = model.getValueInRange({
-          startLineNumber: position.lineNumber, startColumn: position.column,
-          endLineNumber: endLine, endColumn: model.getLineMaxColumn(endLine),
-        });
-
-        const cacheKey = `${language}:${textUntilPosition}|${textAfterPosition}`;
-        const cachedCompletion = ghostTextCache.get(cacheKey);
-
-        if (cachedCompletion) {
-          return {
-            items: [{
-              insertText: cachedCompletion,
-              range: new monacoInstance.Range(position.lineNumber, position.column, position.lineNumber, position.column)
-            }]
-          };
-        }
-
-        return new Promise((resolve) => {
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(async () => {
-            if (token.isCancellationRequested) return resolve(emptyCompletions);
-            if (activeAbortController) activeAbortController.abort();
-            activeAbortController = new AbortController();
-            token.onCancellationRequested(() => activeAbortController?.abort());
-
-            try {
-              const reqToken = localStorage.getItem('token');
-              const res = await fetch(apiUrl(`/workspace/${workspaceId}/autocomplete`), {
-                method: 'POST',
-                signal: activeAbortController.signal,
-                headers: {
-                  'Content-Type': 'application/json',
-                  ...(reqToken ? { Authorization: `Bearer ${reqToken}` } : {})
-                },
-                body: JSON.stringify({ prefix: textUntilPosition, suffix: textAfterPosition, language })
-              });
-
-              if (!res.ok) return resolve(emptyCompletions);
-              const data = await res.json() as { completion?: string };
-              if (token.isCancellationRequested || !data.completion) return resolve(emptyCompletions);
-
-              let finalCompletion = data.completion.replace(/^```[a-z]*\n/i, '').replace(/```$/i, '');
-              const maxCheckLength = Math.min(textUntilPosition.length, finalCompletion.length, 1000);
-              let overlapLength = 0;
-
-              for (let i = maxCheckLength; i > 0; i--) {
-                if (finalCompletion.startsWith(textUntilPosition.slice(-i))) {
-                  overlapLength = i;
-                  break;
-                }
-              }
-
-              if (overlapLength > 0) finalCompletion = finalCompletion.slice(overlapLength);
-              if (!finalCompletion.trim()) return resolve(emptyCompletions);
-
-              ghostTextCache.set(cacheKey, finalCompletion);
-              resolve({
-                items: [{
-                  insertText: finalCompletion,
-                  range: new monacoInstance.Range(position.lineNumber, position.column, position.lineNumber, position.column)
-                }]
-              });
-            } catch (error) {
-              resolve(emptyCompletions);
-            }
-          }, 350);
-        });
-      },
-      disposeInlineCompletions: () => {}
-    });
-
-    return () => {
-      provider.dispose();
-      if (debounceTimer) clearTimeout(debounceTimer);
-      if (activeAbortController) activeAbortController.abort();
-    };
-  }, [editor, monacoInstance, readOnly, workspaceId, language]);
-  */
 
   const handleEditorDidMount: OnMount = (editorInstance, monaco) => {
     if (typeof window !== 'undefined') (window as any).monaco = monaco;
