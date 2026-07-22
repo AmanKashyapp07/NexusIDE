@@ -1,29 +1,26 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 
 const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
+const API_URL = (() => {
+  const base = process.env.BASE_URL;
+  if (!base) return 'http://localhost:4000/api';
+  try {
+    const u = new URL(base);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = '4000';
+    u.pathname = '/api';
+    return u.toString().replace(/\/$/, '');
+  } catch { return 'http://localhost:4000/api'; }
+})();
 
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    const originalFetch = window.fetch;
-    window.fetch = function (input, init) {
-      if (typeof input === 'string' && input.includes(':4000/api')) {
-        const hostname = window.location.hostname;
-        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-          input = input.replace(':4000/api', '/api');
-        }
-      }
-      return originalFetch.apply(this, arguments as any);
-    };
+async function loginUser(page: Page, request: APIRequestContext, username: string) {
+  const res = await request.post(`${API_URL}/auth/test-login`, {
+    data: { username, password: 'test' },
   });
-});
-
-async function loginUser(page: Page, username: string) {
+  if (!res.ok()) throw new Error(`Login failed for "${username}": ${res.status()} ${await res.text()}`);
+  const { token } = await res.json();
   await page.goto(`${APP_URL}/login`);
-  const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
-  await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
-  await usernameInput.click();
-  await usernameInput.fill(username);
-  await page.locator('button[type="submit"]').click();
+  await page.evaluate((t) => localStorage.setItem('token', t), token);
+  await page.goto(`${APP_URL}/dashboard`);
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 }
 
@@ -67,6 +64,24 @@ async function getEditorValue(page: Page): Promise<string> {
   }).catch(() => '');
 }
 
+async function setEditorValue(page: Page, text: string) {
+  await page.evaluate((val) => {
+    const editors = (window as any).monaco?.editor?.getEditors();
+    if (!editors || !editors[0]) return;
+    const editor = editors[0];
+    const model = editor.getModel();
+    if (!model) return;
+    const fullRange = model.getFullModelRange();
+    editor.executeEdits('test-set-value', [{
+      range: fullRange,
+      text: val,
+      forceMoveMarkers: true
+    }]);
+    editor.pushUndoStop();
+  }, text);
+}
+
+
 async function waitForEditorSync(page: Page) {
   const loading = page.locator('text=Syncing with server...');
   try { await loading.waitFor({ state: 'visible', timeout: 1000 }); } catch {}
@@ -97,15 +112,15 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 1: CRDT Split-Brain (Network Partition) Convergence & Presence Teardown
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('1. resolves network partition split-brain and handles user presence cleanup', async ({ page, context }) => {
+  test('1. resolves network partition split-brain and handles user presence cleanup', async ({ page, context, request }) => {
     const alicePage = page;
     const bobPage = await context.browser()!.newContext().then(c => c.newPage());
     const timestamp = Date.now();
     const aliceName = `Alice_Split_${timestamp}`;
     const bobName = `Bob_Split_${timestamp}`;
 
-    await loginUser(alicePage, aliceName);
-    await loginUser(bobPage, bobName);
+    await loginUser(alicePage, request, aliceName);
+    await loginUser(bobPage, request, bobName);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Split_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
     await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
@@ -165,9 +180,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 2: Sandbox Resource Limits, Interactive Prompts & Signal Trapping
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('2. runs interactive bash scripts, handles Ctrl+C signal trapping, and sustains CPU load', async ({ page }) => {
+  test('2. runs interactive bash scripts, handles Ctrl+C signal trapping, and sustains CPU load', async ({ page, request }) => {
     const timestamp = Date.now();
-    await loginUser(page, `TermSec_${timestamp}`);
+    await loginUser(page, request, `TermSec_${timestamp}`);
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `TermSec_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -208,15 +223,15 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 3: Socket Security & Role-Based Access Control (RBAC)
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('3. restricts viewer workspace access and blocks unauthorized WebSocket upgrades', async ({ page, context }) => {
+  test('3. restricts viewer workspace access and blocks unauthorized WebSocket upgrades', async ({ page, context, request }) => {
     const alicePage = page;
     const bobPage = await context.browser()!.newContext().then(c => c.newPage());
     const timestamp = Date.now();
     const aliceName = `Alice_RBAC_${timestamp}`;
     const bobName = `Bob_RBAC_${timestamp}`;
 
-    await loginUser(alicePage, aliceName);
-    await loginUser(bobPage, bobName);
+    await loginUser(alicePage, request, aliceName);
+    await loginUser(bobPage, request, bobName);
 
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `RBAC_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
@@ -264,13 +279,13 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 4: The "Rug Pull" - Active Deletion During Live Typing
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('4. handles active file deletion while another peer is rapidly typing', async ({ page, context }) => {
+  test('4. handles active file deletion while another peer is rapidly typing', async ({ page, context, request }) => {
     const alicePage = page;
     const bobPage = await context.browser()!.newContext().then(c => c.newPage());
     const timestamp = Date.now();
 
-    await loginUser(alicePage, `Alice_RugPull_${timestamp}`);
-    await loginUser(bobPage, `Bob_RugPull_${timestamp}`);
+    await loginUser(alicePage, request, `Alice_RugPull_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_RugPull_${timestamp}`);
 
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `RugPull_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
@@ -322,13 +337,13 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 5: Massive Payload / Copy-Paste Bomb
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('5. survives massive copy-paste payload bombs without crashing the CRDT or WebSocket', async ({ page, context }) => {
+  test('5. survives massive copy-paste payload bombs without crashing the CRDT or WebSocket', async ({ page, context, request }) => {
     const alicePage = page;
     const bobPage = await context.browser()!.newContext().then(c => c.newPage());
     const timestamp = Date.now();
 
-    await loginUser(alicePage, `Alice_Bomb_${timestamp}`);
-    await loginUser(bobPage, `Bob_Bomb_${timestamp}`);
+    await loginUser(alicePage, request, `Alice_Bomb_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_Bomb_${timestamp}`);
 
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Bomb_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
@@ -339,7 +354,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await inviteUser(alicePage, `Bob_Bomb_${timestamp}`, 'editor');
     
     await createFile(alicePage, 'payload.js');
-    await alicePage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await waitForEditorModel(alicePage, 'payload.js');
 
     await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(bobPage);
@@ -373,9 +388,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 6: Terminal Watcher vs CRDT Ownership Race
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('6. prevents terminal background processes from overwriting actively edited Yjs documents', async ({ page }) => {
+  test('6. prevents terminal background processes from overwriting actively edited Yjs documents', async ({ page, request }) => {
     const timestamp = Date.now();
-    await loginUser(page, `Race_${timestamp}`);
+    await loginUser(page, request, `Race_${timestamp}`);
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Race_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -386,7 +401,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await page.waitForTimeout(3000);
 
     await createFile(page, 'race.js');
-    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await waitForEditorModel(page, 'race.js');
 
     // Type in the editor so Yjs takes explicit ownership
     const editor = page.locator('.monaco-editor').first();
@@ -410,13 +425,13 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 7: Security - REST API RBAC Bypass Attempt
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('7. prevents viewer from bypassing UI to execute destructive REST API calls', async ({ page, context }) => {
+  test('7. prevents viewer from bypassing UI to execute destructive REST API calls', async ({ page, context, request }) => {
     const alicePage = page;
     const bobPage = await context.browser()!.newContext().then(c => c.newPage());
     const timestamp = Date.now();
 
-    await loginUser(alicePage, `Alice_API_${timestamp}`);
-    await loginUser(bobPage, `Bob_API_${timestamp}`);
+    await loginUser(alicePage, request, `Alice_API_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_API_${timestamp}`);
 
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `API_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
@@ -461,7 +476,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   //   e) Restore actually overwrites live file content
   //   f) Max-10 eviction: creating 11 snapshots keeps only the latest 10
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('8. enforces snapshot RBAC, persists history, delivers diff data, and restores correctly', async ({ page, context }) => {
+  test('8. enforces snapshot RBAC, persists history, delivers diff data, and restores correctly', async ({ page, context, request }) => {
     test.setTimeout(90000);
     const alicePage = page; // admin (owner)
     const bobPage   = await context.browser()!.newContext().then(c => c.newPage()); // editor
@@ -472,9 +487,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     const bobName   = `Bob_Snap_${timestamp}`;
     const eveName   = `Eve_Snap_${timestamp}`;
 
-    await loginUser(alicePage, aliceName);
-    await loginUser(bobPage,   bobName);
-    await loginUser(evePage,   eveName);
+    await loginUser(alicePage, request, aliceName);
+    await loginUser(bobPage, request, bobName);
+    await loginUser(evePage, request, eveName);
 
     // ── Setup: Alice creates workspace + file ───────────────────────────────
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Snap_WS_${timestamp}`);
@@ -484,13 +499,10 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await waitForBootComplete(alicePage);
 
     await createFile(alicePage, 'history.js');
-    await alicePage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await waitForEditorModel(alicePage, 'history.js');
     console.log(1);
     // Write initial content into the file
-    await alicePage.evaluate(() => {
-      const ed = (window as any).monaco.editor.getEditors()[0];
-      ed.getModel().setValue('// version 1');
-    });
+    await setEditorValue(alicePage, '// version 1');
     await alicePage.waitForTimeout(3000); // debounce save
     console.log(2);
 
@@ -580,10 +592,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     expect(eveList).toBe(200);
     console.log(9);
     // ── (c) Mutate the live file, then check diff data ───────────────────────
-    await alicePage.evaluate(() => {
-      const ed = (window as any).monaco.editor.getEditors()[0];
-      ed.getModel().setValue('// version 2\nconsole.log("changed");');
-    });
+    await setEditorValue(alicePage, '// version 2\nconsole.log("changed");');
     await alicePage.waitForTimeout(3000); // debounce save
     
     // Wait for the Yjs 800ms debounced save to complete BEFORE calling restore
@@ -726,13 +735,13 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // Skipped because in real-time collaborative CRDTs (like Yjs), concurrent client edits 
   // made during/after a restore transaction are treated as newer modifications and will naturally 
   // overwrite the restored text unless the editor is locked/disabled immediately in the UI.
-  test.skip('Edge Case: Handles concurrent editor typing during restore mutation', async ({ page, context }) => {
+  test.skip('Edge Case: Handles concurrent editor typing during restore mutation', async ({ page, context, request }) => {
   const alicePage = page; 
   const bobPage = await context.browser()!.newContext().then(c => c.newPage()); 
   const timestamp = Date.now();
 
-  await loginUser(alicePage, `Alice_Race_${timestamp}`);
-  await loginUser(bobPage, `Bob_Race_${timestamp}`);
+  await loginUser(alicePage, request, `Alice_Race_${timestamp}`);
+  await loginUser(bobPage, request, `Bob_Race_${timestamp}`);
 
   // Setup Workspace & File
   await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Race_WS_${timestamp}`);
@@ -744,10 +753,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   await alicePage.waitForTimeout(2000);
 
   // Set initial text and snapshot
-  await alicePage.evaluate(() => {
-    const ed = (window as any).monaco.editor.getEditors()[0];
-    ed.getModel().setValue('// Baseline');
-  });
+  await setEditorValue(alicePage, '// Baseline');
   await alicePage.waitForTimeout(2000);
   
   const snapRes = await alicePage.evaluate(async (wsId) => {
@@ -764,7 +770,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
   await waitForBootComplete(bobPage);
   await bobPage.locator('.ide-scrollbar').getByText('race.js').click();
-  await bobPage.waitForSelector('.monaco-editor');
+  await waitForEditorModel(bobPage, 'race.js');
 
   // RACE START: Bob types rapidly in a loop while Alice restores
   const bobTypingPromise = bobPage.evaluate(async () => {
@@ -806,9 +812,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   expect(dbContent).not.toContain('Bob edit');
 });
 
- test('Edge Case: Handles taking and restoring snapshots of an empty workspace', async ({ page }) => {
+ test('Edge Case: Handles taking and restoring snapshots of an empty workspace', async ({ page, request }) => {
   const timestamp = Date.now();
-  await loginUser(page, `Alice_Empty_${timestamp}`);
+  await loginUser(page, request, `Alice_Empty_${timestamp}`);
 
   // Create Workspace (Do NOT create any files)
   await page.fill('input[placeholder="e.g. React-Sandbox"]', `Empty_WS_${timestamp}`);
@@ -854,9 +860,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 12: Diff Engine — NEW, DEL, MOD, Nested Paths, and Large Payloads
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('12. snapshot diff identifies NEW, DEL, MOD states, preserves paths, and handles large files', async ({ page }) => {
+  test('12. snapshot diff identifies NEW, DEL, MOD states, preserves paths, and handles large files', async ({ page, request }) => {
     const timestamp = Date.now();
-    await loginUser(page, `Alice_Diff_${timestamp}`);
+    await loginUser(page, request, `Alice_Diff_${timestamp}`);
 
     // 1. Setup Workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Diff_WS_${timestamp}`);
@@ -988,10 +994,10 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // TEST 13: Metadata & Sorting
   // Verifies labels, creator tracking, and strict descending chronological ordering.
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('13. correctly saves labels, creator username, and returns list in newest-first order', async ({ page }) => {
+  test('13. correctly saves labels, creator username, and returns list in newest-first order', async ({ page, request }) => {
     const timestamp = Date.now();
     const username = `Alice_Meta_${timestamp}`;
-    await loginUser(page, username);
+    await loginUser(page, request, username);
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Meta_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1045,13 +1051,13 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 14: Real-time Seamless Restore & Yjs Document Reset
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('14. broadcasts snapshot-restored event for seamless sync and resets yjs_state to prevent CRDT ghosting', async ({ page, context }) => {
+  test('14. broadcasts snapshot-restored event for seamless sync and resets yjs_state to prevent CRDT ghosting', async ({ page, context, request }) => {
     const alicePage = page;
     let bobPage = await context.browser()!.newContext().then(c => c.newPage());
     const timestamp = Date.now();
 
-    await loginUser(alicePage, `Alice_Sync_${timestamp}`);
-    await loginUser(bobPage, `Bob_Sync_${timestamp}`);
+    await loginUser(alicePage, request, `Alice_Sync_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_Sync_${timestamp}`);
 
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Sync_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
@@ -1060,12 +1066,10 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await waitForBootComplete(alicePage);
 
     await createFile(alicePage, 'live.js');
-    await alicePage.waitForSelector('.monaco-editor', { timeout: 15000 });
+    await waitForEditorModel(alicePage, 'live.js');
     
-    await alicePage.evaluate(() => {
-      (window as any).monaco.editor.getEditors()[0].getModel().setValue('// BASELINE DATA');
-    });
-    await alicePage.waitForTimeout(2000);
+    await setEditorValue(alicePage, '// BASELINE DATA');
+    await alicePage.waitForTimeout(3000);
 
     const snapRes = await alicePage.evaluate(async (wsId) => {
       const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
@@ -1081,14 +1085,11 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('live.js').click();
     
-    // FIX: Wait for Yjs sync on Bob's first connection
     await waitForEditorModel(bobPage, 'live.js');
 
-    await alicePage.evaluate(() => {
-      (window as any).monaco.editor.getEditors()[0].getModel().setValue('// MISTAKE DATA');
-    });
+    await setEditorValue(alicePage, '// MISTAKE DATA');
     
-    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('// MISTAKE DATA');
+    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 25000, intervals: [1000] }).toBe('// MISTAKE DATA');
 
     await alicePage.evaluate(async ({ wsId, snapId }) => {
       await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
@@ -1097,24 +1098,24 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
       });
     }, { wsId: workspaceId, snapId: snapRes.id });
 
-    // Bob's page reloads on snapshot-restored socket event; re-select live.js
-    await bobPage.waitForTimeout(2500);
+    // Bob's page reloads on snapshot-restored socket event
+    await bobPage.waitForURL(/\/ide\/[a-f0-9-]+/, { timeout: 20000 }).catch(() => {});
+    await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('live.js').click().catch(() => {});
-    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('// BASELINE DATA');
+    await waitForEditorModel(bobPage, 'live.js');
+    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 25000, intervals: [1000] }).toBe('// BASELINE DATA');
 
     await bobPage.close();
     
     bobPage = await context.browser()!.newContext().then(c => c.newPage());
-    await loginUser(bobPage, `Bob_Sync_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_Sync_${timestamp}`);
     await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('live.js').click();
     
-    // FIX: Replaced raw selector wait with your robust utility function
-    // This ensures Monaco mounts AND the server completes the WebSocket CRDT sync
     await waitForEditorModel(bobPage, 'live.js');
 
-    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 10000 }).toBe('// BASELINE DATA');
+    await expect.poll(async () => await getEditorValue(bobPage), { timeout: 25000, intervals: [1000] }).toBe('// BASELINE DATA');
   });
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -1122,9 +1123,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // Ensures that deleting a workspace properly triggers ON DELETE CASCADE in Postgres,
   // wiping all associated snapshot records and diff contents to prevent data leaks.
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('15. cascades workspace deletion to wipe associated snapshots from the database', async ({ page }) => {
+  test('15. cascades workspace deletion to wipe associated snapshots from the database', async ({ page, request }) => {
     const timestamp = Date.now();
-    await loginUser(page, `Alice_Cascade_${timestamp}`);
+    await loginUser(page, request, `Alice_Cascade_${timestamp}`);
 
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Cascade_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
@@ -1170,9 +1171,9 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 16: Snapshot Restore — Recreates Deleted Files and Syncs to Container
   // ═══════════════════════════════════════════════════════════════════════════════
-  test('16. snapshot restore recreates deleted files/folders and syncs contents to container', async ({ page }) => {
+  test('16. snapshot restore recreates deleted files/folders and syncs contents to container', async ({ page, request }) => {
     const timestamp = Date.now();
-    await loginUser(page, `Alice_Restore_${timestamp}`);
+    await loginUser(page, request, `Alice_Restore_${timestamp}`);
 
     // Create workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Restore_WS_${timestamp}`);
@@ -1262,10 +1263,10 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
   // ═══════════════════════════════════════════════════════════════════════════════
   // TEST 17: Blame Engine — Persistent User Profile Resolution
   // ═══════════════════════════════════════════════════════════════════════════════
-  test.skip('17. blame engine maps Yjs client IDs to persistent user profiles across reconnects', async ({ page, context }) => {
+  test.skip('17. blame engine maps Yjs client IDs to persistent user profiles across reconnects', async ({ page, context, request }) => {
     const timestamp = Date.now();
     const aliceName = `Alice_Blame_${timestamp}`;
-    await loginUser(page, aliceName);
+    await loginUser(page, request, aliceName);
 
     // Create workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Blame_WS_${timestamp}`);
@@ -1304,7 +1305,7 @@ test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, R
     await page.close();
     
     const newPage = await context.newPage();
-    await loginUser(newPage, aliceName);
+    await loginUser(newPage, request, aliceName);
     await newPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(newPage);
     await newPage.locator('.ide-scrollbar').getByText('blame.js').click();

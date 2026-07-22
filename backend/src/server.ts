@@ -391,7 +391,7 @@ wss.on('connection', async (ws, req) => {
     const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     
     if (url.pathname.startsWith('/terminal/')) return await handleTerminalConnection(ws, req);
-    if (url.pathname.startsWith('/ws/lsp/')) return await handleLspConnection(ws, req);
+    if (url.pathname.startsWith('/ws/lsp/') || url.pathname.startsWith('/lsp/')) return await handleLspConnection(ws, req);
 
     const token = url.searchParams.get('token');
     if (!token) return ws.close(4401, 'Unauthorized');

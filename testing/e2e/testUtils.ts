@@ -1,8 +1,32 @@
 import { expect, type Page } from '@playwright/test';
 
 const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
+const API_URL = (() => {
+  const base = process.env.BASE_URL;
+  if (!base) return 'http://localhost:4000/api';
+  try {
+    const u = new URL(base);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = '4000';
+    u.pathname = '/api';
+    return u.toString().replace(/\/$/, '');
+  } catch { return 'http://localhost:4000/api'; }
+})();
 
 export async function login(page: Page, username: string, password?: string) {
+  try {
+    const res = await page.request.post(`${API_URL}/auth/test-login`, {
+      data: { username, password: password || 'test' }
+    });
+    if (res.ok()) {
+      const { token } = await res.json();
+      await page.goto(`${APP_URL}/login`);
+      await page.evaluate((t) => localStorage.setItem('token', t), token);
+      await page.goto(`${APP_URL}/dashboard`);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
+      return;
+    }
+  } catch {}
+
   await page.goto(`${APP_URL}/login`);
   const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
   await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -19,6 +43,7 @@ export async function login(page: Page, username: string, password?: string) {
   await page.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 }
+
 
 export async function createTestWorkspace(page: Page, title: string): Promise<string> {
   const input = page.locator('input[placeholder="e.g. React-Sandbox"]');
