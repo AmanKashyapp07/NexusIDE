@@ -10,7 +10,6 @@ import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/works
 import { WORKSPACE_DATA_DIR } from '../sandbox/pool';
 import * as path from 'path';
 import { rmSync, existsSync } from 'fs';
-import { Mistral } from '@mistralai/mistralai';
 import { getIO } from '../socket';
 
 const router = Router();
@@ -286,6 +285,35 @@ router.get('/:id/snapshots/:snapshotId/files', requireWorkspaceRole('viewer'), a
   }
 });
 
+async function ensureDirectoryExists(client: any, workspaceId: string, dirPath: string): Promise<string | null> {
+  if (!dirPath || dirPath === '') return null;
+  const parts = dirPath.split('/');
+  let parentId: string | null = null;
+  let currentPath = '';
+
+  for (const part of parts) {
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+    const query = parentId
+      ? 'SELECT id FROM files WHERE workspace_id = $1 AND name = $2 AND parent_id = $3 AND type = $4'
+      : 'SELECT id FROM files WHERE workspace_id = $1 AND name = $2 AND parent_id IS NULL AND type = $3';
+    const params = parentId
+      ? [workspaceId, part, parentId, 'directory']
+      : [workspaceId, part, 'directory'];
+
+    const res: any = await client.query(query, params);
+    if (res.rows.length > 0) {
+      parentId = res.rows[0].id;
+    } else {
+      const insertRes: any = await client.query(
+        'INSERT INTO files (workspace_id, name, type, parent_id) VALUES ($1, $2, $3, $4) RETURNING id',
+        [workspaceId, part, 'directory', parentId]
+      );
+      parentId = insertRes.rows[0].id;
+    }
+  }
+  return parentId;
+}
+
 // POST /:id/snapshots/:snapshotId/restore — restore workspace files to snapshot state (admin only)
 // Overwrites live file content with snapshot content. Files that existed at snapshot time
 // are updated; files added after the snapshot are left untouched (not deleted, to avoid
@@ -339,26 +367,47 @@ router.post('/:id/snapshots/:snapshotId/restore', requireWorkspaceRole('admin'),
 
     // Track data to inject into live Yjs documents
     const restoredFilesData: { fileId: string; content: string }[] = [];
+    const filesToSyncToTerminal: { fileId: string; content: string }[] = [];
 
-    // Restore each snapshot file that has a matching live file
+    // Restore each snapshot file (overwrite existing or recreate deleted)
     let restoredCount = 0;
     for (const sf of snapFiles.rows) {
       const liveId = livePathToId.get(sf.path);
+      const restoredContent = sf.content ?? '';
+      
+      let targetFileId = liveId;
       if (liveId) {
-        const restoredContent = sf.content ?? '';
-        
         // 1. Update the raw content in the database directly
         await client.query(
           'UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2',
           [restoredContent, liveId]
         );
+      } else {
+        // File was deleted, recreate it
+        const lastSlashIndex = sf.path.lastIndexOf('/');
+        const dirPath = lastSlashIndex !== -1 ? sf.path.substring(0, lastSlashIndex) : '';
+        const fileName = lastSlashIndex !== -1 ? sf.path.substring(lastSlashIndex + 1) : sf.path;
         
-        // 2. Queue the file data to update the live Yjs doc
-        restoredFilesData.push({ fileId: liveId, content: restoredContent });
+        const parentId = await ensureDirectoryExists(client, workspaceId, dirPath);
         
-        restoredCount++;
-        console.log(`[Snapshot] Restored file: ${sf.path} (${restoredContent.length} bytes)`);
+        const emptyDoc = new Y.Doc();
+        const initialYjsState = Buffer.from(Y.encodeStateAsUpdate(emptyDoc));
+        emptyDoc.destroy();
+
+        const insertRes = await client.query(
+          'INSERT INTO files (workspace_id, name, type, parent_id, language, content, yjs_state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+          [workspaceId, fileName, 'file', parentId, sf.language || 'javascript', restoredContent, initialYjsState]
+        );
+        targetFileId = insertRes.rows[0].id;
       }
+      
+      // 2. Queue the file data to update the live Yjs doc and container sync
+      if (targetFileId) {
+        restoredFilesData.push({ fileId: targetFileId, content: restoredContent });
+        filesToSyncToTerminal.push({ fileId: targetFileId, content: restoredContent });
+      }
+      restoredCount++;
+      console.log(`[Snapshot] Restored file: ${sf.path} (${restoredContent.length} bytes)`);
     }
     console.log(`[Snapshot] Total restored: ${restoredCount} files`);
 
@@ -366,6 +415,11 @@ router.post('/:id/snapshots/:snapshotId/restore', requireWorkspaceRole('admin'),
     await applyRestoredContentToLiveDocs(workspaceId, restoredFilesData);
 
     await client.query('COMMIT');
+
+    // 4. Fire-and-forget sync of restored files to the terminal container
+    for (const f of filesToSyncToTerminal) {
+      syncFileToTerminal(workspaceId, f.fileId, f.content).catch(() => {});
+    }
 
     // Broadcast restore event to all clients in this workspace so they reload their UI/Yjs docs
     getIO()?.to(`presence-${workspaceId}`).emit('snapshot-restored', { 
@@ -709,40 +763,6 @@ router.post('/:id/heartbeat', requireWorkspaceRole('viewer'), async (req: Worksp
   res.json({ success: true });
 });
 
-router.get('/:id/autocomplete/health', requireWorkspaceRole('viewer'), async (_req: WorkspaceAuthRequest, res: Response) => {
-  const model = process.env.MISTRAL_AUTOCOMPLETE_MODEL || 'codestral-latest';
-  const mistralApiKeyLoaded = !!process.env.MISTRAL_API_KEY;
-
-  if (!mistralApiKeyLoaded) {
-    return res.status(503).json({ ok: false, error: 'MISTRAL API key missing', model });
-  }
-
-  res.json({ ok: true, mistralApiKeyLoaded, model });
-});
-
-router.post('/:id/autocomplete', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
-  try {
-    const { prefix, suffix } = req.body;
-    const mistralApiKey = process.env.MISTRAL_API_KEY;
-    if (!mistralApiKey) return res.status(503).json({ error: 'MISTRAL API key missing' });
-
-    const mistralClient = new Mistral({ apiKey: mistralApiKey });
-    const completion = await mistralClient.fim.complete({
-      model: process.env.MISTRAL_AUTOCOMPLETE_MODEL || 'codestral-latest',
-      prompt: prefix,
-      suffix: suffix || '',
-      temperature: 0.2,
-      maxTokens: 100,
-    });
-
-    const completionContent = completion.choices[0]?.message?.content;
-    const completionText = Array.isArray(completionContent)
-      ? completionContent.map(chunk => ('text' in chunk ? chunk.text : '')).join('')
-      : (completionContent || '');
-
-    res.json({ completion: completionText.replace(/^```[\w]*\n/, '').replace(/\n```$/, '').trimEnd() });
-  } catch (err: any) { res.status(500).json({ error: 'Generation failed' }); }
-});
 
 // [ARCHITECTURE] Reverse Proxy Middleware
 // Maps traffic dynamically from /api/workspace/:id/preview to the ephemeral `hostPort` of 

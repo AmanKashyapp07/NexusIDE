@@ -187,6 +187,7 @@ test.describe('Collaborative Engine Part 1 (Tests 1-8)', () => {
     await expect(bobAvatar).toBeVisible({ timeout: 10000 });
 
     await focusEditor(bobPage);
+    await bobPage.waitForTimeout(1000);
     await bobPage.keyboard.type('// Bob is here');
     const remoteCursor = alicePage.locator('[class*="yRemoteSelectionHead-"]').first();
     await expect(remoteCursor).toBeVisible({ timeout: 10000 });
@@ -270,12 +271,14 @@ test.describe('Collaborative Engine Part 1 (Tests 1-8)', () => {
     await alicePage.keyboard.press('Enter');
 
     await expect(bobPage.locator('.ide-scrollbar').getByText('new-name.js')).toBeVisible({ timeout: 10000 });
+    await bobPage.waitForTimeout(1500);
 
     await alicePage.locator('.ide-scrollbar').getByText('new-name.js').click();
     await waitForEditorModel(alicePage, 'new-name.js');
     
     await bobPage.locator('.ide-scrollbar').getByText('new-name.js').click();
     await waitForEditorModel(bobPage, 'new-name.js');
+    await bobPage.waitForTimeout(1000);
 
     await focusEditor(bobPage);
     await bobPage.keyboard.type('// AFTER rename');

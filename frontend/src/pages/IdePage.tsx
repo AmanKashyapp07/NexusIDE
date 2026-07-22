@@ -4,7 +4,6 @@ import CodeEditor from '../components/Editor/CodeEditor';
 import TerminalPanel from '../components/Terminal/TerminalPanel';
 import Sidebar, { type AppFile } from '../components/Sidebar/Sidebar';
 import { useToast } from '../components/Toast/Toast';
-import VoiceChat from '../components/Voice/VoiceChat';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import { Users, LogOut, Loader2, TerminalSquare, RotateCcw, Download, ChevronRight, FileText, Code2, Globe, Zap, Folder, Activity, ChevronDown, GitBranch, History } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
@@ -450,7 +449,7 @@ function IdePage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <VoiceChat workspaceId={workspaceId} user={user} />
+          
           
           {/* Hide Blame Button - shows when blame is open */}
           {isBlameOpen && (

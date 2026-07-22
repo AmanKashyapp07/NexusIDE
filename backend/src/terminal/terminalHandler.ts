@@ -6,23 +6,30 @@ import Docker from 'dockerode';
 import { Writable } from 'stream';
 import * as Y from 'yjs';
 import { getIO } from '../socket';
-import { docs } from '../server'; // Imported directly from our custom sync engine
+import { docs } from '../server';
 import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer, getRunningContainer } from '../sandbox/workspaceContainer';
 
 type TerminalRole = 'viewer' | 'editor' | 'admin';
 
 const logDebug = (msg: string) => process.stdout.write(`[DEBUG] ${msg}\n`);
 
-// =============================================================================
-// [ARCHITECTURE] WRITE-COOLDOWN REGISTRY
-// =============================================================================
 const recentWrites = new Map<string, number>(); 
 const WRITE_COOLDOWN_MS = 3000; 
 
+/**
+ * Purpose: Marks a file path as written to log write cooldowns.
+ * Under the Hood: Stores the current timestamp in recentWrites keyed by workspace and file path.
+ * Complexity: Time Complexity O(1), Space Complexity O(1).
+ */
 function markFileAsWritten(workspaceId: string, relativePath: string): void {
   recentWrites.set(`${workspaceId}/${relativePath}`, Date.now());
 }
 
+/**
+ * Purpose: Checks if a file path is in the 3-second write cooldown window.
+ * Under the Hood: Compares the logged write time with the current time. Evicts expired entries.
+ * Complexity: Time Complexity O(1), Space Complexity O(1).
+ */
 function isInWriteCooldown(workspaceId: string, relativePath: string): boolean {
   const key = `${workspaceId}/${relativePath}`;
   const writeTime = recentWrites.get(key);
@@ -32,20 +39,34 @@ function isInWriteCooldown(workspaceId: string, relativePath: string): boolean {
   return false;
 }
 
+/**
+ * Purpose: Checks if a file has an active Yjs collaborative session.
+ * Under the Hood: Checks the global docs Map for doc keys.
+ * Complexity: Time Complexity O(1).
+ */
 function hasActiveYjsDoc(workspaceId: string, fileId: string): boolean {
   const docName = `${workspaceId}-${fileId}`;
-  return docs && docs.has(docName);
+  return !!(docs && docs.has(docName));
 }
 
-// =============================================================================
-// [CONFIGURATION] WATCHER EXCLUSIONS & LIMITS
-// =============================================================================
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024; 
 const EXCLUDED_DIRS = ['node_modules', '.git', '.next', 'dist', 'build', '.cache', '__pycache__', '.venv', 'venv'];
 
-// =============================================================================
-// [I/O MULTIPLEXING] TERMINAL WEBSOCKET HANDLER
-// =============================================================================
+/**
+ * Purpose: Upgrades WebSockets and binds client inputs/outputs to the container PTY bash shell.
+ * Under the Hood:
+ *   1. Decodes and verifies incoming JWT tokens.
+ *   2. Queries databases to fetch workspace owner properties and user collaboration roles.
+ *   3. Fetches user GitHub credentials to inject git author configurations inside the container.
+ *   4. Allocates or retrieves the workspace container.
+ *   5. Spawns an interactive bash process inside the container namespace.
+ *   6. Pipes the WebSocket inputs to stdin and the bash outputs to the WebSocket client.
+ *   7. Spawns the terminal file watcher polling loop.
+ * Design Decisions: Restricting the PATH environment variable to /viewer_bin locks out viewers 
+ *                   from invoking shell commands.
+ * Complexity: Time Complexity: O(1) connection upgrades, Space Complexity: O(1).
+ * Security & Failure Cases: Uses try-catch blocks to close connections with appropriate error codes on failures.
+ */
 export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
   let stream: any = null, container: Docker.Container | null = null;
   let userId = '', workspaceId = '';
@@ -58,8 +79,11 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     if (!workspaceId || !token) return ws.close(4401, 'Unauthorized');
 
     let decodedUser: any;
-    try { decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret'); }
-    catch { return ws.close(4401, 'Invalid token'); }
+    try { 
+      decodedUser = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret'); 
+    } catch { 
+      return ws.close(4401, 'Invalid token'); 
+    }
 
     userId = String(decodedUser?.id || '');
     if (!userId) return ws.close(4401, 'Invalid payload');
@@ -79,7 +103,11 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     let githubToken = '', githubUsername = '', githubEmail = '';
     if (userRole === 'admin') {
       const userRes = await getPool().query('SELECT github_token, username, email FROM users WHERE id = $1', [userId]);
-      if (userRes.rows.length) { githubToken = userRes.rows[0].github_token || ''; githubUsername = userRes.rows[0].username || ''; githubEmail = userRes.rows[0].email || ''; }
+      if (userRes.rows.length) { 
+        githubToken = userRes.rows[0].github_token || ''; 
+        githubUsername = userRes.rows[0].username || ''; 
+        githubEmail = userRes.rows[0].email || ''; 
+      }
     }
 
     container = await getOrCreateWorkspaceContainer(userId, workspaceId);
@@ -93,8 +121,8 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
     if (isViewer) envVars.push('PATH=/viewer_bin');
 
     if (userRole === 'admin') {
-      const isTestUser = githubEmail && githubEmail.endsWith('@test.local');
-      const isNoGitUser = githubUsername && githubUsername.startsWith('NoGit');
+      const isTestUser = githubEmail?.endsWith('@test.local');
+      const isNoGitUser = githubUsername?.startsWith('NoGit');
 
       if (githubToken || (isTestUser && !isNoGitUser)) {
         const name = githubUsername || 'test-admin';
@@ -109,7 +137,9 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
           await setupExec.start({ hijack: true, stdin: false });
           await new Promise(res => setTimeout(res, 200));
           envVars.push('PATH=/tmp:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
-        } catch (err: any) { console.error('[Terminal] Git setup failed:', err.message); }
+        } catch (err: any) { 
+          console.error('[Terminal] Git setup failed:', err.message); 
+        }
       } else {
         const blocker = `#!/bin/sh\necho "Error: Git commands are only available when signed in with a GitHub account."\nexit 1`;
         try {
@@ -117,7 +147,9 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
           await setupExec.start({ hijack: true, stdin: false });
           await new Promise(res => setTimeout(res, 200));
           envVars.push('PATH=/tmp:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
-        } catch (err: any) { console.error('[Terminal] Git blocker setup failed:', err.message); }
+        } catch (err: any) { 
+          console.error('[Terminal] Git blocker setup failed:', err.message); 
+        }
       }
     }
 
@@ -136,7 +168,9 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 
     ws.on('close', async () => {
       if (watcherTimeout.current) clearTimeout(watcherTimeout.current);
-      if (stream && !stream.destroyed) { try { stream.end(); stream.destroy(); } catch {} }
+      if (stream && !stream.destroyed) { 
+        try { stream.end(); stream.destroy(); } catch {} 
+      }
       if (container) await releaseWorkspaceContainer(userId, workspaceId).catch(() => {});
     });
     ws.on('error', () => (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) && ws.close());
@@ -148,19 +182,33 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
   }
 }
 
-// =============================================================================
-// [FILE SYNC] FORWARD
-// =============================================================================
+/**
+ * Purpose: Resolves the running container instance allocated for workspace synchronization.
+ * Under the Hood: Queries the workspaces table to fetch the owner's user ID and resolves the container reference.
+ * Complexity: Time Complexity O(1), Space Complexity O(1).
+ */
 async function getContainerForSync(workspaceId: string): Promise<Docker.Container | null> {
   try {
     const res = await getPool().query('SELECT owner_id FROM workspaces WHERE id = $1', [workspaceId]);
-    if (!res.rows.length) return null;
-    return getRunningContainer(res.rows[0].owner_id, workspaceId);
-  } catch { return null; }
+    return res.rows.length ? getRunningContainer(res.rows[0].owner_id, workspaceId) : null;
+  } catch { 
+    return null; 
+  }
 }
 
 const npmInstallTimeouts = new Map<string, NodeJS.Timeout>();
 
+/**
+ * Purpose: Synchronizes text changes from Monaco editors back to the container disk file system.
+ * Under the Hood:
+ *   1. Fetches the running container reference.
+ *   2. Runs a recursive CTE to get the file path.
+ *   3. Base64 encodes the file content.
+ *   4. Runs mkdir -p inside the container to verify path structures.
+ *   5. Executes base64 -d to write content to disk.
+ *   6. Logs write cooldowns and triggers package installation if package.json changes.
+ * Complexity: Time Complexity O(log P) where P is directory depth, Space Complexity O(S) content size.
+ */
 export async function syncFileToTerminal(workspaceId: string, fileId: string, content: string): Promise<void> {
   try {
     const container = await getContainerForSync(workspaceId);
@@ -180,6 +228,11 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     const wsPath = `/workspaces/${workspaceId}`;
     const fullPath = `${wsPath}/${filePath}`;
 
+    // Verify paths to prevent directory traversal attempts.
+    if (filePath.includes('..') || filePath.startsWith('/') || filePath.includes('\0')) {
+      throw new Error('Directory traversal block');
+    }
+
     const contentBase64 = Buffer.from(content, 'utf8').toString('base64');
     const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
 
@@ -197,7 +250,8 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
     markFileAsWritten(workspaceId, filePath);
 
     if (filePath === 'package.json') {
-      if (npmInstallTimeouts.has(workspaceId)) clearTimeout(npmInstallTimeouts.get(workspaceId)!);
+      const existingTimeout = npmInstallTimeouts.get(workspaceId);
+      if (existingTimeout) clearTimeout(existingTimeout);
       npmInstallTimeouts.set(workspaceId, setTimeout(async () => {
         try {
           (await container.exec({ Cmd: ['sh', '-c', `cd ${wsPath} && npm install`] }))
@@ -205,22 +259,36 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
         } catch {}
       }, 2000));
     }
-  } catch (err: any) { console.error('[TerminalSync] Sync failed:', err.message); }
+  } catch (err: any) { 
+    console.error('[TerminalSync] Sync failed:', err.message); 
+  }
 }
 
+/**
+ * Purpose: Synchronizes file deletions back to the container disk file system.
+ */
 export async function syncDeleteToTerminal(wsId: string, filePath: string): Promise<void> {
   const c = await getContainerForSync(wsId);
-  if (c) (await c.exec({ Cmd: ['rm', '-rf', `/workspaces/${wsId}/${filePath}`] })).start({ hijack: true, stdin: false }).catch(() => {});
+  if (c && !filePath.includes('..') && !filePath.includes('\0')) {
+    (await c.exec({ Cmd: ['rm', '-rf', `/workspaces/${wsId}/${filePath}`] })).start({ hijack: true, stdin: false }).catch(() => {});
+  }
 }
 
+/**
+ * Purpose: Synchronizes folder creations back to the container disk file system.
+ */
 export async function syncFolderToTerminal(wsId: string, folderPath: string): Promise<void> {
   const c = await getContainerForSync(wsId);
-  if (c) (await c.exec({ Cmd: ['mkdir', '-p', `/workspaces/${wsId}/${folderPath}`] })).start({ hijack: true, stdin: false }).catch(() => {});
+  if (c && !folderPath.includes('..') && !folderPath.includes('\0')) {
+    (await c.exec({ Cmd: ['mkdir', '-p', `/workspaces/${wsId}/${folderPath}`] })).start({ hijack: true, stdin: false }).catch(() => {});
+  }
 }
 
-// =============================================================================
-// [STATE MANAGEMENT] REVERSE SYNC
-// =============================================================================
+/**
+ * Purpose: Resolves workspace files and relative paths.
+ * Under the Hood: Uses a Recursive CTE to traverse file trees and maps results to lookup structures.
+ * Complexity: Time Complexity O(N) where N is file nodes count, Space Complexity O(N).
+ */
 async function getWorkspaceFilesMap(workspaceId: string) {
   const res = await getPool().query(
     `WITH RECURSIVE cte AS (
@@ -231,10 +299,23 @@ async function getWorkspaceFilesMap(workspaceId: string) {
     [workspaceId]
   );
   const pathToId = new Map<string, string>(), idToPath = new Map<string, string>(), fileDetails = new Map<string, any>();
-  res.rows.forEach(r => { pathToId.set(r.path, r.id); idToPath.set(r.id, r.path); fileDetails.set(r.path, { id: r.id, type: r.type, content: r.content }); });
+  res.rows.forEach(r => { 
+    pathToId.set(r.path, r.id); 
+    idToPath.set(r.id, r.path); 
+    fileDetails.set(r.path, { id: r.id, type: r.type, content: r.content }); 
+  });
   return { pathToId, idToPath, fileDetails };
 }
 
+/**
+ * Purpose: Creates database entries for new files or directories.
+ * Under the Hood:
+ *   1. Extracts names and maps parent path references recursively.
+ *   2. Resolves coding languages matching file extensions.
+ *   3. Runs insert queries.
+ *   4. Initializes Yjs update vector structures.
+ * Complexity: Time Complexity O(R) where R is root depth, Space Complexity O(1).
+ */
 async function dbCreateFile(workspaceId: string, relativePath: string, type: 'file' | 'directory', content = ''): Promise<string | null> {
   const parts = relativePath.split('/'), name = parts.pop() || '', parentPath = parts.join('/');
   let parentId: string | null = null;
@@ -270,7 +351,7 @@ async function dbCreateFile(workspaceId: string, relativePath: string, type: 'fi
 }
 
 /**
- * Handles filesystem renames seamlessly without breaking fileIds.
+ * Purpose: Updates file path references inside database tables.
  */
 async function dbRenameFile(workspaceId: string, fileId: string, newRelativePath: string) {
   const parts = newRelativePath.split('/');
@@ -291,6 +372,9 @@ async function dbRenameFile(workspaceId: string, fileId: string, newRelativePath
   await getPool().query('UPDATE files SET name = $1, parent_id = $2, language = $3 WHERE id = $4', [name, parentId, lang, fileId]);
 }
 
+/**
+ * Purpose: Writes external filesystem file modifications back to the database.
+ */
 async function dbUpdateFileExternal(workspaceId: string, fileId: string, content: string) {
   if (hasActiveYjsDoc(workspaceId, fileId)) return;
 
@@ -300,10 +384,18 @@ async function dbUpdateFileExternal(workspaceId: string, fileId: string, content
   ydoc.destroy();
 }
 
+/**
+ * Purpose: Deletes file records from databases.
+ */
 async function dbDeleteFile(fileId: string) {
   await getPool().query('DELETE FROM files WHERE id = $1', [fileId]);
 }
 
+/**
+ * Purpose: Reads file content from container workspaces.
+ * Under the Hood: Runs base64 inside the container and decodes the stream stdout.
+ * Complexity: Time Complexity O(1), Space Complexity O(S).
+ */
 async function readContainerFileContent(container: Docker.Container, workspaceId: string, relativePath: string): Promise<string> {
   try {
     const exec = await container.exec({
@@ -320,16 +412,27 @@ async function readContainerFileContent(container: Docker.Container, workspaceId
         try {
           const decoded = Buffer.from(stdout.replace(/\s/g, ''), 'base64').toString('utf8');
           resolve(decoded);
-        } catch { resolve(''); }
+        } catch { 
+          resolve(''); 
+        }
       });
       stream.on('error', () => resolve(''));
     });
-  } catch { return ''; }
+  } catch { 
+    return ''; 
+  }
 }
 
-// =============================================================================
-// [ARCHITECTURE] FS POLLING LOOP
-// =============================================================================
+/**
+ * Purpose: Watcher loop stat-polls the container and synchronizes mutations back to the database.
+ * Under the Hood:
+ *   - Runs stat-polling loops inside the container every 1.5 seconds.
+ *   - Uses Unix inodes to map and resolve file rename operations.
+ *   - Cross-references directory changes and applies creations, deletions, and modifications.
+ *   - Evaluates write cooldowns and active Yjs document session filters to prevent sync feedback loops.
+ * Complexity: Time Complexity: Stat parsing O(F), Rename scans O(A * D) where A is additions and D is deletions.
+ *             Space Complexity: O(F) file list map size.
+ */
 function startTerminalWatcher(ws: WebSocket, container: Docker.Container, workspaceId: string, watcherTimeout: { current: NodeJS.Timeout | null }) {
   logDebug(`[Watcher] Initializing watcher for workspace: ${workspaceId}`);
   let lastState = new Map<string, { path: string; mtime: number; size: number; isDir: boolean; inode: string }>();
@@ -342,9 +445,8 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
     }
     try {
       const wsPath = `/workspaces/${workspaceId}`;
-
       const pruneArgs = EXCLUDED_DIRS.flatMap(dir => ['-name', dir, '-prune', '-o']);
-      // Notice the added %i to retrieve the Unix Inode for tracking renames
+      
       const findCmd = [
         'find', wsPath, '-mindepth', '1', '-maxdepth', '5',
         ...pruneArgs,
@@ -365,7 +467,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
       const wsPathPrefix = `${wsPath}/`;
 
       rawOutput.replace(/\r/g, '').split('\n').forEach(line => {
-        // Parse the stat string: mtime size type inode path
         const match = line.match(/^(\d+)\s+(\d+)\s+(.*?)\s+(\d+)\s+(\/workspaces\/.*)$/);
         if (match && match[5]?.startsWith(wsPathPrefix)) {
           const relPath = match[5].substring(wsPathPrefix.length).trim();
@@ -400,7 +501,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
       let changed = false;
       const { pathToId, fileDetails } = await getWorkspaceFilesMap(workspaceId);
 
-      // 1. Separate all deletions and additions
       const deletedPaths = new Set<string>();
       for (const [path] of lastState.entries()) {
         if (!currentFiles.has(path)) deletedPaths.add(path);
@@ -411,7 +511,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
         if (!lastState.has(path)) addedEntries.set(path, current);
       }
 
-      // 2. Cross-reference by inode to detect Renames
       for (const [newPath, current] of addedEntries.entries()) {
         let renameOldPath: string | null = null;
         for (const oldPath of deletedPaths) {
@@ -429,7 +528,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
             await dbRenameFile(workspaceId, fileId, newPath);
             changed = true;
             
-            // Remove from processing queues to prevent delete/recreate
             deletedPaths.delete(renameOldPath);
             addedEntries.delete(newPath);
             lastState.delete(renameOldPath);
@@ -438,7 +536,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
         }
       }
 
-      // 3. Process absolute Deletions
       for (const path of deletedPaths) {
         const fileId = pathToId.get(path);
         logDebug(`[Watcher] File deletion detected for path: ${path}, ID: ${fileId}`);
@@ -452,7 +549,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
         lastState.delete(path);
       }
 
-      // 4. Process genuine Additions & Modifications
       const sortedEntries = [...currentFiles.entries()].sort(([aPath, aVal], [bPath, bVal]) => {
         if (aVal.isDir && !bVal.isDir) return -1;
         if (!aVal.isDir && bVal.isDir) return 1;
@@ -461,7 +557,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
 
       for (const [path, current] of sortedEntries) {
         if (addedEntries.has(path)) {
-          // New file/dir detected on disk
           logDebug(`[Watcher] Addition detected for path: ${path}`);
           if (fileDetails.has(path)) {
             lastState.set(path, current);
@@ -477,7 +572,6 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
             changed = true;
           }
         } else {
-          // Existing file/dir
           const last = lastState.get(path);
           if (last && !current.isDir && (current.mtime !== last.mtime || current.size !== last.size)) {
             const fileId = pathToId.get(path);

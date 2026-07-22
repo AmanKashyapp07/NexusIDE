@@ -307,6 +307,8 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
     try {
       const cacheMod = await import('../../backend/src/utils/yjsCache.js');
       await cacheMod.clearYjsCache();
+      const { fileContentCache } = await import('../../backend/src/utils/redisCache.js');
+      await fileContentCache.clear();
     } catch {}
   });
 
@@ -687,7 +689,7 @@ describe('POST /api/auth/test-login', () => {
 
   it('returns existing user JWT on re-login', async () => {
     mockQuery.mockImplementation((sql: string) => {
-      if (sql.includes('SELECT * FROM users'))
+      if (sql.includes('FROM users'))
         return Promise.resolve({ rows: [{ id: OWNER_ID, username: 'existinguser' }] });
       return Promise.resolve({ rows: [] });
     });
