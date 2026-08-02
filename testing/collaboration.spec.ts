@@ -1,111 +1,1289 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext, type Browser } from '@playwright/test';
+import {
+  APP_URL, API_URL, WS_URL,
+  login, loginUser, inviteUser, waitForBootComplete, focusEditor,
+  createTestWorkspace, deleteTestWorkspace, createTestFile, createFile, typeTextInMonaco,
+  getEditorValue, waitForEditorModel, waitForEditorSync, setMonacoValue, setEditorValue, waitForSocketConnect
+} from './testUtils';
 
-const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
-const API_URL = (() => {
-  const base = process.env.BASE_URL;
-  if (!base) return 'http://localhost:4000/api';
-  try {
-    const u = new URL(base);
-    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = '4000';
-    u.pathname = '/api';
-    return u.toString().replace(/\/$/, '');
-  } catch { return 'http://localhost:4000/api'; }
-})();
+// ─── FROM testing/e2e/collaboration_1.spec.ts ───
+// ─── Auth bypass: call API directly, inject token, navigate to dashboard ──────
+// The frontend bundle may have localhost:4000 baked in from local dev builds.
+// Browser-side fetch() will fail in that case. We use Playwright's Node.js
+// request context instead (always resolves correctly).
 
-async function loginUser(page: Page, request: APIRequestContext, username: string) {
-  const res = await request.post(`${API_URL}/auth/test-login`, {
-    data: { username, password: 'test' },
+
+
+
+
+
+
+
+
+test.describe('Collaborative Engine Part 1 (Tests 1-8)', () => {
+
+  test('1. synchronizes typing between users and enforces roles', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+
+    await loginUser(alicePage, request, `Alice_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_${timestamp}`);
+
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `E2E_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await createFile(alicePage, 'index.js');
+    await waitForEditorModel(alicePage, 'index.js');
+    await inviteUser(alicePage, `Bob_${timestamp}`, 'editor');
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('index.js').click();
+    await waitForEditorModel(bobPage, 'index.js');
+
+    await focusEditor(alicePage);
+    await alicePage.keyboard.type('// Alice writes first\n', { delay: 20 });
+
+    await expect(async () => {
+      const bobText = await getEditorValue(bobPage);
+      expect(bobText).toContain('Alice writes first');
+    }).toPass({ timeout: 25000, intervals: [1000] });
   });
-  if (!res.ok()) throw new Error(`Login failed for "${username}": ${res.status()} ${await res.text()}`);
-  const { token } = await res.json();
-  await page.goto(`${APP_URL}/login`);
-  await page.evaluate((t) => localStorage.setItem('token', t), token);
-  await page.goto(`${APP_URL}/dashboard`);
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
-}
 
-async function inviteUser(page: Page, username: string, role: 'editor' | 'viewer' | 'admin') {
-  await page.click('button:has-text("Share")');
-  await page.fill('input[placeholder="Username or Email"]', username);
-  await page.selectOption('select', role);
-  await page.click('button:has-text("Invite")');
-  await expect(page.locator(`.flex.items-center.justify-between:has-text("${username}")`)).toBeVisible({ timeout: 10000 });
-  await page.click('.fixed.inset-0', { position: { x: 10, y: 10 } });
-}
+  test('2. synchronizes file tree live and handles active file deletion gracefully', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
 
-async function waitForBootComplete(page: Page) {
-  const loadingEl = page.locator('text=Booting environment...');
-  try {
-    await loadingEl.waitFor({ state: 'visible', timeout: 3000 });
-    await loadingEl.waitFor({ state: 'detached', timeout: 35000 });
-  } catch {}
-}
+    await loginUser(alicePage, request, `Alice_Sync_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_Sync_${timestamp}`);
 
-async function focusEditor(page: Page) {
-  const textarea = page.locator('.monaco-editor').first();
-  await textarea.click();
-  await page.waitForTimeout(200);
-}
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Sync_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+    await inviteUser(alicePage, `Bob_Sync_${timestamp}`, 'editor');
 
-async function createFile(page: Page, filename: string) {
-  await page.waitForTimeout(1500);
-  await page.click('button[title="New File"]');
-  const sidebarInput = page.locator('.ide-scrollbar input');
-  await sidebarInput.waitFor({ state: 'visible', timeout: 15000 });
-  await sidebarInput.focus();
-  await sidebarInput.fill(filename);
-  await sidebarInput.press('Enter');
-}
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
 
-async function getEditorValue(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const editors = (window as any).monaco?.editor?.getEditors();
-    return editors && editors[0] ? editors[0].getModel()?.getValue() || '' : '';
-  }).catch(() => '');
-}
+    await createFile(alicePage, 'shared-data.json');
+    const bobFileSelector = bobPage.locator('.ide-scrollbar').getByText('shared-data.json');
+    await expect(bobFileSelector).toBeVisible({ timeout: 20000 });
+    await bobFileSelector.click();
+    await waitForEditorModel(bobPage, 'shared-data.json');
 
-async function setEditorValue(page: Page, text: string) {
-  await page.evaluate((val) => {
-    const editors = (window as any).monaco?.editor?.getEditors();
-    if (!editors || !editors[0]) return;
-    const editor = editors[0];
-    const model = editor.getModel();
-    if (!model) return;
-    const fullRange = model.getFullModelRange();
-    editor.executeEdits('test-set-value', [{
-      range: fullRange,
-      text: val,
-      forceMoveMarkers: true
-    }]);
-    editor.pushUndoStop();
-  }, text);
-}
+    const aliceFileRow = alicePage.locator('.ide-scrollbar .group', { hasText: 'shared-data.json' });
+    await aliceFileRow.hover();
+    await aliceFileRow.locator('button[title="Delete File"]').click();
+    const confirmButton = alicePage.locator('button:has-text("Confirm"), button:has-text("Delete")');
+    if (await confirmButton.isVisible()) await confirmButton.click();
 
+    await expect(bobFileSelector).toBeHidden({ timeout: 15000 });
+    await expect(bobPage.locator('text=Select a file from the explorer to begin.')).toBeVisible();
+  });
 
-async function waitForEditorSync(page: Page) {
-  const loading = page.locator('text=Syncing with server...');
-  try { await loading.waitFor({ state: 'visible', timeout: 1000 }); } catch {}
-  try { await loading.waitFor({ state: 'detached', timeout: 25000 }); } catch {}
-}
+  test('3. tracks user presence and cleans up cursors when users leave', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
 
-async function waitForEditorModel(page: Page, filename: string) {
-  await page.waitForFunction((expectedName) => {
-    const editors = (window as any).monaco?.editor?.getEditors();
-    if (!editors || editors.length === 0) return false;
-    const model = editors[0].getModel();
-    return model && model.uri.path.endsWith(expectedName);
-  }, filename, { timeout: 25000 });
-  await page.waitForFunction(() => {
-    const editors = (window as any).monaco?.editor?.getEditors();
-    return editors && editors.length > 0 && typeof editors[0].hasTextFocus === 'function';
-  }, { timeout: 10000 });
-  await waitForEditorSync(page);
-}
+    await loginUser(alicePage, request, `Alice_Pres_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_Pres_${timestamp}`);
 
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Pres_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+    await inviteUser(alicePage, `Bob_Pres_${timestamp}`, 'editor');
+
+    await createFile(alicePage, 'presence.js');
+    await waitForEditorModel(alicePage, 'presence.js');
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('presence.js').click();
+    await waitForEditorModel(bobPage, 'presence.js');
+
+    const bobAvatar = alicePage.locator(`header [title*="Bob_Pres_${timestamp}"]`);
+    await expect(bobAvatar).toBeVisible({ timeout: 20000 });
+
+    await focusEditor(bobPage);
+    await bobPage.waitForTimeout(1000);
+    await bobPage.keyboard.type('// Bob is here');
+    const remoteCursor = alicePage.locator('[class*="yRemoteSelectionHead-"]').first();
+    await expect(remoteCursor).toBeVisible({ timeout: 20000 });
+
+    await bobPage.close();
+    await expect(bobAvatar).toBeHidden({ timeout: 20000 });
+    await expect(remoteCursor).toBeHidden({ timeout: 20000 });
+  });
+
+  test('5. resolves simultaneous conflicting edits without data corruption', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+
+    await loginUser(alicePage, request, `Alice_Simul_${timestamp}`);
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Simul_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await createFile(alicePage, 'conflict.js');
+    await waitForEditorModel(alicePage, 'conflict.js');
+
+    await loginUser(bobPage, request, `Bob_Simul_${timestamp}`);
+    await inviteUser(alicePage, `Bob_Simul_${timestamp}`, 'editor');
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('conflict.js').click();
+    await waitForEditorModel(bobPage, 'conflict.js');
+
+    await focusEditor(alicePage);
+    await alicePage.keyboard.type('ALICE_WAS_HERE\n');
+    await focusEditor(bobPage);
+    await bobPage.keyboard.type('BOB_WAS_HERE\n');
+
+    await expect(async () => {
+      const aContent = await getEditorValue(alicePage);
+      const bContent = await getEditorValue(bobPage);
+      expect(aContent).toContain('ALICE_WAS_HERE');
+      expect(aContent).toContain('BOB_WAS_HERE');
+      expect(aContent).toEqual(bContent);
+    }).toPass({ timeout: 25000, intervals: [1000] });
+  });
+
+  test('6. syncs file renames live while other users are actively editing without breaking the socket', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+
+    await loginUser(alicePage, request, `Alice_Rename_${timestamp}`);
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Rename_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await createFile(alicePage, 'old-name.js');
+    await waitForEditorModel(alicePage, 'old-name.js');
+
+    await loginUser(bobPage, request, `Bob_Rename_${timestamp}`);
+    await inviteUser(alicePage, `Bob_Rename_${timestamp}`, 'editor');
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('old-name.js').click();
+    await waitForEditorModel(bobPage, 'old-name.js');
+
+    await focusEditor(bobPage);
+    await bobPage.keyboard.type('// before rename\n');
+
+    await expect(async () => {
+      expect(await getEditorValue(alicePage)).toContain('before rename');
+    }).toPass({ timeout: 20000, intervals: [1000] });
+
+    const aliceTerminalTextarea = alicePage.locator('.xterm-helper-textarea');
+    await expect(alicePage.locator('.xterm')).toContainText('sandbox:~#', { timeout: 30000 });
+    await aliceTerminalTextarea.focus();
+    await alicePage.keyboard.type('mv old-name.js new-name.js', { delay: 10 });
+    await alicePage.keyboard.press('Enter');
+
+    await expect(bobPage.locator('.ide-scrollbar').getByText('new-name.js')).toBeVisible({ timeout: 20000 });
+    await bobPage.waitForTimeout(2000);
+
+    await alicePage.locator('.ide-scrollbar').getByText('new-name.js').click();
+    await waitForEditorModel(alicePage, 'new-name.js');
+
+    await bobPage.locator('.ide-scrollbar').getByText('new-name.js').click();
+    await waitForEditorModel(bobPage, 'new-name.js');
+    await bobPage.waitForTimeout(1500);
+
+    await focusEditor(bobPage);
+    await bobPage.keyboard.type('// AFTER rename');
+
+    await expect(async () => {
+      expect(await getEditorValue(alicePage)).toContain('AFTER rename');
+    }).toPass({ timeout: 20000, intervals: [1000] });
+  });
+
+  test('7. late-joining user sees exact content once — no duplication or data loss', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+    const SENTINEL = `UNIQUE_SENTINEL_${timestamp}`;
+
+    await loginUser(alicePage, request, `Alice_Late_${timestamp}`);
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Late_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await createFile(alicePage, 'late.js');
+    await waitForEditorModel(alicePage, 'late.js');
+    await focusEditor(alicePage);
+    await alicePage.keyboard.type(`console.log("${SENTINEL}");`, { delay: 10 });
+
+    // Give Postgres time to persist the Yjs snapshot before Bob joins
+    await alicePage.waitForTimeout(5000);
+
+    await loginUser(bobPage, request, `Bob_Late_${timestamp}`);
+    await inviteUser(alicePage, `Bob_Late_${timestamp}`, 'editor');
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('late.js').click();
+    await waitForEditorModel(bobPage, 'late.js');
+
+    await expect(async () => {
+      const bobEditorText = await getEditorValue(bobPage);
+      expect(bobEditorText).toContain(SENTINEL);
+      expect(bobEditorText.split(SENTINEL).length - 1).toBe(1);
+    }).toPass({ timeout: 25000, intervals: [1000] });
+  });
+
+  test('8. reconnecting user sees correct content once without duplication', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+    const SENTINEL = `RECONNECT_${timestamp}`;
+
+    await loginUser(alicePage, request, `Alice_Reconn_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_Reconn_${timestamp}`);
+
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Reconn_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await inviteUser(alicePage, `Bob_Reconn_${timestamp}`, 'editor');
+    await createFile(alicePage, 'reconnect.js');
+    await waitForEditorModel(alicePage, 'reconnect.js');
+    await focusEditor(alicePage);
+    await alicePage.keyboard.type(`const x = "${SENTINEL}";`);
+
+    // Let snapshot persist
+    await alicePage.waitForTimeout(5000);
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('reconnect.js').click();
+    await waitForEditorModel(bobPage, 'reconnect.js');
+
+    await bobPage.goto(`${APP_URL}/dashboard`);
+    await bobPage.waitForURL(/\/dashboard/);
+    await bobPage.waitForTimeout(2000);
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('reconnect.js').click();
+    await waitForEditorModel(bobPage, 'reconnect.js');
+
+    await expect(async () => {
+      const reconnectText = await getEditorValue(bobPage);
+      expect(reconnectText).toContain(SENTINEL);
+      expect(reconnectText.split(SENTINEL).length - 1).toBe(1);
+    }).toPass({ timeout: 25000, intervals: [1000] });
+  });
+
+  test('9. clicking a member avatar jumps to their cursor position in the editor', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
+    const timestamp = Date.now();
+
+    await loginUser(alicePage, request, `Alice_Jump_${timestamp}`);
+    await loginUser(bobPage, request, `Bob_Jump_${timestamp}`);
+
+    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Jump_WS_${timestamp}`);
+    await alicePage.click('button:has-text("Create Now")');
+    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await waitForBootComplete(alicePage);
+
+    await createFile(alicePage, 'jump.js');
+    await waitForEditorModel(alicePage, 'jump.js');
+    await inviteUser(alicePage, `Bob_Jump_${timestamp}`, 'editor');
+
+    await focusEditor(alicePage);
+    await alicePage.keyboard.type('// line 1\n// line 2\n// line 3\n// line 4\n// line 5\n', { delay: 10 });
+
+    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await waitForBootComplete(bobPage);
+    await bobPage.locator('.ide-scrollbar').getByText('jump.js').click();
+    await waitForEditorModel(bobPage, 'jump.js');
+
+    await expect(async () => {
+      const text = await getEditorValue(bobPage);
+      expect(text).toContain('line 5');
+    }).toPass({ timeout: 25000, intervals: [1000] });
+
+    await bobPage.waitForTimeout(1000);
+
+    await bobPage.evaluate(() => {
+      const editors = (window as any).monaco?.editor?.getEditors();
+      if (editors && editors[0]) editors[0].setPosition({ lineNumber: 1, column: 1 });
+    });
+
+    const bobCursorBefore = await bobPage.evaluate(() => {
+      const editors = (window as any).monaco?.editor?.getEditors();
+      return editors && editors[0] ? editors[0].getPosition() : null;
+    });
+    expect(bobCursorBefore?.lineNumber).toBeLessThanOrEqual(1);
+
+    const aliceAvatarTitle = `Jump to Alice_Jump_${timestamp}'s cursor`;
+    const aliceAvatar = bobPage.locator(`[title="${aliceAvatarTitle}"]`);
+    await expect(aliceAvatar).toBeVisible({ timeout: 15000 });
+    await aliceAvatar.click();
+
+    await expect(async () => {
+      const bobCursorAfter = await bobPage.evaluate(() => {
+        const editors = (window as any).monaco?.editor?.getEditors();
+        return editors && editors[0] ? editors[0].getPosition() : null;
+      });
+      expect(bobCursorAfter?.lineNumber).toBeGreaterThanOrEqual(5);
+    }).toPass({ timeout: 10000, intervals: [500] });
+  });
+});
+
+// ─── FROM testing/e2e/collaboration_2.spec.ts ───
+test.describe('Collaborative Engine Part 2 (Tests 9-16)', () => {
+
+  test('9. rapid file switches do not leak content between files or duplicate on rejoin', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+    const FILE_A_CONTENT = `FILE_A_${timestamp}`;
+    const FILE_B_CONTENT = `FILE_B_${timestamp}`;
+    try {
+      await loginUser(alicePage, request, `Alice_Switch_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_Switch_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Switch_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+      await inviteUser(alicePage, `Bob_Switch_${timestamp}`, 'editor');
+
+      await createFile(alicePage, 'file-a.js');
+      await waitForEditorModel(alicePage, 'file-a.js');
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type(`console.log("${FILE_A_CONTENT}");`);
+      await alicePage.waitForTimeout(4000);
+
+      await createFile(alicePage, 'file-b.js');
+      await waitForEditorModel(alicePage, 'file-b.js');
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type(`console.log("${FILE_B_CONTENT}");`);
+      await alicePage.waitForTimeout(4000);
+
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+
+      for (let i = 0; i < 2; i++) {
+        await bobPage.locator('.ide-scrollbar').getByText('file-a.js').click();
+        await waitForEditorModel(bobPage, 'file-a.js');
+        await bobPage.locator('.ide-scrollbar').getByText('file-b.js').click();
+        await waitForEditorModel(bobPage, 'file-b.js');
+      }
+
+      await bobPage.locator('.ide-scrollbar').getByText('file-b.js').click();
+      await waitForEditorModel(bobPage, 'file-b.js');
+
+      await expect(async () => {
+        const bobFileBText = await getEditorValue(bobPage);
+        expect(bobFileBText).toContain(FILE_B_CONTENT);
+        expect(bobFileBText).not.toContain(FILE_A_CONTENT);
+      }).toPass({ timeout: 20000, intervals: [1000] });
+
+      await bobPage.locator('.ide-scrollbar').getByText('file-a.js').click();
+      await waitForEditorModel(bobPage, 'file-a.js');
+
+      await expect(async () => {
+        const modelText = await getEditorValue(bobPage);
+        expect(modelText).toContain(FILE_A_CONTENT);
+        expect(modelText).not.toContain(FILE_B_CONTENT);
+      }).toPass({ timeout: 20000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
+  test('10. content persists through full server doc eviction and reloads correctly for new users', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+    const PERSIST_SENTINEL = `PERSISTED_${timestamp}`;
+
+    try {
+      await loginUser(alicePage, request, `Alice_Persist_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_Persist_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Persist_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+      await inviteUser(alicePage, `Bob_Persist_${timestamp}`, 'editor');
+
+      await createFile(alicePage, 'persist-test.js');
+      await waitForEditorModel(alicePage, 'persist-test.js');
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type(`const sentinel = "${PERSIST_SENTINEL}";\n`);
+
+      await alicePage.waitForTimeout(4000);
+      await alicePage.goto(`${APP_URL}/dashboard`);
+      await alicePage.waitForURL(/\/dashboard/);
+
+      // Give Postgres time to physically commit the Yjs BYTEA blob
+      await alicePage.waitForTimeout(5000);
+
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+      await bobPage.locator('.ide-scrollbar').getByText('persist-test.js').click();
+      await waitForEditorModel(bobPage, 'persist-test.js');
+
+      await expect(async () => {
+        const bobText = await getEditorValue(bobPage);
+        expect(bobText).toContain(PERSIST_SENTINEL);
+        expect(bobText.split(PERSIST_SENTINEL).length - 1).toBe(1);
+      }).toPass({ timeout: 25000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
+  test('11. maintains isolated undo/redo stacks per user without affecting peer edits', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+
+    try {
+      await loginUser(alicePage, request, `Alice_Undo_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_Undo_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Undo_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+
+      await inviteUser(alicePage, `Bob_Undo_${timestamp}`, 'editor');
+      await createFile(alicePage, 'undo-test.js');
+      await waitForEditorModel(alicePage, 'undo-test.js');
+
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+      await bobPage.locator('.ide-scrollbar').getByText('undo-test.js').click();
+      await waitForEditorModel(bobPage, 'undo-test.js');
+
+      await Promise.all([
+        waitForSocketConnect(alicePage),
+        waitForSocketConnect(bobPage),
+      ]);
+
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type('// Alice Edit 1\n');
+      await alicePage.waitForTimeout(500);
+
+      await focusEditor(bobPage);
+      await bobPage.keyboard.type('// Bob Edit 1\n');
+      await bobPage.waitForTimeout(500);
+
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type('X');
+
+      await expect(async () => {
+        const bobText = await getEditorValue(bobPage);
+        expect(bobText).toContain('Alice Edit 1');
+        expect(bobText).toContain('Bob Edit 1');
+        expect(bobText).toContain('X');
+      }).toPass({ timeout: 20000, intervals: [1000] });
+
+      await alicePage.waitForTimeout(2000);
+
+      await alicePage.evaluate(() => {
+        const ed = (window as any).monaco.editor.getEditors()[0];
+        if (ed) { ed.focus(); ed.trigger('keyboard', 'undo', null); }
+      });
+
+      await expect(async () => {
+        const aliceText = await getEditorValue(alicePage);
+        expect(aliceText).toContain('Alice Edit 1');
+        expect(aliceText).toContain('Bob Edit 1');
+        expect(aliceText).not.toContain('X');
+      }).toPass({ timeout: 20000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
+  test('12. synchronizes correctly after a network partition without data loss', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+
+    try {
+      await loginUser(alicePage, request, `Alice_Offline_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_Offline_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Offline_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+      await waitForSocketConnect(alicePage);
+
+      await inviteUser(alicePage, `Bob_Offline_${timestamp}`, 'editor');
+      await createFile(alicePage, 'partition.js');
+      await waitForEditorModel(alicePage, 'partition.js');
+
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+      await waitForSocketConnect(bobPage);
+      await bobPage.locator('.ide-scrollbar').getByText('partition.js').click();
+      await waitForEditorModel(bobPage, 'partition.js');
+
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type('// Baseline\n');
+      await expect(async () => {
+        expect(await getEditorValue(bobPage)).toContain('Baseline');
+      }).toPass({ timeout: 20000, intervals: [1000] });
+
+      await bobContext.setOffline(true);
+      await bobPage.waitForTimeout(1500);
+
+      await focusEditor(bobPage);
+      await bobPage.keyboard.type('// Bob offline edit\n');
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type('// Alice online edit\n');
+
+      await bobContext.setOffline(false);
+
+      await expect(async () => {
+        const aliceFinal = await getEditorValue(alicePage);
+        const bobFinal = await getEditorValue(bobPage);
+        expect(aliceFinal).toContain('Bob offline edit');
+        expect(aliceFinal).toContain('Alice online edit');
+        expect(aliceFinal).toEqual(bobFinal);
+      }).toPass({ timeout: 25000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
+  test('13. late-joining user receives the fully updated file tree and file contents', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+    const CONTENT_1 = `ALPHA_DATA_${timestamp}`;
+    const CONTENT_2 = `BETA_DATA_${timestamp}`;
+
+    try {
+      await loginUser(alicePage, request, `Alice_LateTree_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_LateTree_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LateTree_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+
+      await createFile(alicePage, 'file-alpha.js');
+      await waitForEditorModel(alicePage, 'file-alpha.js');
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type(`const a = "${CONTENT_1}";`);
+
+      await createFile(alicePage, 'file-beta.js');
+      await waitForEditorModel(alicePage, 'file-beta.js');
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type(`const b = "${CONTENT_2}";`);
+
+      // Longer settle time so both files persist to DB before Bob joins
+      await alicePage.waitForTimeout(5000);
+      await inviteUser(alicePage, `Bob_LateTree_${timestamp}`, 'editor');
+
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+
+      const bobFileAlpha = bobPage.locator('.ide-scrollbar').getByText('file-alpha.js');
+      const bobFileBeta = bobPage.locator('.ide-scrollbar').getByText('file-beta.js');
+      await expect(bobFileAlpha).toBeVisible({ timeout: 20000 });
+      await expect(bobFileBeta).toBeVisible({ timeout: 20000 });
+
+      await bobFileAlpha.click();
+      await waitForEditorModel(bobPage, 'file-alpha.js');
+      await expect(async () => {
+        const val = await getEditorValue(bobPage);
+        expect(val).toContain(CONTENT_1);
+      }).toPass({ timeout: 25000, intervals: [1000] });
+
+      await bobFileBeta.click();
+      await waitForEditorModel(bobPage, 'file-beta.js');
+      await expect(async () => {
+        const val = await getEditorValue(bobPage);
+        expect(val).toContain(CONTENT_2);
+      }).toPass({ timeout: 25000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
+  test('14. newly created files sync live to peers and initialize collaborative editor without freezing', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+
+    try {
+      await loginUser(alicePage, request, `Alice_LiveFile_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_LiveFile_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LiveFile_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+
+      await inviteUser(alicePage, `Bob_LiveFile_${timestamp}`, 'editor');
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+
+      // Wait for Bob's socket to be connected before Alice creates the file
+      // so the file-created socket event is received live (not from REST poll)
+      await waitForSocketConnect(bobPage);
+
+      const LIVE_FILENAME = `dynamic-${timestamp}.js`;
+      await createFile(alicePage, LIVE_FILENAME);
+      await waitForEditorModel(alicePage, LIVE_FILENAME);
+
+      const bobFileNode = bobPage.locator('.ide-scrollbar').getByText(LIVE_FILENAME);
+      await expect(bobFileNode).toBeVisible({ timeout: 20000 });
+      await bobFileNode.click();
+      await waitForEditorModel(bobPage, LIVE_FILENAME);
+
+      await setEditorValue(alicePage, '// Alice testing live file\n');
+
+      await expect(async () => {
+        const val = await getEditorValue(bobPage);
+        expect(val).toContain('Alice testing live file');
+      }).toPass({ timeout: 25000, intervals: [1000] });
+
+      await setEditorValue(bobPage, '// Alice testing live file\n// Bob responding on live file\n');
+
+      await expect(async () => {
+        const val = await getEditorValue(alicePage);
+        expect(val).toContain('Bob responding on live file');
+      }).toPass({ timeout: 25000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
+  test('15. does not duplicate content on slow network connections', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+    const CONTENT = `LATENCY_TEST_${timestamp}`;
+
+    try {
+      await loginUser(alicePage, request, `Alice_Slow_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_Slow_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Slow_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+
+      await inviteUser(alicePage, `Bob_Slow_${timestamp}`, 'editor');
+
+      await createFile(alicePage, 'latency.js');
+      await waitForEditorModel(alicePage, 'latency.js');
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type(`const data = "${CONTENT}";`);
+      await alicePage.waitForTimeout(4000);
+
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+
+      const bobCDP = await bobPage.context().newCDPSession(bobPage);
+      await bobCDP.send('Network.enable');
+      await bobCDP.send('Network.emulateNetworkConditions', {
+        offline: false, downloadThroughput: 50 * 1024 / 8, uploadThroughput: 50 * 1024 / 8, latency: 3500,
+      });
+
+      await bobPage.locator('.ide-scrollbar').getByText('latency.js').click();
+      await waitForEditorModel(bobPage, 'latency.js');
+
+      await bobCDP.send('Network.emulateNetworkConditions', {
+        offline: false, downloadThroughput: -1, uploadThroughput: -1, latency: 0,
+      });
+
+      await expect(async () => {
+        const bobText = await getEditorValue(bobPage);
+        expect(bobText).toContain(CONTENT);
+        expect(bobText.split(CONTENT).length - 1).toBe(1);
+      }).toPass({ timeout: 30000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
+  test('16. maintains editor stability and sync during rapid intermittent network disconnects', async ({ page, context, request }) => {
+    const alicePage = page;
+    const bobContext = await context.browser()!.newContext();
+    const bobPage = await bobContext.newPage();
+    const timestamp = Date.now();
+
+    try {
+      await loginUser(alicePage, request, `Alice_Flaky_${timestamp}`);
+      await loginUser(bobPage, request, `Bob_Flaky_${timestamp}`);
+
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Flaky_WS_${timestamp}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
+      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await waitForBootComplete(alicePage);
+
+      await inviteUser(alicePage, `Bob_Flaky_${timestamp}`, 'editor');
+
+      await createFile(alicePage, 'flaky.js');
+      await waitForEditorModel(alicePage, 'flaky.js');
+
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+      await bobPage.locator('.ide-scrollbar').getByText('flaky.js').click();
+      await waitForEditorModel(bobPage, 'flaky.js');
+
+      // Wait for both sockets to be stable before starting offline cycles
+      await waitForSocketConnect(alicePage);
+      await waitForSocketConnect(bobPage);
+
+      await focusEditor(alicePage);
+      await alicePage.keyboard.type('// Stable line\n');
+
+      // Wait for the stable line to reach Bob before starting offline cycles
+      await expect(async () => {
+        expect(await getEditorValue(bobPage)).toContain('Stable line');
+      }).toPass({ timeout: 20000, intervals: [1000] });
+
+      for (let i = 0; i < 3; i++) {
+        await bobContext.setOffline(true);
+        await bobPage.waitForTimeout(800);
+
+        await focusEditor(bobPage);
+        await bobPage.keyboard.type(`// Offline edit ${i}\n`);
+
+        await bobContext.setOffline(false);
+        // Give Yjs time to reconnect and flush queued ops before next cycle
+        await bobPage.waitForTimeout(4000);
+      }
+
+      // Extra settle time for all ops to propagate
+      await bobPage.waitForTimeout(4000);
+
+      await expect(async () => {
+        const aliceText = await getEditorValue(alicePage);
+        const bobText = await getEditorValue(bobPage);
+        expect(aliceText).toContain('Offline edit 0');
+        expect(aliceText).toContain('Offline edit 1');
+        expect(aliceText).toContain('Offline edit 2');
+        expect(aliceText).toEqual(bobText);
+      }).toPass({ timeout: 25000, intervals: [1000] });
+    } finally {
+      await bobContext.close();
+    }
+  });
+});
+
+// ─── FROM testing/e2e/conflict.spec.ts ───
+test.describe('Git Merge Conflict Resolver E2E - Brutal Scenarios', () => {
+  test.setTimeout(120000);
+
+  const timestamp = Date.now();
+  let token: string;
+  let wsId: string;
+  let fileId: string;
+
+  // Setup: Create a shared workspace and file for each test
+  test.beforeEach(async ({ page, request }) => {
+    token = await loginUser(page, request, `conflict_admin_${timestamp}`);
+    
+    const wsRes = await request.post(`${API_URL}/workspace`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Brutal Merge Conflict Workspace' }
+    });
+    const ws = await wsRes.json();
+    wsId = ws.id;
+    
+    const fileRes = await request.post(`${API_URL}/workspace/${wsId}/files`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'brutal_conflict.js', type: 'file' }
+    });
+    const file = await fileRes.json();
+    fileId = file.id;
+  });
+
+  // Cleanup
+  test.afterEach(async ({ request }) => {
+    await request.delete(`${API_URL}/workspace/${wsId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  });
+
+  test('Should handle multiple, empty, and CRLF-formatted conflicts gracefully', async ({ request }) => {
+    // Inject a brutally messy conflict string:
+    // 1. CRLF mixed with LF
+    // 2. Empty 'ours' block
+    // 3. Multiple conflicts in one file
+    const messyConflictContent = 
+      `function init() { \r\n` +
+      `<<<<<<< HEAD\n` +
+      `=======\r\n` +
+      `  console.log("Only theirs exists");\n` +
+      `>>>>>>> branch-a\n` +
+      `  let active = true;\n` +
+      `<<<<<<< HEAD\n` +
+      `  runProcess(active);\n` +
+      `=======\n` +
+      `  execute(active);\n` +
+      `>>>>>>> branch-b\n` +
+      `}`;
+
+    // Force content update via API (assuming a backend hook exists for git pulls)
+    // Or inject via Monaco if API bypass isn't available
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: messyConflictContent }
+    });
+
+    const parseRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    expect(parseRes.ok()).toBeTruthy();
+    const parseData = await parseRes.json();
+    
+    expect(parseData.hasConflicts).toBe(true);
+    expect(parseData.conflicts.filter(c => c.type === 'conflict').length).toBe(2);
+    
+    // Validate empty block parsing
+    expect(parseData.conflicts[1].ours.trim()).toBe('');
+    expect(parseData.conflicts[1].theirs).toContain('Only theirs exists');
+  });
+
+  test('Should fail securely on malformed conflict markers', async ({ request }) => {
+    // Missing the closing >>>>>>> marker
+    const malformedContent = `<<<<<<< HEAD\nconsole.log("a");\n=======\nconsole.log("b");`;
+
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: malformedContent }
+    });
+
+    const parseRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    // The parser should ideally catch this and return a 400 or mark it as an invalid git state,
+    // rather than crashing the backend.
+    expect([200, 400, 422]).toContain(parseRes.status());
+    if (parseRes.ok()) {
+      const parseData = await parseRes.json();
+      expect(parseData.hasConflicts).toBe(false); // Should not parse as a valid conflict
+    }
+  });
+
+  test('Collaborative Real-time Resolution (Dual-Browser Sync)', async ({ browser, request }) => {
+    // Create two separate browser contexts to simulate two different users
+    // this suite is to test whether 
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+    
+    const pageA = await contextA.newPage();
+    const pageB = await contextB.newPage();
+
+    // Login both users to ensure they are created in the database
+    const tokenA = await loginUser(pageA, request, `conflict_user_a_${timestamp}`);
+    await loginUser(pageB, request, `conflict_user_b_${timestamp}`);
+
+    // Invite both users to the workspace as editors via API
+    await request.post(`${API_URL}/workspace/${wsId}/collaborators`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { usernameOrEmail: `conflict_user_a_${timestamp}`, role: 'editor' }
+    });
+    await request.post(`${API_URL}/workspace/${wsId}/collaborators`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { usernameOrEmail: `conflict_user_b_${timestamp}`, role: 'editor' }
+    });
+
+    // Both users navigate to the same file
+    await Promise.all([
+      pageA.goto(`${APP_URL}/ide/${wsId}/${fileId}`),
+      pageB.goto(`${APP_URL}/ide/${wsId}/${fileId}`)
+    ]);
+
+    await Promise.all([
+      waitForBootComplete(pageA),
+      waitForBootComplete(pageB)
+    ]);
+
+    // Wait for both editors to mount
+    const waitForEditor = async (page: Page) => {
+      await page.waitForFunction(() => {
+        return (window as any).monaco?.editor?.getEditors()?.length > 0;
+      }, { timeout: 90000 });
+    };
+    await Promise.all([waitForEditor(pageA), waitForEditor(pageB)]);
+
+    // Allow Yjs WebSockets to handshake and complete initial sync
+    await Promise.all([
+      waitForSocketConnect(pageA),
+      waitForSocketConnect(pageB)
+    ]);
+
+    // Inject conflict via User A using executeEdits so the change flows through
+    // MonacoBinding → Y.Text → broadcast to User B via Yjs CRDT.
+    // Using editor.setValue() bypasses MonacoBinding entirely: Y.Text stays empty,
+    // the Yjs room never gets the conflict content, and the resolve API's Yjs
+    // transaction operates on empty text, producing wrong results on User B.
+    const conflictContent = `<<<<<<< HEAD\nUser A edits\n=======\nUser B edits\n>>>>>>> main`;
+    await pageA.evaluate((content) => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      console.log('[Test Debug] User A setting value to:', content);
+      // Use executeEdits to route through MonacoBinding so Y.Text is updated
+      const model = editor.getModel();
+      const fullRange = model.getFullModelRange();
+      editor.executeEdits('test-inject', [{
+        range: fullRange,
+        text: content,
+        forceMoveMarkers: true
+      }]);
+      // Push undo stop so it's a clean edit
+      editor.pushUndoStop();
+      console.log('[Test Debug] User A set value complete. Current value:', editor.getValue());
+    }, conflictContent);
+
+    // Assert User B sees the conflict injected by User A via Yjs
+    await pageB.waitForFunction((expected) => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      const normalize = (s: string) => s.replace(/\r\n/g, '\n');
+      return normalize(editor.getValue()) === normalize(expected);
+    }, conflictContent, { timeout: 15000 });
+
+    // User A resolves the conflict via API
+    const resolvedContent = `Merged edits`;
+    const resolveRes = await request.post(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts/resolve`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { resolvedContent }
+    });
+    expect(resolveRes.ok()).toBeTruthy();
+
+    // BRUTAL CHECK: Does User B's Monaco editor update instantly without a page reload?
+    // This tests if your backend correctly broadcasts the resolution over WebSockets/Yjs
+    await pageB.waitForFunction((expected) => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      const normalize = (s: string) => s.replace(/\r\n/g, '\n');
+      return normalize(editor.getValue()) === normalize(expected);
+    }, resolvedContent, { timeout: 10000 });
+
+    const finalContentB = await pageB.evaluate(() => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      return editor.getValue();
+    });
+    
+    expect(finalContentB).toBe(resolvedContent);
+
+    await contextA.close();
+    await contextB.close();
+  });
+
+  test('Race Condition: User types in Monaco while conflict is being resolved via API', async ({ page, request }) => {
+    // Setup file with conflict
+    const conflictContent = `<<<<<<< HEAD\nvar x = 1;\n=======\nvar x = 2;\n>>>>>>> main`;
+    await page.goto(`${APP_URL}/ide/${wsId}/${fileId}`);
+    await waitForBootComplete(page);
+    await waitForSocketConnect(page);
+    
+    await page.waitForFunction(() => {
+      return (window as any).monaco?.editor?.getEditors()?.length > 0;
+    }, { timeout: 90000 });
+
+    await page.evaluate((content) => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      const model = editor.getModel();
+      const fullRange = model.getFullModelRange();
+      editor.executeEdits('test-inject', [{
+        range: fullRange,
+        text: content,
+        forceMoveMarkers: true
+      }]);
+    }, conflictContent);
+    
+    // Poll the database until the injected conflict content has synced and saved
+    await expect.poll(async () => {
+      const res = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/content`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok()) return '';
+      const body = await res.json();
+      return body.content || '';
+    }, {
+      intervals: [500, 1000, 2000],
+      timeout: 15000
+    }).toContain('<<<<<<< HEAD');
+
+    // Simulate API resolving the conflict at the exact moment the user is typing
+    const resolvedContent = `var x = 3; // resolved`;
+    
+    // Start the API request, but don't await it immediately
+    const resolvePromise = request.post(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts/resolve`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { resolvedContent }
+    });
+
+    // Immediately simulate user typing in the editor during the network request
+    await page.evaluate(() => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      const position = editor.getPosition();
+      editor.executeEdits("test", [{
+        range: new (window as any).monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+        text: "\n// User typing...",
+        forceMoveMarkers: true
+      }]);
+    });
+
+    const resolveRes = await resolvePromise;
+    expect(resolveRes.ok()).toBeTruthy();
+
+    // Wait for the dust to settle on the WebSocket sync
+    await page.waitForTimeout(2000);
+
+    const finalContent = await page.evaluate(() => {
+      const editor = (window as any).monaco.editor.getEditors()[0];
+      return editor.getValue();
+    });
+
+    // The brutal check: Depending on your Operational Transformation / CRDT implementation, 
+    // the system should not crash. It should either:
+    // 1. Keep the resolved content (overwriting user's concurrent typing)
+    // 2. Keep both (resolved content + user's new typing)
+    // It should NOT contain the old Git conflict markers.
+    expect(finalContent).not.toContain('<<<<<<< HEAD');
+    expect(finalContent).not.toContain('=======');
+  });
+
+  test('Brutal Scenario 1: Nested and False Positive Conflict Markers', async ({ request }) => {
+    // Tests conflict markers inside code strings and nested conflict markers
+    const nestedContent = 
+      `const codeString = "System marker: <<<<<<< HEAD";\n` +
+      `<<<<<<< HEAD\n` +
+      `const a = 1;\n` +
+      `<<<<<<< HEAD\n` +
+      `nested_a();\n` +
+      `=======\n` +
+      `nested_b();\n` +
+      `>>>>>>> inner-branch\n` +
+      `=======\n` +
+      `const a = 2;\n` +
+      `>>>>>>> outer-branch\n`;
+
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: nestedContent }
+    });
+
+    const parseRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    expect(parseRes.ok()).toBeTruthy();
+    const parseData = await parseRes.json();
+    // Verify that the parser handles nested markers deterministically without throwing 500 internal server error
+    expect(parseData).toHaveProperty('hasConflicts');
+  });
+
+  test('Brutal Scenario 2: Thundering Herd Concurrent Resolution Requests', async ({ request }) => {
+    // Inject conflict
+    const conflictContent = `<<<<<<< HEAD\nVersion Alpha\n=======\nVersion Beta\n>>>>>>> branch`;
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: conflictContent }
+    });
+
+    // Fire 5 simultaneous resolve requests with competing payloads
+    const resolveRequests = Array.from({ length: 5 }).map((_, index) => 
+      request.post(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts/resolve`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { resolvedContent: `Resolved by Request #${index}` }
+      })
+    );
+
+    const responses = await Promise.all(resolveRequests);
+    
+    // Every request should succeed without deadlocking the database pool
+    responses.forEach(res => expect(res.ok()).toBeTruthy());
+
+    // Verify DB consistency: final content should be equal to one of the resolved payloads
+    const getRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/content`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(getRes.ok()).toBeTruthy();
+    const body = await getRes.json();
+    expect(body.content).toMatch(/Resolved by Request #[0-4]/);
+  });
+
+  test('Brutal Scenario 3: Large File Payload Stress Test (5,000+ Lines)', async ({ request }) => {
+    // Generate a massive file containing 5,000 lines with 10 large conflict blocks
+    let largeContent = '';
+    for (let i = 0; i < 500; i++) {
+      if (i % 50 === 0) {
+        largeContent += `<<<<<<< HEAD\n// Ours block ${i}\n` + 'console.log("ours");\n'.repeat(10) +
+                        `=======\n// Theirs block ${i}\n` + 'console.log("theirs");\n'.repeat(10) +
+                        `>>>>>>> branch-${i}\n`;
+      } else {
+        largeContent += `function fn_${i}() { return ${i}; }\n`;
+      }
+    }
+
+    await request.put(`${API_URL}/workspace/${wsId}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: largeContent }
+    });
+
+    // Measure parsing performance
+    const startTime = Date.now();
+    const parseRes = await request.get(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const parseTime = Date.now() - startTime;
+
+    expect(parseRes.ok()).toBeTruthy();
+    const parseData = await parseRes.json();
+    expect(parseData.hasConflicts).toBe(true);
+    expect(parseData.conflicts.filter((c: any) => c.type === 'conflict').length).toBe(10);
+    // Parse time for 5,000 lines should take under 1000ms
+    expect(parseTime).toBeLessThan(1000);
+
+    // Resolve the large conflict
+    const resolvedContent = `// Resolved massive file\n` + 'function resolvedFn() {}\n'.repeat(500);
+    const resolveRes = await request.post(`${API_URL}/workspace/${wsId}/files/${fileId}/conflicts/resolve`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { resolvedContent }
+    });
+    expect(resolveRes.ok()).toBeTruthy();
+  });
+});
+
+// ─── FROM testing/e2e/monaco-basic.spec.ts ───
+test.describe('Monaco Editor Basic Functions', () => {
+
+  test('1. verify monaco global type and instance structure', async ({ page, request }) => {
+    await loginUser(page, request, 'testmonaco');
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', 'MonacoCheck');
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+    await page.click('button[title="New File"]');
+    await page.fill('.ide-scrollbar input', 'test.js');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+    
+    const monacoType = await page.evaluate(() => typeof (window as any).monaco);
+    console.log("MONACO TYPE:", monacoType);
+    expect(monacoType).toBe('object');
+    
+    const getEditors = await page.evaluate(() => typeof (window as any).monaco?.editor?.getEditors);
+    console.log("GET EDITORS:", getEditors);
+    expect(getEditors).toBe('function');
+    
+    const models = await page.evaluate(() => (window as any).monaco?.editor?.getModels()?.length);
+    console.log("MODELS:", models);
+    expect(models).toBeGreaterThan(0);
+  });
+
+  test('2. verify monaco edit undo history', async ({ page, request }) => {
+    await loginUser(page, request, 'testundo');
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', 'MonacoUndo');
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+    await page.click('button[title="New File"]');
+    await page.fill('.ide-scrollbar input', 'test.js');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+    
+    // Type something
+    const editor = page.locator('.monaco-editor').first();
+    await editor.click();
+    await page.keyboard.type('Hello World', { delay: 10 });
+    await page.waitForTimeout(500);
+
+    // Get value
+    const valBefore = await page.evaluate(() => (window as any).monaco.editor.getEditors()[0].getModel().getValue());
+    console.log("BEFORE UNDO:", valBefore);
+    expect(valBefore).toBe('Hello World');
+
+    // Undo
+    await page.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      ed.focus();
+      ed.trigger('keyboard', 'undo', null);
+    });
+    await page.waitForTimeout(500);
+
+    // Get value after
+    const valAfter = await page.evaluate(() => (window as any).monaco.editor.getEditors()[0].getModel().getValue());
+    console.log("AFTER UNDO:", valAfter);
+    expect(valAfter).toBe('Hello');
+  });
+
+  test('3. verify monaco model URI paths', async ({ page, request }) => {
+    await loginUser(page, request, 'testuri');
+    await page.fill('input[placeholder="e.g. React-Sandbox"]', 'UriTest');
+    await page.click('button:has-text("Create Now")');
+    await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
+    await page.click('button[title="New File"]');
+    await page.fill('.ide-scrollbar input', 'file-alpha.js');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
+    
+    await page.waitForTimeout(2000);
+
+    const uris = await page.evaluate(() => {
+      const editors = (window as any).monaco.editor.getEditors();
+      if (!editors || !editors[0]) return [];
+      return [
+        editors[0].getModel().uri.toString(),
+        editors[0].getModel().uri.path
+      ];
+    });
+    console.log("URIs:", uris);
+    expect(uris.length).toBe(2);
+    expect(uris[1]).toBe('/file-alpha.js');
+  });
+
+});
+
+// ─── FROM testing/e2e/brutal-integration.spec.ts ───
 // Wait until the socket is connected
-async function waitForSocketConnect(page: Page) {
-  await page.locator('[title="Status: connected"]').waitFor({ state: 'visible', timeout: 15000 });
-}
+
 
 test.describe('Brutal Integration & Security Test Suite (CRDT, Sandbox Limits, RBAC)', () => {
 

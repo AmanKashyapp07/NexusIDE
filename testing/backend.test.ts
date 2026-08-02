@@ -17,6 +17,17 @@ import * as Y from 'yjs';
 import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
 import { io as ioClient } from 'socket.io-client';
+import * as syncProtocol from 'y-protocols/sync';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
+import {
+  getYjsStateFromCache,
+  setYjsStateToCache,
+  deleteYjsStateFromCache,
+  clearYjsCache,
+  isYjsCacheAvailable,
+  getYjsCacheStats
+} from '../backend/src/utils/yjsCache.js';
 
 // ─── MOCK SETUP ──────────────────────────────────────────────────────────────
 // Must happen before any import that calls getPool(), because ESM hoisting
@@ -54,16 +65,16 @@ function makeYjsState(text: string): Buffer {
 // Each test suite resets `mockQuery` to control what the DB returns.
 let mockQuery: any;
 
-vi.mock('../../backend/src/db', () => ({
+vi.mock('../backend/src/db', () => ({
   getPool: () => ({ query: (...args: any[]) => mockQuery(...args) }),
 }));
 
 // Mock heavy modules that are not under test
-vi.mock('../../backend/src/sandbox/pool', () => ({
+vi.mock('../backend/src/sandbox/pool', () => ({
   warmPoolManager: { initializePools: vi.fn(), cleanup: vi.fn() },
   WORKSPACE_DATA_DIR: '/tmp/test-workspace',
 }));
-vi.mock('../../backend/src/sandbox/workspaceContainer', () => ({
+vi.mock('../backend/src/sandbox/workspaceContainer', () => ({
   getOrCreateWorkspaceContainer: vi.fn(),
   releaseWorkspaceContainer: vi.fn(),
   getRunningContainer: vi.fn(() => null),
@@ -71,13 +82,13 @@ vi.mock('../../backend/src/sandbox/workspaceContainer', () => ({
   cleanupAllWorkspaceContainers: vi.fn(),
   touchWorkspaceActivity: vi.fn(),
 }));
-vi.mock('../../backend/src/terminal/terminalHandler', () => ({
+vi.mock('../backend/src/terminal/terminalHandler', () => ({
   handleTerminalConnection: vi.fn(),
   syncFileToTerminal: vi.fn().mockResolvedValue(undefined),
   syncDeleteToTerminal: vi.fn().mockResolvedValue(undefined),
   syncFolderToTerminal: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../../backend/src/terminal/lspHandler', () => ({
+vi.mock('../backend/src/terminal/lspHandler', () => ({
   handleLspConnection: vi.fn(),
 }));
 
@@ -160,7 +171,7 @@ describe('POST /api/workspace/:id/files — initial Yjs state', () => {
   beforeEach(async () => {
     mockQuery = vi.fn();
     // Dynamically import AFTER mocks are registered
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     app = mod.app;
   });
 
@@ -301,13 +312,13 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     app = mod.app;
     if (mod.docs) mod.docs.clear();
     try {
-      const cacheMod = await import('../../backend/src/utils/yjsCache.js');
+      const cacheMod = await import('../backend/src/utils/yjsCache.js');
       await cacheMod.clearYjsCache();
-      const { fileContentCache } = await import('../../backend/src/utils/redisCache.js');
+      const { fileContentCache } = await import('../backend/src/utils/redisCache.js');
       await fileContentCache.clear();
     } catch {}
   });
@@ -410,7 +421,7 @@ describe('RBAC — viewer cannot create or delete files', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     app = mod.app;
   });
 
@@ -470,7 +481,7 @@ describe('WebSocket Yjs auth layer', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -660,7 +671,7 @@ describe('POST /api/auth/test-login', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     app = mod.app;
   });
 
@@ -726,7 +737,7 @@ describe('Socket.IO presence channel', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -782,7 +793,7 @@ describe('Workspace Lifecycle & Operations', () => {
   let app: any;
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     app = mod.app;
   });
 
@@ -846,7 +857,7 @@ describe('Advanced RBAC & Collaborator Management', () => {
   let app: any;
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     app = mod.app;
   });
 
@@ -881,7 +892,7 @@ describe('File Tree & Deletion Rigor', () => {
   let app: any;
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     app = mod.app;
   });
 
@@ -927,7 +938,7 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1099,7 +1110,7 @@ describe("Chaos & Concurrency Load Testing", () => {
   
   beforeAll(async () => {
     process.setMaxListeners(100);
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     const port = (server.address() as any).port;
@@ -1204,7 +1215,7 @@ describe('IDE Awareness (Cursors, Selections, and Presence)', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1266,7 +1277,7 @@ describe('Network Resiliency & Offline Sync', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1634,7 +1645,7 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1780,7 +1791,7 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../../backend/src/server.js');
+    const mod = await import('../backend/src/server.js');
     server = mod.server;
     docsMap = mod.docs;
     await new Promise<void>(resolve => server.listen(0, resolve));
@@ -1921,4 +1932,231 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
     prov2.disconnect();
     prov2.destroy();
   }, 10000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUITE 10 — Yjs Cache Unit Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('Yjs Cache - Unit Tests', () => {
+  const TEST_FILE_ID = '00000000-0000-0000-0000-000000000999';
+  
+  beforeEach(async () => {
+    await clearYjsCache();
+  });
+
+  afterAll(async () => {
+    await clearYjsCache();
+  });
+
+  it('should return null on cache miss', async () => {
+    const result = await getYjsStateFromCache('nonexistent-file-id');
+    expect(result).toBeNull();
+  });
+
+  it('should store and retrieve Yjs state correctly', async () => {
+    const doc = new Y.Doc();
+    doc.getText('monaco').insert(0, 'Hello, World!');
+    const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    
+    const authorMap = new Map<number, { userId: string; username: string; color: string }>();
+    authorMap.set(123, {
+      userId: 'user-1',
+      username: 'Alice',
+      color: '#ff0000'
+    });
+
+    const stored = await setYjsStateToCache(TEST_FILE_ID, state, authorMap);
+    expect(stored).toBe(true);
+
+    const cached = await getYjsStateFromCache(TEST_FILE_ID);
+    expect(cached).not.toBeNull();
+    expect(cached!.yjsState).toBeInstanceOf(Buffer);
+    expect(cached!.authorMap.size).toBe(1);
+    expect(cached!.authorMap.get(123)).toEqual({
+      userId: 'user-1',
+      username: 'Alice',
+      color: '#ff0000'
+    });
+
+    const loadedDoc = new Y.Doc();
+    Y.applyUpdate(loadedDoc, cached!.yjsState!);
+    expect(loadedDoc.getText('monaco').toString()).toBe('Hello, World!');
+    
+    doc.destroy();
+    loadedDoc.destroy();
+  });
+
+  it('should handle empty author map', async () => {
+    const doc = new Y.Doc();
+    doc.getText('monaco').insert(0, 'Test content');
+    const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    const emptyAuthorMap = new Map();
+
+    await setYjsStateToCache(TEST_FILE_ID, state, emptyAuthorMap);
+    
+    const cached = await getYjsStateFromCache(TEST_FILE_ID);
+    expect(cached).not.toBeNull();
+    expect(cached!.authorMap.size).toBe(0);
+    
+    doc.destroy();
+  });
+
+  it('should delete cache entries', async () => {
+    const doc = new Y.Doc();
+    doc.getText('monaco').insert(0, 'To be deleted');
+    const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    const authorMap = new Map();
+
+    await setYjsStateToCache(TEST_FILE_ID, state, authorMap);
+    
+    let cached = await getYjsStateFromCache(TEST_FILE_ID);
+    expect(cached).not.toBeNull();
+
+    const deleted = await deleteYjsStateFromCache(TEST_FILE_ID);
+    expect(deleted).toBe(true);
+
+    cached = await getYjsStateFromCache(TEST_FILE_ID);
+    expect(cached).toBeNull();
+    
+    doc.destroy();
+  });
+
+  it('should handle large Yjs documents', async () => {
+    const doc = new Y.Doc();
+    const text = doc.getText('monaco');
+    
+    const largeContent = 'A'.repeat(100 * 1024);
+    text.insert(0, largeContent);
+    
+    const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    const authorMap = new Map();
+
+    await setYjsStateToCache(TEST_FILE_ID, state, authorMap);
+    
+    const cached = await getYjsStateFromCache(TEST_FILE_ID);
+    expect(cached).not.toBeNull();
+    
+    const loadedDoc = new Y.Doc();
+    Y.applyUpdate(loadedDoc, cached!.yjsState!);
+    expect(loadedDoc.getText('monaco').toString().length).toBe(100 * 1024);
+    
+    doc.destroy();
+    loadedDoc.destroy();
+  });
+
+  it('should handle multiple author entries', async () => {
+    const doc = new Y.Doc();
+    doc.getText('monaco').insert(0, 'Collaborative doc');
+    const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    
+    const authorMap = new Map<number, { userId: string; username: string; color: string }>();
+    for (let i = 0; i < 10; i++) {
+      authorMap.set(i, {
+        userId: `user-${i}`,
+        username: `User${i}`,
+        color: `#${i}${i}${i}${i}${i}${i}`
+      });
+    }
+
+    await setYjsStateToCache(TEST_FILE_ID, state, authorMap);
+    
+    const cached = await getYjsStateFromCache(TEST_FILE_ID);
+    expect(cached).not.toBeNull();
+    expect(cached!.authorMap.size).toBe(10);
+    
+    for (let i = 0; i < 10; i++) {
+      expect(cached!.authorMap.get(i)).toEqual({
+        userId: `user-${i}`,
+        username: `User${i}`,
+        color: `#${i}${i}${i}${i}${i}${i}`
+      });
+    }
+    
+    doc.destroy();
+  });
+
+  it('should check Redis availability', async () => {
+    const available = await isYjsCacheAvailable();
+    expect(typeof available).toBe('boolean');
+  });
+
+  it('should get cache statistics', async () => {
+    const stats = await getYjsCacheStats();
+    expect(stats).toHaveProperty('totalKeys');
+    expect(stats).toHaveProperty('stateKeys');
+    expect(stats).toHaveProperty('authorKeys');
+    expect(stats).toHaveProperty('available');
+  });
+
+  it('should handle cache expiration (TTL)', async () => {
+    const doc = new Y.Doc();
+    doc.getText('monaco').insert(0, 'TTL test');
+    const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    const authorMap = new Map();
+
+    await setYjsStateToCache(TEST_FILE_ID, state, authorMap);
+    
+    const cached = await getYjsStateFromCache(TEST_FILE_ID);
+    expect(cached).not.toBeNull();
+    
+    doc.destroy();
+  }, 2000);
+});
+
+describe('Yjs Cache - Error Handling', () => {
+  it('should handle invalid file IDs gracefully', async () => {
+    const result = await getYjsStateFromCache('');
+    expect(result).toBeNull();
+  });
+
+  it('should handle null/undefined buffers', async () => {
+    const emptyBuffer = Buffer.alloc(0);
+    const authorMap = new Map();
+    
+    await expect(
+      setYjsStateToCache('test-id', emptyBuffer, authorMap)
+    ).resolves.toBeDefined();
+  });
+
+  it('should reject corrupt Yjs state', async () => {
+    const testFileId = 'corrupt-test-file';
+    
+    const { redis } = await import('../backend/src/utils/redisCache.js');
+    await redis.setex(`yjs:state:${testFileId}`, 60, Buffer.from('CORRUPT DATA'));
+
+    const result = await getYjsStateFromCache(testFileId);
+    expect(result).toBeNull();
+    
+    const retryResult = await getYjsStateFromCache(testFileId);
+    expect(retryResult).toBeNull();
+  });
+});
+
+describe('Yjs Cache - Performance Characteristics', () => {
+  it('should cache large documents efficiently', async () => {
+    const doc = new Y.Doc();
+    const text = doc.getText('monaco');
+    
+    const code = Array.from({ length: 1000 }, (_, i) => 
+      `function test${i}() {\n  console.log("Line ${i}");\n  return ${i};\n}\n`
+    ).join('\n');
+    
+    text.insert(0, code);
+    const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+    
+    const startWrite = Date.now();
+    await setYjsStateToCache('perf-test', state, new Map());
+    const writeTime = Date.now() - startWrite;
+    
+    const startRead = Date.now();
+    const cached = await getYjsStateFromCache('perf-test');
+    const readTime = Date.now() - startRead;
+    
+    expect(cached).not.toBeNull();
+    expect(writeTime).toBeLessThan(100);
+    expect(readTime).toBeLessThan(50);
+    
+    doc.destroy();
+    await deleteYjsStateFromCache('perf-test');
+  }, 5000);
 });

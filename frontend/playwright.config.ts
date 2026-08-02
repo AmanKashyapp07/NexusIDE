@@ -3,7 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 declare const process: { env: { CI?: string; BASE_URL?: string } };
 
 export default defineConfig({
-  testDir: '../testing/e2e',
+  testDir: '../testing',
+  testMatch: '**/*.spec.ts',
   // Real-network runs against the VM need more time per test
   timeout: process.env.CI ? 180 * 1000 : 120 * 1000,
   expect: {

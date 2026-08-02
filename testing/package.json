@@ -1,0 +1,38 @@
+{
+  "name": "sandbox-testing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Unified test suite — backend unit/integration (Vitest) + E2E (Playwright)",
+  "scripts": {
+    "test:backend": "vitest run --config ../backend/vitest.config.ts",
+    "test:frontend": "vitest run --config ../frontend/vite.config.ts",
+    "test:e2e": "playwright test --config ../frontend/playwright.config.ts",
+    "test:all": "npm run test:backend && npm run test:frontend && npm run test:e2e",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.18.1",
+    "jsonwebtoken": "^9.0.3",
+    "lib0": "^0.2.98",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.16.0",
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.2.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9",
+    "ws": "^8.21.0",
+    "y-protocols": "^1.0.6",
+    "y-websocket": "^1.5.0",
+    "yjs": "^13.6.31"
+  }
+}

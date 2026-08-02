@@ -38,9 +38,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    setupFiles: [path.resolve(__dirname, '../testing/frontend/setup.ts')],
+    setupFiles: [path.resolve(__dirname, '../testing/setup.ts')],
     globals: true,
-    include: ['../testing/frontend/**/*.test.{ts,tsx}'],
-    exclude: ['../testing/e2e/**', '**/node_modules/**', 'node_modules/**', 'dist/**', '../testing/frontend/node_modules/**'],
+    include: ['../testing/*.test.tsx'],
+    exclude: ['**/node_modules/**', 'node_modules/**', 'dist/**'],
   },
 });

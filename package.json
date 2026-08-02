@@ -2,9 +2,12 @@
   "name": "sandbox-root",
   "private": true,
   "scripts": {
-    "test:backend": "npm --prefix backend test",
+    "test:backend":  "npm --prefix backend test",
     "test:frontend": "npm --prefix frontend test",
-    "test:e2e": "npm --prefix frontend run test:e2e",
-    "test:all": "npm run test:backend && npm run test:frontend && npm run test:e2e"
+    "test:e2e":      "npm --prefix frontend run test:e2e",
+    "test:all":      "npm run test:backend && npm run test:frontend && npm run test:e2e",
+    "typecheck":     "npm run typecheck:backend && npm run typecheck:frontend",
+    "typecheck:backend":  "npm --prefix backend exec tsc -- --noEmit",
+    "typecheck:frontend": "npm --prefix frontend exec tsc -- --noEmit -p tsconfig.app.json"
   }
 }
