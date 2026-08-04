@@ -11,7 +11,5 @@
  */
 import { EventEmitter } from 'events';
 
-// Bump limit BEFORE any backend module is imported (vi.mock() hoisting ensures
-// this file runs before the test body, but after the import map is set up).
 EventEmitter.defaultMaxListeners = 100;
 process.setMaxListeners(100);

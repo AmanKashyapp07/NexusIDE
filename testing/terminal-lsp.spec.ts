@@ -4,17 +4,15 @@ import {
   login, loginUser, inviteUser, waitForBootComplete, focusEditor,
   createTestWorkspace, deleteTestWorkspace, createTestFile, createFile, typeTextInMonaco,
   getEditorValue, waitForEditorModel, waitForEditorSync, setMonacoValue, setEditorValue, waitForSocketConnect
-} from './testUtils';
+} from './test-utils';
 
-// ─── FROM testing/e2e/terminal.spec.ts ───
-test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
+test.describe('Terminal - Core Operations', () => {
 
   test('executes shell commands, detects directory watch sync, and proxies dev server traffic with Ctrl+C teardown', async ({ page, context }) => {
     const timestamp = Date.now();
     const username = `Tester_${timestamp}`;
     const workspaceTitle = `Term_Brutal_WS_${timestamp}`;
 
-    // 1. User logs in
     await page.goto('/login');
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -26,70 +24,53 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     await submitBtn.click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // 2. User creates a workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
 
-    // Wait for redirect to IDE and bootstrap
     await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
     const ideUrl = page.url();
     const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
 
-    // Locate terminal components
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
 
-    // 3. PTY Interactive Shell Execution
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
 
-    // Wait for the backend watcher's first baseline scan to successfully complete (starts 1.5s post-connect)
     await page.waitForTimeout(3000);
 
-    // Focus and execute a basic echo command
     await terminalTextarea.focus();
     await page.keyboard.type('echo "PTY_TEST_OK"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('PTY_TEST_OK', { timeout: 5000 });
 
-    // Verify workspace directory via pwd
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
 
-    // 4. Disk-to-Explorer Watcher Sync
-    // We write a file to the container disk via shell redirection.
     await page.keyboard.type('echo \'console.log("FROM_SHELL_OK");\' > shell-script.js', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // The backend watcher should detect the file write and sync it to the explorer.
     const fileSelector = page.locator('.ide-scrollbar').getByText('shell-script.js');
     await expect(fileSelector).toBeVisible({ timeout: 15000 });
 
-    // Click the file in the explorer to load it into Monaco
     await fileSelector.click();
     await page.waitForSelector('.monaco-editor', { timeout: 25000 });
     await expect(page.locator('.monaco-editor')).toContainText('FROM_SHELL_OK', { timeout: 10000 });
 
-    // 5. Dev-Server Execution & Port-Proxy Preview
-    // We create 'dev-server.js' inside the workspace using the terminal.
     await terminalTextarea.focus();
     await page.keyboard.type('echo "const http = require(\'http\'); const server = http.createServer((req, res) => { res.writeHead(200, { \'Content-Type\': \'text/plain\' }); res.end(\'HELLO_SANDBOX_DEV_SERVER\'); }); server.listen(3000, \'0.0.0.0\');" > dev-server.js', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // The backend watcher should detect 'dev-server.js' and sync it to the explorer.
     const devServerSelector = page.locator('.ide-scrollbar').getByText('dev-server.js');
     await expect(devServerSelector).toBeVisible({ timeout: 15000 });
 
-    // Click the file in the explorer to load it into Monaco and verify content
     await devServerSelector.click();
     await page.waitForSelector('.monaco-editor', { timeout: 25000 });
     await expect(page.locator('.monaco-editor')).toContainText('HELLO_SANDBOX_DEV_SERVER', { timeout: 10000 });
 
-    // Launch the dev server via the terminal
     await terminalTextarea.focus();
-    // Send standard interrupt to clear line state if any
     await page.keyboard.press('Control+C');
     await page.keyboard.type('\x03');
     await page.waitForTimeout(200);
@@ -97,42 +78,30 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('node dev-server.js', { timeout: 5000 });
 
-    // Give the node server a moment to bind to port 3000 before opening the preview
     await page.waitForTimeout(2000);
 
-    // Click the Preview button in the header and capture the new tab/popup
     const previewPromise = context.waitForEvent('page');
     await page.click('button:has-text("Preview")');
     const previewPage = await previewPromise;
 
-    // Verify the preview page loads and receives text from our running node server
     await previewPage.waitForLoadState('domcontentloaded');
     await expect(previewPage.locator('body')).toContainText('HELLO_SANDBOX_DEV_SERVER', { timeout: 15000 });
 
-    // 6. Process Signal Control (Ctrl+C teardown)
-    // Go back to the IDE tab
     await page.bringToFront();
     await terminalTextarea.focus();
-    // Send Ctrl+C both synthetically and via raw ETX code (\x03) to kill process
     await page.keyboard.press('Control+C');
     await page.keyboard.type('\x03');
     await page.waitForTimeout(1000);
 
-    // Refresh the preview page
     await previewPage.bringToFront();
     await previewPage.reload();
     await previewPage.waitForLoadState('domcontentloaded');
 
-    // Verify the proxy falls back to the "Preview Server Offline" error page
     await expect(previewPage.locator('body')).toContainText('Preview Server Offline', { timeout: 15000 });
 
-    // Clean up preview page context
     await previewPage.close();
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // TEST 2: Admin Git Integration & Deep Directory Watcher Sync
-  // ═══════════════════════════════════════════════════════════════════════════════
   test('admin successfully clones a remote git repository and verifies recursive file watcher sync', async ({ page }) => {
     const timestamp = Date.now();
     const adminUsername = `Admin_${timestamp}`; 
@@ -140,7 +109,6 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
     const repoUrl = 'https://github.com/AmanKashyapp07/github-test-ci.git';
     const repoName = 'github-test-ci';
 
-    // 1. Admin logs in and creates workspace
     await page.goto('/login');
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -163,85 +131,64 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
 
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
 
-    // Wait for the backend watcher's first baseline scan to successfully complete
     await page.waitForTimeout(3000);
 
-    // 2. Execute Git Clone
     await terminalTextarea.focus();
-    // Send a clear command first to ensure a clean buffer
     await page.keyboard.type('clear', { delay: 10 });
     await page.keyboard.press('Enter');
     
     await page.keyboard.type(`git clone ${repoUrl}`, { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Wait for the clone to complete (expecting standard git output streams)
     await expect(terminalBody).toContainText(`Cloning into '${repoName}'`, { timeout: 30000 });
     await expect(terminalBody).toContainText('Resolving deltas:', { timeout: 45000 });
 
-    // 3. Verify Recursive File Tree Sync
-    // The backend watcher must detect the massive directory drop and sync it to the React UI
     const repoFolder = page.locator('.ide-scrollbar').getByText(repoName);
     await expect(repoFolder).toBeVisible({ timeout: 20000 });
 
-    // Verify terminal CD and list the .git folder directly (to avoid overflow scrolling issue)
     await page.keyboard.type(`cd ${repoName} && ls -d .git`, { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('.git', { timeout: 5000 });
 
-    // 4. Validate UI interacts securely with cloned files
     await repoFolder.click();
     await page.waitForTimeout(1000);
 
-    // Click aman.js to load into Monaco
     const amanFile = page.locator('.ide-scrollbar').getByText('aman.js', { exact: true }).first();
     await expect(amanFile).toBeVisible({ timeout: 15000 });
     await amanFile.click();
     await page.waitForSelector('.monaco-editor', { timeout: 15000 });
     await expect(page.locator('.monaco-editor')).not.toBeEmpty();
 
-    // 5. Setup Git Configuration
-    // Must be set before any commit operations can succeed
     await terminalTextarea.focus();
     await page.keyboard.type('git config --global user.email "admin@example.com" && git config --global user.name "Admin User" && git config --global core.pager cat', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(1000);
 
-    // 6. Test Git Branching
     await page.keyboard.type('git checkout -b feature/collaborative-edit', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText("Switched to a new branch 'feature/collaborative-edit'", { timeout: 10000 });
 
-    // 7. Make a code change (edit aman.js)
     await page.keyboard.type('echo "console.log(\'edited from collaborative IDE\');" >> aman.js', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(1000);
 
-    // 8. Test Git Status
     await page.keyboard.type('git status', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('modified:   aman.js', { timeout: 10000 });
 
-    // 9. Test Git Add & Commit
     await page.keyboard.type('git add aman.js && git commit -m "test: commit change from collaborative IDE"', { delay: 10 });
     await page.keyboard.press('Enter');
-    // Git commit prints "1 file changed" or similar summary line
     await expect(terminalBody).toContainText('1 file changed', { timeout: 15000 });
 
-    // 10. Verify Git Log history update
     await page.keyboard.type('git log -n 1', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('test: commit change from collaborative IDE', { timeout: 10000 });
 
-    // 11. Test switching branch back
     await page.keyboard.type('git checkout main', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText("Switched to branch 'main'", { timeout: 10000 });
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // TEST 3: Terminal Buffer Stress Test (Massive Rapid Output)
-  // ═══════════════════════════════════════════════════════════════════════════════
   test('xterm.js frontend withstands massive stdout floods without crashing or desyncing', async ({ page }) => {
     const timestamp = Date.now();
     await page.goto('/login');
@@ -264,28 +211,21 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
 
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     
-    // Wait for baseline scan
     await page.waitForTimeout(3000);
     
     await terminalTextarea.focus();
 
-    // Fire a bash loop that spits out 2000 lines immediately
     const floodCommand = `for i in $(seq 1 2000); do echo "STRESS_TEST_LINE_$i"; done`;
     await page.keyboard.type(floodCommand, { delay: 5 });
     await page.keyboard.press('Enter');
 
-    // Wait for the final line to guarantee the buffer processed everything
     await expect(terminalBody).toContainText('STRESS_TEST_LINE_2000', { timeout: 20000 });
 
-    // Ensure terminal is still responsive
     await page.keyboard.type('echo "SURVIVED"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('SURVIVED', { timeout: 5000 });
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // TEST 4: Interactive Process Handling (Prompts & Backgrounding)
-  // ═══════════════════════════════════════════════════════════════════════════════
   test('handles interactive stdin prompts and background process orchestration', async ({ page }) => {
     const timestamp = Date.now();
     await page.goto('/login');
@@ -308,34 +248,26 @@ test.describe('Sandbox Terminal E2E Brutal Test Suite', () => {
 
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
 
-    // Wait for baseline scan
     await page.waitForTimeout(3000);
 
     await terminalTextarea.focus();
 
-    // 1. Create a script that demands user input
     await page.keyboard.type('echo \'read -p "Enter Magic Word: " word; echo "You said: $word"\' > prompt.sh', { delay: 10 });
     await page.keyboard.press('Enter');
     
-    // Run script
     await page.keyboard.type('bash prompt.sh', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Assert pauses
     await expect(terminalBody).toContainText('Enter Magic Word:', { timeout: 5000 });
 
-    // Type input
     await page.keyboard.type('PlaywrightRules', { delay: 50 });
     await page.keyboard.press('Enter');
 
-    // Verify stdout
     await expect(terminalBody).toContainText('You said: PlaywrightRules', { timeout: 5000 });
 
-    // 2. Test Background Tasks
     await page.keyboard.type('sleep 100 &', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Assert detached PTY unblocked
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 5000 });
     
     await page.keyboard.type('echo "PTY_UNBLOCKED"', { delay: 10 });
@@ -355,7 +287,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     const userA = `UserA_Iso_${timestamp}`;
     const userB = `UserB_Iso_${timestamp}`;
 
-    // User A logs in
     await page.goto('/login');
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -366,7 +297,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await submitBtn.click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // Create workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Iso_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
     await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
@@ -379,7 +309,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await expect(terminalA).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // Invite User B as editor — must register B first so they exist in DB
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
     await pageB.goto('/login');
@@ -392,7 +321,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await btnB.click();
     await expect(pageB).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // Now invite from admin page
     await page.click('button:has-text("Share")');
     await page.fill('input[placeholder="Username or Email"]', userB);
     await page.selectOption('select', 'editor');
@@ -408,7 +336,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await expect(terminalB).toContainText('sandbox:~#', { timeout: 25000 });
     await pageB.waitForTimeout(2000);
 
-    // User A sets an env variable and changes directory
     await textareaA.focus();
     await page.keyboard.type('export MY_SECRET_A="onlyForA"', { delay: 10 });
     await page.keyboard.press('Enter');
@@ -416,26 +343,20 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // User B sets a different env variable
     await textareaB.focus();
     await pageB.keyboard.type('export MY_SECRET_B="onlyForB"', { delay: 10 });
     await pageB.keyboard.press('Enter');
     await pageB.waitForTimeout(500);
 
-    // Verify isolation: User A's env should NOT be visible to User B
     await textareaB.focus();
     await pageB.keyboard.type('echo "B_CHECK:$MY_SECRET_A"', { delay: 10 });
     await pageB.keyboard.press('Enter');
-    // Should show empty variable — not "onlyForA"
     await expect(terminalB).toContainText('B_CHECK:', { timeout: 5000 });
-    // The output should be "B_CHECK:" (empty) not "B_CHECK:onlyForA"
 
-    // User B confirms their own variable works
     await pageB.keyboard.type('echo "B_OWN:$MY_SECRET_B"', { delay: 10 });
     await pageB.keyboard.press('Enter');
     await expect(terminalB).toContainText('B_OWN:onlyForB', { timeout: 5000 });
 
-    // User A's pwd should show subdir_a, User B should still be in root workspace
     await textareaA.focus();
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
@@ -446,7 +367,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await pageB.keyboard.press('Enter');
     await expect(terminalB).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
 
-    // Both create files — verify both appear in explorer (shared filesystem)
     await textareaA.focus();
     await page.keyboard.type('echo "from_A" > ../created_by_a.txt', { delay: 10 });
     await page.keyboard.press('Enter');
@@ -455,7 +375,6 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await pageB.keyboard.type('echo "from_B" > created_by_b.txt', { delay: 10 });
     await pageB.keyboard.press('Enter');
 
-    // Watcher syncs both files to the explorer
     const fileA = page.locator('.ide-scrollbar').getByText('created_by_a.txt');
     const fileB = page.locator('.ide-scrollbar').getByText('created_by_b.txt');
     await expect(fileA).toBeVisible({ timeout: 15000 });
@@ -490,13 +409,11 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await expect(terminal1).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // Create a marker file in tab 1
     await textarea1.focus();
     await page.keyboard.type('echo "TAB1_MARKER" > tab1_test.txt', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // Open second tab (same user, same workspace)
     const page2 = await context.newPage();
     await page2.goto(`/ide/${workspaceId}`);
     await page2.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
@@ -506,17 +423,14 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await expect(terminal2).toContainText('sandbox:~#', { timeout: 25000 });
     await page2.waitForTimeout(2000);
 
-    // Tab 2 should see the file created by Tab 1 (same container filesystem)
     await textarea2.focus();
     await page2.keyboard.type('cat tab1_test.txt', { delay: 10 });
     await page2.keyboard.press('Enter');
     await expect(terminal2).toContainText('TAB1_MARKER', { timeout: 5000 });
 
-    // Close tab 1 — container should remain alive because tab 2 still has a ref
     await page.close();
     await page2.waitForTimeout(1000);
 
-    // Tab 2 should still be functional (container not destroyed)
     await textarea2.focus();
     await page2.keyboard.type('echo "STILL_ALIVE"', { delay: 10 });
     await page2.keyboard.press('Enter');
@@ -549,35 +463,28 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // Start a long-running process (sleep)
     await terminalTextarea.focus();
     await page.keyboard.type('sleep 300', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // Send Ctrl+Z (SIGTSTP) to suspend the process
     await page.keyboard.press('Control+Z');
     await page.waitForTimeout(1000);
 
-    // Terminal should show "Stopped" and return to prompt
     await expect(terminalBody).toContainText(/Stopped|stopped/i, { timeout: 5000 });
 
-    // Verify shell is responsive again
     await page.keyboard.type('echo "SHELL_BACK"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('SHELL_BACK', { timeout: 5000 });
 
-    // Use `jobs` to verify the backgrounded process
     await page.keyboard.type('jobs', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('sleep', { timeout: 5000 });
 
-    // Resume with fg
     await page.keyboard.type('fg', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // Kill it with Ctrl+C to regain control
     await page.keyboard.press('Control+C');
     await page.waitForTimeout(500);
     await page.keyboard.type('echo "RECOVERED"', { delay: 10 });
@@ -607,8 +514,6 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // Create a Node script that traps SIGINT and does graceful shutdown
-    // Use multiple echo lines to avoid complex quoting issues in the terminal
     await terminalTextarea.focus();
     await page.keyboard.type('echo "process.on(\'SIGINT\', () => {" > trap.js', { delay: 5 });
     await page.keyboard.press('Enter');
@@ -622,23 +527,17 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // Run it
     await page.keyboard.type('node trap.js', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Should see heartbeats
     await expect(terminalBody).toContainText('HEARTBEAT', { timeout: 8000 });
 
-    // Wait a moment to ensure process is running stably
     await page.waitForTimeout(1000);
 
-    // Send SIGINT (Ctrl+C)
     await page.keyboard.press('Control+C');
 
-    // The trap handler should fire, printing our graceful shutdown message
     await expect(terminalBody).toContainText('GRACEFUL_SHUTDOWN_CAUGHT', { timeout: 8000 });
 
-    // Shell should be back
     await page.waitForTimeout(500);
     await page.keyboard.type('echo "POST_TRAP_OK"', { delay: 10 });
     await page.keyboard.press('Enter');
@@ -672,12 +571,10 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
 
     await terminalTextarea.focus();
 
-    // Create a deeply nested directory structure
     await page.keyboard.type('mkdir -p src/components/ui', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // Create files at different levels
     await page.keyboard.type('echo "export default App;" > src/App.tsx', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('echo "export const Button = () => {};" > src/components/ui/Button.tsx', { delay: 10 });
@@ -685,41 +582,33 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
     await page.keyboard.type('echo "body { margin: 0; }" > src/styles.css', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Wait for watcher to detect and sync all files
     const srcFolder = page.locator('.ide-scrollbar').getByText('src');
     await expect(srcFolder).toBeVisible({ timeout: 15000 });
 
-    // Expand and verify nested structure appears
     await srcFolder.click();
     await page.waitForTimeout(1000);
     const appFile = page.locator('.ide-scrollbar').getByText('App.tsx');
     await expect(appFile).toBeVisible({ timeout: 10000 });
 
-    // Click to load in editor and verify content
     await appFile.click();
     await page.waitForSelector('.monaco-editor', { timeout: 25000 });
     await expect(page.locator('.monaco-editor')).toContainText('export default App', { timeout: 10000 });
 
-    // Now DELETE a file that is NOT open in the editor (watcher only deletes files without active Yjs docs)
     await terminalTextarea.focus();
     await page.keyboard.type('rm src/styles.css', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Watcher should detect deletion of styles.css (no active Yjs doc for it)
     const stylesFile = page.locator('.ide-scrollbar').getByText('styles.css');
     await expect(stylesFile).not.toBeVisible({ timeout: 20000 });
 
-    // Create a file with special characters in name
     await page.keyboard.type('echo "config" > src/my-config.test.ts', { delay: 10 });
     await page.keyboard.press('Enter');
     const configFile = page.locator('.ide-scrollbar').getByText('my-config.test.ts');
     await expect(configFile).toBeVisible({ timeout: 15000 });
 
-    // Rename via mv (rename App.tsx which is still on disk)
     await page.keyboard.type('mv src/App.tsx src/Main.tsx', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // New name should appear
     const mainTsx = page.locator('.ide-scrollbar').getByText('Main.tsx');
     await expect(mainTsx).toBeVisible({ timeout: 15000 });
   });
@@ -748,31 +637,23 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
 
     await terminalTextarea.focus();
 
-    // Create a minimal package.json with a small dependency
     const pkgJson = '{"name":"test-pkg","version":"1.0.0","dependencies":{"is-odd":"3.0.1"}}';
     await page.keyboard.type(`echo '${pkgJson}' > package.json`, { delay: 5 });
     await page.keyboard.press('Enter');
 
-    // Wait for watcher to detect package.json
     const pkgFile = page.locator('.ide-scrollbar').getByText('package.json');
     await expect(pkgFile).toBeVisible({ timeout: 15000 });
 
-    // Manually run npm install to verify it works in the container
     await page.keyboard.type('npm install', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Wait for npm install to complete (should see "added X packages" or similar)
     await expect(terminalBody).toContainText(/added|up to date/i, { timeout: 30000 });
 
-    // Verify node_modules exists in the container (but NOT in the explorer — it's excluded)
     await page.keyboard.type('ls node_modules/is-odd/index.js', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('node_modules/is-odd/index.js', { timeout: 5000 });
 
-    // Verify the watcher EXCLUDES node_modules from the explorer
-    // (node_modules should NOT appear in the sidebar file tree)
     const nodeModulesEntry = page.locator('.ide-scrollbar').getByText('node_modules', { exact: true });
-    // Give it a brief window — it should NOT appear
     await page.waitForTimeout(5000);
     await expect(nodeModulesEntry).not.toBeVisible();
   });
@@ -805,17 +686,14 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
 
     await terminalTextarea.focus();
 
-    // Test pipe: echo | grep
     await page.keyboard.type('echo "apple banana cherry" | grep -o "banana"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('banana', { timeout: 5000 });
 
-    // Test multi-pipe: generate, sort, filter
     await page.keyboard.type('echo -e "zeta\\nalpha\\nbeta" | sort | head -1', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('alpha', { timeout: 5000 });
 
-    // Test append redirect (>>)
     await page.keyboard.type('echo "line1" > append_test.txt', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('echo "line2" >> append_test.txt', { delay: 10 });
@@ -824,10 +702,8 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
     await page.keyboard.press('Enter');
     await page.keyboard.type('wc -l append_test.txt', { delay: 10 });
     await page.keyboard.press('Enter');
-    // Should show 3 lines
     await expect(terminalBody).toContainText('3', { timeout: 5000 });
 
-    // Test command chaining with && and ||
     await page.keyboard.type('true && echo "CHAIN_AND_OK"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('CHAIN_AND_OK', { timeout: 5000 });
@@ -836,17 +712,14 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('CHAIN_OR_OK', { timeout: 5000 });
 
-    // Test stderr redirect (2>)
     await page.keyboard.type('ls /nonexistent 2> err.txt; cat err.txt', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(/No such file|cannot access/i, { timeout: 5000 });
 
-    // Test command substitution
     await page.keyboard.type('echo "Today is $(date +%A)"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(/Today is (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i, { timeout: 5000 });
 
-    // Test exit codes
     await page.keyboard.type('false; echo "EXIT_CODE:$?"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('EXIT_CODE:1', { timeout: 5000 });
@@ -876,29 +749,23 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
 
     await terminalTextarea.focus();
 
-    // Print colored text using ANSI escape codes
     await page.keyboard.type('echo -e "\\033[31mRED_TEXT\\033[0m \\033[32mGREEN_TEXT\\033[0m \\033[34mBLUE_TEXT\\033[0m"', { delay: 5 });
     await page.keyboard.press('Enter');
 
-    // The text content should appear (colors are rendered by xterm.js, text is preserved)
     await expect(terminalBody).toContainText('RED_TEXT', { timeout: 5000 });
     await expect(terminalBody).toContainText('GREEN_TEXT', { timeout: 5000 });
     await expect(terminalBody).toContainText('BLUE_TEXT', { timeout: 5000 });
 
-    // Test cursor movement (should not corrupt the display)
     await page.keyboard.type('echo -e "ABCDEF\\033[3D***"', { delay: 10 });
     await page.keyboard.press('Enter');
-    // \033[3D moves cursor 3 left, *** overwrites DEF → ABC***
     await expect(terminalBody).toContainText('ABC***', { timeout: 5000 });
 
-    // Test clear screen (Ctrl+L) — terminal should stay functional
     await page.keyboard.press('Control+L');
     await page.waitForTimeout(500);
     await page.keyboard.type('echo "AFTER_CLEAR"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('AFTER_CLEAR', { timeout: 5000 });
 
-    // Test tab completion (press Tab after partial command)
     await page.keyboard.type('ech', { delay: 10 });
     await page.keyboard.press('Tab');
     await page.waitForTimeout(300);
@@ -935,12 +802,10 @@ test.describe('Terminal Working Directory Persistence & Navigation', () => {
 
     await terminalTextarea.focus();
 
-    // Verify initial working directory
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
 
-    // Create nested dirs and navigate
     await page.keyboard.type('mkdir -p deep/nested/path/here', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('cd deep/nested/path/here', { delay: 10 });
@@ -949,31 +814,26 @@ test.describe('Terminal Working Directory Persistence & Navigation', () => {
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('deep/nested/path/here', { timeout: 5000 });
 
-    // Use .. to go back
     await page.keyboard.type('cd ../..', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('deep/nested', { timeout: 5000 });
 
-    // Use cd - to toggle between directories
     await page.keyboard.type('cd -', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('deep/nested/path/here', { timeout: 5000 });
 
-    // Use absolute path to jump anywhere
     await page.keyboard.type(`cd /workspaces/${workspaceId}`, { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
 
-    // Test ~ expansion (HOME dir)
     await page.keyboard.type('echo $HOME', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
 
-    // Create file relative to cwd and verify
     await page.keyboard.type('cd deep && echo "RELATIVE_FILE" > from_nested.txt', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('cat from_nested.txt', { delay: 10 });
@@ -1008,22 +868,17 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
 
     await terminalTextarea.focus();
 
-    // Burst-create 10 files in rapid succession using a for loop
     const burstCmd = 'for i in $(seq 1 10); do echo "content_$i" > "burst_file_$i.txt"; done';
     await page.keyboard.type(burstCmd, { delay: 5 });
     await page.keyboard.press('Enter');
 
-    // Wait for watcher to pick up all 10 files (may take multiple scan cycles)
-    // Each scan is 1.5s, so give it enough time for 3-4 cycles
     await page.waitForTimeout(8000);
 
-    // Verify at least the first and last files appeared in the explorer
     const firstFile = page.locator('.ide-scrollbar').getByText('burst_file_1.txt');
     const lastFile = page.locator('.ide-scrollbar').getByText('burst_file_10.txt');
     await expect(firstFile).toBeVisible({ timeout: 10000 });
     await expect(lastFile).toBeVisible({ timeout: 10000 });
 
-    // Verify content of one of the middle files
     const midFile = page.locator('.ide-scrollbar').getByText('burst_file_5.txt');
     await expect(midFile).toBeVisible({ timeout: 5000 });
     await midFile.click();
@@ -1054,39 +909,32 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // Create a file from terminal, then open it in editor
     await terminalTextarea.focus();
     await page.keyboard.type('echo "EDITOR_TARGET" > editor_file.js', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Wait for file to appear in explorer
     const editorFile = page.locator('.ide-scrollbar').getByText('editor_file.js');
     await expect(editorFile).toBeVisible({ timeout: 15000 });
     await editorFile.click();
     await page.waitForSelector('.monaco-editor', { timeout: 25000 });
     await expect(page.locator('.monaco-editor')).toContainText('EDITOR_TARGET', { timeout: 10000 });
 
-    // Now type in the editor (Yjs becomes the source of truth for this file)
     await page.locator('.monaco-editor').first().click();
     await page.waitForTimeout(500);
     await page.keyboard.type('// EDITOR_ADDITION\n', { delay: 20 });
     await page.waitForTimeout(2000); // Let Yjs debounce fire
 
-    // Simultaneously, create ANOTHER file from terminal (different file, should not conflict)
     await terminalTextarea.focus();
     await page.keyboard.type('echo "TERMINAL_SEPARATE" > terminal_file.js', { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Verify terminal-created file syncs correctly
     const terminalFile = page.locator('.ide-scrollbar').getByText('terminal_file.js');
     await expect(terminalFile).toBeVisible({ timeout: 15000 });
 
-    // Verify editor file still has the editor content (watcher should NOT overwrite Yjs-owned file)
     await editorFile.click();
     await page.waitForTimeout(1000);
     await expect(page.locator('.monaco-editor')).toContainText('EDITOR_ADDITION', { timeout: 10000 });
 
-    // Open terminal_file.js in editor to verify its content
     await terminalFile.click();
     await page.waitForTimeout(1000);
     await expect(page.locator('.monaco-editor')).toContainText('TERMINAL_SEPARATE', { timeout: 10000 });
@@ -1120,51 +968,42 @@ test.describe('Terminal Environment & System Validation', () => {
 
     await terminalTextarea.focus();
 
-    // Verify TERM is set for xterm compatibility
     await page.keyboard.type('echo "TERM=$TERM"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('TERM=xterm-256color', { timeout: 5000 });
 
-    // Verify HOME is set to workspace directory
     await page.keyboard.type('echo "HOME=$HOME"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(`HOME=/workspaces/${workspaceId}`, { timeout: 5000 });
 
-    // Verify node is available
     await page.keyboard.type('node --version', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(/v\d+\.\d+/, { timeout: 5000 });
 
-    // Verify python is available
     await page.keyboard.type('python3 --version', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(/Python \d+\.\d+/, { timeout: 5000 });
 
-    // Verify gcc is available for C compilation
     await page.keyboard.type('gcc --version | head -1', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText(/gcc/i, { timeout: 5000 });
 
-    // Verify the universal `run` script is accessible
     await page.keyboard.type('which run', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('/usr/local/bin/run', { timeout: 5000 });
 
-    // Test `run` with a quick JavaScript file
     await page.keyboard.type('echo "console.log(42 * 2);" > calc.js', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('run calc.js', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('84', { timeout: 5000 });
 
-    // Test `run` with Python
     await page.keyboard.type('echo "print(7 ** 3)" > power.py', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('run power.py', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('343', { timeout: 5000 });
 
-    // Verify the custom PS1 prompt is rendering (contains 'sandbox')
     await page.keyboard.type('echo "PROMPT_CHECK"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('sandbox', { timeout: 5000 });
@@ -1194,18 +1033,15 @@ test.describe('Terminal Environment & System Validation', () => {
 
     await terminalTextarea.focus();
 
-    // Write a C program
     const cProgram = '#include <stdio.h>\\nint main() { printf("C_OUTPUT_OK\\\\n"); return 0; }';
     await page.keyboard.type(`echo -e '${cProgram}' > hello.c`, { delay: 5 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(300);
 
-    // Compile and run using the `run` universal script
     await page.keyboard.type('run hello.c', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('C_OUTPUT_OK', { timeout: 10000 });
 
-    // Write a C++ program with STL usage
     const cppProgram = '#include <iostream>\\n#include <vector>\\nint main() { std::vector<int> v = {1,2,3}; std::cout << "CPP_VECTOR_SIZE:" << v.size() << std::endl; return 0; }';
     await page.keyboard.type(`echo -e '${cppProgram}' > test.cpp`, { delay: 5 });
     await page.keyboard.press('Enter');
@@ -1215,7 +1051,6 @@ test.describe('Terminal Environment & System Validation', () => {
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('CPP_VECTOR_SIZE:3', { timeout: 15000 });
 
-    // Test compilation error reporting
     await page.keyboard.type('echo "int main() { undeclared_var; }" > broken.c', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('run broken.c', { delay: 10 });
@@ -1249,7 +1084,6 @@ test.describe('Terminal History & Shell State', () => {
 
     await terminalTextarea.focus();
 
-    // Type a sequence of commands to build history
     await page.keyboard.type('echo "HISTORY_CMD_1"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('HISTORY_CMD_1', { timeout: 5000 });
@@ -1262,14 +1096,10 @@ test.describe('Terminal History & Shell State', () => {
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('HISTORY_CMD_3', { timeout: 5000 });
 
-    // Press Up arrow to recall last command and execute it
     await page.keyboard.press('ArrowUp');
     await page.waitForTimeout(200);
     await page.keyboard.press('Enter');
-    // Should re-execute "echo HISTORY_CMD_3" which produces HISTORY_CMD_3 again
-    // (The terminal already has it, but we verify shell is responsive to arrow keys)
 
-    // Press Up twice to get CMD_2, then execute
     await page.keyboard.press('ArrowUp');
     await page.waitForTimeout(100);
     await page.keyboard.press('ArrowUp');
@@ -1277,29 +1107,23 @@ test.describe('Terminal History & Shell State', () => {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
 
-    // Verify shell aliases and functions persist within the session
     await page.keyboard.type('alias ll="ls -la"', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('ll', { delay: 10 });
     await page.keyboard.press('Enter');
-    // Should show directory listing (not "command not found")
     await expect(terminalBody).toContainText(/total|drwx/i, { timeout: 5000 });
 
-    // Verify shell variables persist
     await page.keyboard.type('MY_VAR="PERSISTENT_VALUE"', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('echo "CHECK:$MY_VAR"', { delay: 10 });
     await page.keyboard.press('Enter');
     await expect(terminalBody).toContainText('CHECK:PERSISTENT_VALUE', { timeout: 5000 });
 
-    // Test bash history expansion (!!)
     await page.keyboard.type('echo "LAST_COMMAND_TEST"', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('!!', { delay: 10 });
     await page.keyboard.press('Enter');
-    // !! should repeat the last command
     await page.waitForTimeout(1000);
-    // Both outputs should be visible — just verify the original worked
     await expect(terminalBody).toContainText('LAST_COMMAND_TEST', { timeout: 5000 });
   });
 
@@ -1308,7 +1132,6 @@ test.describe('Terminal History & Shell State', () => {
     const username = `FullProj_${timestamp}`;
     const workspaceTitle = `FullProj_WS_${timestamp}`;
 
-    // 1. User logs in
     await page.goto('/login');
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -1320,25 +1143,21 @@ test.describe('Terminal History & Shell State', () => {
     await submitBtn.click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // 2. User creates a workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
 
-    // Wait for redirect to IDE and bootstrap
     await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
     const ideUrl = page.url();
     const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
 
-    // Locate terminal components
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
 
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // 3. Write a mock React/Express server script listening on port 3000
     const serverScript = `
 const http = require('http');
 const server = http.createServer((req, res) => {
@@ -1350,25 +1169,19 @@ server.listen(3000, () => {
 });
 `;
 
-    // Create app.js file via terminal using heredoc
     await terminalTextarea.focus();
     await page.keyboard.type(`cat << 'EOF' > app.js\n${serverScript}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1500);
 
-    // 4. Start the server in the background
     await page.keyboard.type('node app.js &\n', { delay: 10 });
     await expect(terminalBody).toContainText('Server listening on port 3000', { timeout: 10000 });
-    // Give the server a moment to fully bind the port before proxying
     await page.waitForTimeout(1000);
 
-    // 5. Query and open the live preview
     const token = await page.evaluate(() => localStorage.getItem('token') || '');
     
-    // Open a new tab in the same context to fetch the preview URL
     const previewPage = await context.newPage();
     await previewPage.goto(`${API_URL.replace('/api', '')}/api/workspace/${workspaceId}/preview/?token=${token}`);
     
-    // Assert target contents are served via proxy
     await expect(previewPage.locator('h1')).toHaveText('Express Backend Active', { timeout: 15000 });
     await expect(previewPage.locator('p')).toContainText('React Mock Frontend Mounted', { timeout: 15000 });
     
@@ -1380,7 +1193,6 @@ server.listen(3000, () => {
     const username = `SplitProj_${timestamp}`;
     const workspaceTitle = `SplitProj_WS_${timestamp}`;
 
-    // 1. User logs in
     await page.goto('/login');
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -1392,25 +1204,21 @@ server.listen(3000, () => {
     await submitBtn.click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // 2. User creates a workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
 
-    // Wait for redirect to IDE and bootstrap
     await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
     const ideUrl = page.url();
     const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
 
-    // Locate terminal components
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
 
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // 3. Create backend and frontend directories and scripts
     const backendScript = `
 const http = require('http');
 const server = http.createServer((req, res) => {
@@ -1456,27 +1264,22 @@ server.listen(3000, () => {
     await page.keyboard.type('mkdir -p backend frontend\n', { delay: 10 });
     await page.waitForTimeout(500);
 
-    // Write scripts
     await page.keyboard.type(`cat << 'EOF' > backend/server.js\n${backendScript}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1000);
     await page.keyboard.type(`cat << 'EOF' > frontend/dev-server.js\n${frontendScript}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1000);
 
-    // 4. Run both backend and frontend servers in background
     await page.keyboard.type('node backend/server.js &\n', { delay: 10 });
     await expect(terminalBody).toContainText('Backend listening on port 5000', { timeout: 10000 });
 
     await page.keyboard.type('node frontend/dev-server.js &\n', { delay: 10 });
     await expect(terminalBody).toContainText('Frontend dev server listening on port 3000', { timeout: 10000 });
 
-    // 5. Query and open live preview from backend port 4000
     const token = await page.evaluate(() => localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
     await previewPage.goto(`${API_URL.replace('/api', '')}/api/workspace/${workspaceId}/preview/?token=${token}`);
 
-    // Verify HTML content from frontend dev server
     await expect(previewPage.locator('h1')).toHaveText('React Frontend', { timeout: 15000 });
-    // Verify client-side JS successfully fetched backend status through proxy
     await expect(previewPage.locator('#status')).toHaveText('Connected to: backend-api', { timeout: 15000 });
 
     await previewPage.close();
@@ -1487,7 +1290,6 @@ server.listen(3000, () => {
     const username = `GitFlow_${timestamp}`;
     const workspaceTitle = `GitFlow_WS_${timestamp}`;
 
-    // 1. User logs in
     await page.goto('/login');
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -1499,58 +1301,47 @@ server.listen(3000, () => {
     await submitBtn.click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // 2. User creates a workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
 
-    // Wait for redirect to IDE and bootstrap
     await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
     const ideUrl = page.url();
     const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
 
-    // Locate terminal components
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
 
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // Set up git user configurations to prevent git commit prompt errors
     await terminalTextarea.focus();
     await page.keyboard.type('git config --global user.email "test@example.com" && git config --global user.name "Tester"\n', { delay: 10 });
     await page.waitForTimeout(500);
 
-    // 3. Clone the repo
     await page.keyboard.type('git clone https://github.com/AmanKashyapp07/github-test-ci.git\n', { delay: 10 });
     await page.waitForTimeout(8000); // Allow sufficient time for the git clone download to finish
     await page.keyboard.type('ls -la\n', { delay: 10 });
     await expect(terminalBody).toContainText('github-test-ci', { timeout: 10000 });
 
-    // 4. Navigate, make first edit and commit
     await page.keyboard.type('cd github-test-ci && echo "first_edit" >> README.md && git add README.md && git commit -m "first commit"\n', { delay: 10 });
     await page.waitForTimeout(1500);
 
-    // Verify git status shows clean tree
     await page.keyboard.type('git status\n', { delay: 10 });
     await expect(terminalBody).toContainText('nothing to commit, working tree clean', { timeout: 5000 });
 
-    // 5. Leave the workspace (navigate to dashboard)
     await page.goto('/dashboard');
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // 6. Come back to the workspace IDE
     await page.goto(ideUrl);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
 
-    // Locate new terminal instances
     const terminalTextarea2 = page.locator('.xterm-helper-textarea');
     const terminalBody2 = page.locator('.xterm');
     await expect(terminalBody2).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // 7. Navigate back to the repo, make second edit, and run git status
     await terminalTextarea2.focus();
     await page.keyboard.type('cd github-test-ci && echo "second_edit" >> README.md && git status\n', { delay: 10 });
     await expect(terminalBody2).toContainText('modified:   README.md', { timeout: 10000 });
@@ -1561,7 +1352,6 @@ server.listen(3000, () => {
     const username = `NoGit_${timestamp}`;
     const workspaceTitle = `NoGit_WS_${timestamp}`;
 
-    // 1. User logs in (ordinary username/password flow, no GitHub link)
     await page.goto('/login');
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -1573,27 +1363,22 @@ server.listen(3000, () => {
     await submitBtn.click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
 
-    // 2. User creates a workspace
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
 
-    // Wait for redirect to IDE and bootstrap
     await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
 
-    // Locate terminal components
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
 
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
 
-    // 3. Try to execute a git command (should print blocker error)
     await terminalTextarea.focus();
     await page.keyboard.type('git status\n', { delay: 10 });
     
-    // Expect blocker error message
     await expect(terminalBody).toContainText('Error: Git commands are only available when signed in with a GitHub account.', { timeout: 10000 });
   });
 
@@ -1623,7 +1408,6 @@ test.describe('Terminal Multi-File Interconnection & Compilation', () => {
     await terminalTextarea.focus();
     await page.keyboard.type('mkdir cpp_project && cd cpp_project\n', { delay: 10 });
 
-    // Create Header File
     const headerCode = `
 #ifndef MATH_UTILS_H
 #define MATH_UTILS_H
@@ -1632,7 +1416,6 @@ int multiply(int a, int b);
 `;
     await page.keyboard.type(`cat << 'EOF' > math_utils.h\n${headerCode}\nEOF\n`, { delay: 10 });
 
-    // Create Implementation File
     const implCode = `
 #include "math_utils.h"
 int multiply(int a, int b) {
@@ -1641,7 +1424,6 @@ int multiply(int a, int b) {
 `;
     await page.keyboard.type(`cat << 'EOF' > math_utils.cpp\n${implCode}\nEOF\n`, { delay: 10 });
 
-    // Create Main File
     const mainCode = `
 #include <iostream>
 #include "math_utils.h"
@@ -1653,12 +1435,9 @@ int main() {
     await page.keyboard.type(`cat << 'EOF' > main.cpp\n${mainCode}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1000);
 
-    // Compile multiple files using g++ directly
     await page.keyboard.type('g++ main.cpp math_utils.cpp -o app\n', { delay: 10 });
-    // Wait for compilation to finish (shell prompt returns)
     await expect(terminalBody).toContainText('app', { timeout: 15000 }); 
     
-    // Execute the compiled binary
     await page.keyboard.type('./app\n', { delay: 10 });
     await expect(terminalBody).toContainText('CPP_LINK_OK: 42', { timeout: 5000 });
   });
@@ -1684,7 +1463,6 @@ int main() {
 
     await terminalTextarea.focus();
     
-    // Create a Python package structure
     await page.keyboard.type('mkdir -p my_package/submodule\n', { delay: 10 });
     await page.keyboard.type('touch my_package/__init__.py my_package/submodule/__init__.py\n', { delay: 10 });
 
@@ -1708,7 +1486,6 @@ if __name__ == "__main__":
     await page.keyboard.type(`cat << 'EOF' > main.py\n${mainPyCode}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1000);
 
-    // Run python module with arguments
     await page.keyboard.type('python3 main.py IDE_TESTER\n', { delay: 10 });
     
     await expect(terminalBody).toContainText('Status: PYTHON_IMPORT_SUCCESS', { timeout: 5000 });
@@ -1736,7 +1513,6 @@ if __name__ == "__main__":
 
     await terminalTextarea.focus();
 
-    // 1. Test CommonJS
     const cjsModule = `module.exports = { secret: 'CJS_MODULE_LOADED' };`;
     await page.keyboard.type(`cat << 'EOF' > lib.cjs\n${cjsModule}\nEOF\n`, { delay: 10 });
     
@@ -1746,7 +1522,6 @@ if __name__ == "__main__":
     await page.keyboard.type('node main.cjs\n', { delay: 10 });
     await expect(terminalBody).toContainText('CJS_MODULE_LOADED', { timeout: 5000 });
 
-    // 2. Test ES Modules (MJS)
     const esmModule = `export const calculate = (n) => n * 3;`;
     await page.keyboard.type(`cat << 'EOF' > math.mjs\n${esmModule}\nEOF\n`, { delay: 10 });
 
@@ -1778,15 +1553,12 @@ if __name__ == "__main__":
 
     await terminalTextarea.focus();
 
-    // 1. Python script: Reads stdin, multiplies by 2
     const pyScript = `import sys\nprint(int(sys.stdin.read().strip()) * 2)`;
     await page.keyboard.type(`cat << 'EOF' > step1.py\n${pyScript}\nEOF\n`, { delay: 10 });
 
-    // 2. Node script: Reads stdin, adds 10
     const nodeScript = `const fs = require('fs'); const input = parseInt(fs.readFileSync(0, 'utf-8').trim()); console.log(input + 10);`;
     await page.keyboard.type(`cat << 'EOF' > step2.js\n${nodeScript}\nEOF\n`, { delay: 10 });
 
-    // 3. C++ program: Takes argv, prints final formatted string
     const cppScript = `
 #include <iostream>
 #include <cstdlib>
@@ -1799,8 +1571,6 @@ int main(int argc, char** argv) {
     await page.keyboard.type('g++ step3.cpp -o step3_bin\n', { delay: 10 });
     await expect(terminalBody).toContainText('step3_bin', { timeout: 15000 });
 
-    // 4. Bash pipeline chaining them all together:
-    // Input 5 -> Python(5*2=10) -> Node(10+10=20) -> C++(PIPELINE_FINAL:20)
     await page.keyboard.type('result=$(echo "5" | python3 step1.py | node step2.js)\n', { delay: 10 });
     await page.keyboard.type('./step3_bin $result\n', { delay: 10 });
 
@@ -1834,45 +1604,26 @@ test.describe('Terminal Advanced File System Edge Cases', () => {
 
     await terminalTextarea.focus();
 
-    // 1. Download a file using curl (simulating fetching a binary/script)
     await page.keyboard.type('curl -s https://raw.githubusercontent.com/torvalds/linux/master/README > linux_readme.txt\n', { delay: 10 });
     
-    // Validate the file has substantial line count
     await page.keyboard.type('wc -l linux_readme.txt\n', { delay: 10 });
     await expect(terminalBody).toContainText(/[1-9][0-9]+ linux_readme\.txt/, { timeout: 10000 });
 
-    // 2. Write a shell script, make it executable, and run it
     const bashScript = `#!/bin/bash\necho "EXECUTION_GRANTED_OK"`;
     await page.keyboard.type(`cat << 'EOF' > runner.sh\n${bashScript}\nEOF\n`, { delay: 10 });
     
-    // Try running without permissions (should fail)
     await page.keyboard.type('./runner.sh\n', { delay: 10 });
     await expect(terminalBody).toContainText(/Permission denied|not found/, { timeout: 5000 });
 
-    // Add execution rights
     await page.keyboard.type('chmod +x runner.sh\n', { delay: 10 });
     
-    // Run successfully
     await page.keyboard.type('./runner.sh\n', { delay: 10 });
     await expect(terminalBody).toContainText('EXECUTION_GRANTED_OK', { timeout: 5000 });
   });
 
 });
 
-// ─── FROM testing/e2e/lsp.spec.ts ───
-// =============================================================================
-// LSP Integration Test Suite
-// Tests the full pipeline:
-//   Browser Monaco editor ↔ WebSocket ↔ backend lspHandler.ts ↔ Docker exec
-//   ↔ typescript-language-server / pyright-langserver
-//
-// Prerequisites (same as other E2E suites):
-//   - Backend running on localhost:4000
-//   - Frontend dev server on localhost:5173
-//   - Docker daemon running with sandbox-dev-env:latest image built
-// =============================================================================
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
 
 
 
@@ -1901,13 +1652,9 @@ async function getMarkers(page: Page): Promise<string[]> {
   });
 }
 
-// ── Test suite ────────────────────────────────────────────────────────────────
 
-test.describe('LSP Integration (Language Intelligence)', () => {
+test.describe('LSP - Language Intelligence', () => {
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 1: TypeScript LSP connects and badge reaches "ready"
-  // ═══════════════════════════════════════════════════════════════════════════
   test('1. LSP badge shows connecting then ready for a TypeScript file', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspTs_${ts}`);
@@ -1920,17 +1667,11 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     await createFile(page, 'index.ts');
     await waitForEditorModel(page, 'index.ts');
 
-    // Badge should appear (connecting or ready — language server may be fast)
     await expect(page.locator('[data-testid="lsp-status-badge"]')).toBeVisible({ timeout: 15000 });
 
-    // Eventually it must reach ready
     await waitForLspStatus(page, 'ready', 30000);
-    console.log('[LSP Test 1] TypeScript LSP reached ready state ✓');
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 2: Python LSP connects and badge reaches "ready"
-  // ═══════════════════════════════════════════════════════════════════════════
   test('2. LSP badge shows ready for a Python file', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspPy_${ts}`);
@@ -1945,12 +1686,8 @@ test.describe('LSP Integration (Language Intelligence)', () => {
 
     await expect(page.locator('[data-testid="lsp-status-badge"]')).toBeVisible({ timeout: 15000 });
     await waitForLspStatus(page, 'ready', 30000);
-    console.log('[LSP Test 2] Python LSP reached ready state ✓');
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 3: No LSP badge for unsupported file types (JSON, CSS, Markdown)
-  // ═══════════════════════════════════════════════════════════════════════════
   test('3. LSP badge does not appear for unsupported languages (JSON)', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspNone_${ts}`);
@@ -1963,16 +1700,11 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     await createFile(page, 'config.json');
     await waitForEditorModel(page, 'config.json');
 
-    // Wait long enough for LSP to show if it were going to
     await page.waitForTimeout(3000);
 
     await expect(page.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
-    console.log('[LSP Test 3] No LSP badge for JSON ✓');
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 4: TypeScript diagnostics — type error produces a red squiggle marker
-  // ═══════════════════════════════════════════════════════════════════════════
   test('4. TypeScript LSP emits diagnostics for a type error', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspDiag_${ts}`);
@@ -1985,28 +1717,20 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     await createFile(page, 'error.ts');
     await waitForEditorModel(page, 'error.ts');
 
-    // Wait for LSP to be ready before injecting code
     await waitForLspStatus(page, 'ready', 30000);
 
-    // This is a clear TypeScript type error: number assigned to string
     const errorCode = `const x: string = 42;`;
     await setEditorValue(page, errorCode);
 
-    // LSP sends publishDiagnostics after a debounce — wait up to 15s
     await expect.poll(async () => {
       const markers = await getMarkers(page);
-      console.log('[LSP Test 4] Current markers:', markers);
       return markers.length;
     }, { timeout: 15000, intervals: [1000, 2000, 3000] }).toBeGreaterThan(0);
 
     const markers = await getMarkers(page);
     expect(markers.some(m => m.toLowerCase().includes('string') || m.toLowerCase().includes('number') || m.toLowerCase().includes('assignable'))).toBe(true);
-    console.log('[LSP Test 4] TypeScript diagnostic received:', markers[0], '✓');
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 5: Python diagnostics — undefined name produces a marker
-  // ═══════════════════════════════════════════════════════════════════════════
   test('5. Python LSP (Pyright) emits diagnostics for an undefined variable', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspPyDiag_${ts}`);
@@ -2021,13 +1745,11 @@ test.describe('LSP Integration (Language Intelligence)', () => {
 
     await waitForLspStatus(page, 'ready', 30000);
 
-    // Calling an undefined function — Pyright should flag this
     const errorCode = `result = undefined_function_xyz()`;
     await setEditorValue(page, errorCode);
 
     await expect.poll(async () => {
       const markers = await getMarkers(page);
-      console.log('[LSP Test 5] Python markers:', markers);
       return markers.length;
     }, { timeout: 15000, intervals: [1000, 2000, 3000] }).toBeGreaterThan(0);
 
@@ -2037,12 +1759,8 @@ test.describe('LSP Integration (Language Intelligence)', () => {
       m.toLowerCase().includes('not defined') ||
       m.toLowerCase().includes('unknown')
     )).toBe(true);
-    console.log('[LSP Test 5] Python diagnostic received:', markers[0], '✓');
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 6: Diagnostics clear when error is fixed
-  // ═══════════════════════════════════════════════════════════════════════════
   test('6. Diagnostics clear when the type error is corrected', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspClear_${ts}`);
@@ -2056,21 +1774,13 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     await waitForEditorModel(page, 'fix.ts');
     await waitForLspStatus(page, 'ready', 30000);
 
-    // Introduce error
     await setEditorValue(page, `const x: string = 42;`);
     await expect.poll(async () => (await getMarkers(page)).length, { timeout: 15000 }).toBeGreaterThan(0);
-    console.log('[LSP Test 6] Error markers appeared ✓');
 
-    // Fix the error
     await setEditorValue(page, `const x: string = "hello";`);
     await expect.poll(async () => (await getMarkers(page)).length, { timeout: 15000 }).toBe(0);
-    console.log('[LSP Test 6] Markers cleared after fix ✓');
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 7: Viewer role — LSP WebSocket is rejected (no LSP badge shown)
-  // Viewers should not spawn language servers (resource protection: admin/editor only)
-  // ═══════════════════════════════════════════════════════════════════════════
   test('7. Viewer role cannot connect to LSP — no badge shown', async ({ page, context }) => {
     const alicePage = page;
     const bobPage = await context.browser()!.newContext().then(c => c.newPage());
@@ -2094,13 +1804,10 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     await bobPage.locator('.ide-scrollbar').getByText('secret.ts').click();
     await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
 
-    // Viewer: read-only badge visible, LSP badge must NOT appear
     await expect(bobPage.locator('text=View Only')).toBeVisible({ timeout: 10000 });
     await bobPage.waitForTimeout(5000);
     await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
-    console.log('[LSP Test 7] Viewer has no LSP badge ✓');
 
-    // Also verify at the API level — backend rejects viewer with 4403
     const wsRejectCode = await bobPage.evaluate(async ({ wsId }) => {
       const token = localStorage.getItem('token') ?? '';
       return new Promise<number>((resolve) => {
@@ -2119,15 +1826,10 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     }, { wsId: workspaceId });
 
     expect(wsRejectCode).toBe(4403);
-    console.log('[LSP Test 7] Backend rejected viewer WS with 4403 ✓');
 
     await bobPage.close();
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 8: Language switching — switching from .ts to .py starts a new LSP
-  // session and the badge reflects the new language server connecting/ready
-  // ═══════════════════════════════════════════════════════════════════════════
   test.skip('8. Switching from TypeScript to Python file reconnects to the correct LSP', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspSwitch_${ts}`);
@@ -2137,48 +1839,32 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     await page.waitForURL(/\/ide\/[a-f0-9-]+/);
     await waitForBootComplete(page);
 
-    // Create both files upfront
     await createFile(page, 'app.ts');
     await page.waitForTimeout(500);
     await createFile(page, 'script.py');
     await page.waitForTimeout(500);
 
-    // Open the TS file first
     await page.locator('.ide-scrollbar').getByText('app.ts').click();
     await page.waitForSelector('.monaco-editor', { timeout: 15000 });
     await waitForLspStatus(page, 'ready', 30000);
-    console.log('[LSP Test 8] TypeScript LSP ready on app.ts ✓');
 
-    // Write a TS error to confirm the TS LSP is active
     await setEditorValue(page, `const n: number = "not a number";`);
     await expect.poll(async () => (await getMarkers(page)).length, { timeout: 15000 }).toBeGreaterThan(0);
-    console.log('[LSP Test 8] TS diagnostic confirmed ✓');
 
-    // Now switch to the Python file
     await page.locator('.ide-scrollbar').getByText('script.py').click();
     await page.waitForTimeout(500); // let the TS LSP session close
 
-    // Badge should reconnect for Python
     await expect(page.locator('[data-testid="lsp-status-badge"]')).toBeVisible({ timeout: 10000 });
     await waitForLspStatus(page, 'ready', 30000);
-    console.log('[LSP Test 8] Python LSP ready on script.py ✓');
 
-    // Write a Python error, confirm Pyright diagnostics come through
     await setEditorValue(page, `x: int = "this is wrong"`);
     await expect.poll(async () => (await getMarkers(page)).length, { timeout: 15000 }).toBeGreaterThan(0);
-    console.log('[LSP Test 8] Python diagnostic on switch confirmed ✓');
 
-    // Switch back to TS — markers should be for TS, not Python
     await page.locator('.ide-scrollbar').getByText('app.ts').click();
     await waitForLspStatus(page, 'ready', 30000);
     const tsMarkers = await getMarkers(page);
-    console.log('[LSP Test 8] TS markers on return:', tsMarkers);
     expect(tsMarkers.length).toBeGreaterThan(0);
-    console.log('[LSP Test 8] Language switch round-trip ✓');
   });
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 9: LSP WebSocket endpoint rejects invalid/missing token
-  // ═══════════════════════════════════════════════════════════════════════════
   test('9. LSP WebSocket rejects connections with an invalid token', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspAuth_${ts}`);
@@ -2203,15 +1889,9 @@ test.describe('LSP Integration (Language Intelligence)', () => {
       });
     }, { wsId: workspaceId });
 
-    // 4401 = Invalid token (from lspHandler.ts), or 1006 / -1 if browser fails handshake
     expect([4401, 1006, -1]).toContain(closeCode);
-    console.log('[LSP Test 9] Invalid token rejected successfully ✓');
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TEST 10: Editor badge does NOT appear for viewer even after file switch
-  // Regression guard: ensure role check persists across file navigation
-  // ═══════════════════════════════════════════════════════════════════════════
   test('10. Viewer badge stays absent after switching files', async ({ page, context }) => {
     const alicePage = page;
     const bobPage = await context.browser()!.newContext().then(c => c.newPage());
@@ -2235,18 +1915,15 @@ test.describe('LSP Integration (Language Intelligence)', () => {
     await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
     await waitForBootComplete(bobPage);
 
-    // Check on first file
     await bobPage.locator('.ide-scrollbar').getByText('a.ts').click();
     await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
     await bobPage.waitForTimeout(3000);
     await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
 
-    // Switch file — badge must still not appear
     await bobPage.locator('.ide-scrollbar').getByText('b.py').click();
     await bobPage.waitForTimeout(3000);
     await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
 
-    console.log('[LSP Test 10] Viewer badge absent across file switches ✓');
     await bobPage.close();
   });
 });

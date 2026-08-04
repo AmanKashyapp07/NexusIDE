@@ -10,12 +10,10 @@ import {
 describe('Timelapse Logic', () => {
   it('snapshotFromYText correctly extracts text and author ranges', () => {
     const ydoc = new Y.Doc({ gc: false });
-    // Simulate user 1
     ydoc.clientID = 1;
     const ytext = ydoc.getText('monaco');
     ytext.insert(0, 'Hello');
 
-    // Simulate user 2
     ydoc.clientID = 2;
     ytext.insert(5, ' World');
 
@@ -29,13 +27,11 @@ describe('Timelapse Logic', () => {
   });
 
   it('buildFullFidelityTimeline reconstructs snapshots and activity', () => {
-    // We create some raw updates
     const updates: string[] = [];
     const ydoc = new Y.Doc({ gc: false });
     ydoc.clientID = 1;
     const ytext = ydoc.getText('monaco');
 
-    // First update
     ydoc.on('update', (u: Uint8Array) => {
       updates.push(btoa(String.fromCharCode(...u)));
     });
@@ -54,13 +50,6 @@ describe('Timelapse Logic', () => {
 
   it('downsampleActivity buckets correctly', () => {
     const activity = [1, 2, 3, 4, 5, 6, 7, 8];
-    // 8 items, into 4 buckets. Size = 2 per bucket.
-    // B0: 1+2 = 3
-    // B1: 3+4 = 7
-    // B2: 5+6 = 11
-    // B3: 7+8 = 15
-    // Max = 15.
-    // Normalized: 3/15, 7/15, 11/15, 15/15 -> 0.2, 0.466, 0.733, 1
     
     const buckets = downsampleActivity(activity, 4);
     
@@ -71,9 +60,6 @@ describe('Timelapse Logic', () => {
 
   it('offsetToPosition calculates monaco 1-based coordinates accurately', () => {
     const text = 'Line1\nLine2\nLine3';
-    // L1: 0-5
-    // L2: 6-11
-    // L3: 12-17
     
     expect(offsetToPosition(text, 0)).toEqual({ lineNumber: 1, column: 1 });
     expect(offsetToPosition(text, 2)).toEqual({ lineNumber: 1, column: 3 });

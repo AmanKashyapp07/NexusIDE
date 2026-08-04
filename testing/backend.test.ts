@@ -29,16 +29,12 @@ import {
   getYjsCacheStats
 } from '../backend/src/utils/yjsCache.js';
 
-// ─── MOCK SETUP ──────────────────────────────────────────────────────────────
-// Must happen before any import that calls getPool(), because ESM hoisting
-// means the module factory runs before the test body.
 
 const JWT_SECRET = 'test_secret';
 process.env.JWT_SECRET = JWT_SECRET;
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'silent';
 
-// ─── SHARED TEST FIXTURES ────────────────────────────────────────────────────
 
 const WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
 const FILE_ID      = '22222222-2222-2222-2222-222222222222';
@@ -46,13 +42,11 @@ const OWNER_ID     = '33333333-3333-3333-3333-333333333333';
 const COLLAB_ID    = '44444444-4444-4444-4444-444444444444';
 const VIEWER_ID    = '55555555-5555-5555-5555-555555555555';
 
-// Build signed JWTs for each persona
 const ownerToken   = jwt.sign({ id: OWNER_ID,  username: 'owner'  }, JWT_SECRET);
 const editorToken  = jwt.sign({ id: COLLAB_ID, username: 'editor' }, JWT_SECRET);
 const viewerToken  = jwt.sign({ id: VIEWER_ID, username: 'viewer' }, JWT_SECRET);
 const outsiderToken = jwt.sign({ id: '99999999-9999-9999-9999-999999999999', username: 'outsider' }, JWT_SECRET);
 
-// Helper: make a minimal Yjs state buffer containing `text`
 function makeYjsState(text: string): Buffer {
   const doc = new Y.Doc();
   if (text) doc.getText('monaco').insert(0, text);
@@ -61,15 +55,12 @@ function makeYjsState(text: string): Buffer {
   return buf;
 }
 
-// ─── MOCK POOL ────────────────────────────────────────────────────────────────
-// Each test suite resets `mockQuery` to control what the DB returns.
 let mockQuery: any;
 
 vi.mock('../backend/src/db', () => ({
   getPool: () => ({ query: (...args: any[]) => mockQuery(...args) }),
 }));
 
-// Mock heavy modules that are not under test
 vi.mock('../backend/src/sandbox/pool', () => ({
   warmPoolManager: { initializePools: vi.fn(), cleanup: vi.fn() },
   WORKSPACE_DATA_DIR: '/tmp/test-workspace',
@@ -92,9 +83,6 @@ vi.mock('../backend/src/terminal/lspHandler', () => ({
   handleLspConnection: vi.fn(),
 }));
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 1 — Yjs CRDT Fundamentals (pure in-process, no server)
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Yjs CRDT fundamentals', () => {
   it('encodes and re-applies state without data loss', () => {
     const doc = new Y.Doc();
@@ -109,7 +97,6 @@ describe('Yjs CRDT fundamentals', () => {
   });
 
   it('merges two independent concurrent edits (CRDT convergence)', () => {
-    // Client A and B both start from the same empty doc
     const base = new Y.Doc();
     const stateV0 = Y.encodeStateAsUpdate(base);
 
@@ -121,11 +108,9 @@ describe('Yjs CRDT fundamentals', () => {
     Y.applyUpdate(docB, stateV0);
     docB.getText('monaco').insert(0, 'World');
 
-    // Cross-apply each other's updates
     Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB));
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
 
-    // Both must converge to the same text (order may differ, but must be equal)
     expect(docA.getText('monaco').toString()).toBe(docB.getText('monaco').toString());
     expect(docA.getText('monaco').toString().length).toBeGreaterThan(0);
     base.destroy(); docA.destroy(); docB.destroy();
@@ -147,7 +132,6 @@ describe('Yjs CRDT fundamentals', () => {
   it('produces a valid (non-empty) state buffer for an empty doc', () => {
     const doc = new Y.Doc();
     const buf = Buffer.from(Y.encodeStateAsUpdate(doc));
-    // Even an empty Yjs doc has a non-zero state header
     expect(buf.length).toBeGreaterThan(0);
     doc.destroy();
   });
@@ -162,15 +146,11 @@ describe('Yjs CRDT fundamentals', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 2 — REST API: file creation writes initial Yjs state
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('POST /api/workspace/:id/files — initial Yjs state', () => {
   let app: any;
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    // Dynamically import AFTER mocks are registered
     const mod = await import('../backend/src/server.js');
     app = mod.app;
   });
@@ -179,17 +159,14 @@ describe('POST /api/workspace/:id/files — initial Yjs state', () => {
 
   function setupWorkspaceOwnerMock(extraFileQueryResult?: any) {
     mockQuery.mockImplementation((sql: string, params: any[]) => {
-      // workspaceAuth middleware: workspace lookup
       if (sql.includes('SELECT owner_id, is_public FROM workspaces')) {
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       }
-      // File insert
       if (sql.includes('INSERT INTO files')) {
         return Promise.resolve({
           rows: [{ id: FILE_ID, parent_id: null, name: params[1], type: params[2], language: params[4] }]
         });
       }
-      // Path resolution for terminal sync (fire-and-forget)
       if (sql.includes('WITH RECURSIVE cte')) {
         return Promise.resolve({ rows: [{ path: params[1] }] });
       }
@@ -229,7 +206,6 @@ describe('POST /api/workspace/:id/files — initial Yjs state', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ name: 'test.ts', type: 'file' });
 
-    // params[6] is the yjs_state value in the INSERT
     const yjsStateParam = capturedParams[6];
     expect(yjsStateParam).not.toBeNull();
     expect(Buffer.isBuffer(yjsStateParam)).toBe(true);
@@ -303,9 +279,6 @@ describe('POST /api/workspace/:id/files — initial Yjs state', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 3 — REST API: GET file content endpoint (fallback for stuck editors)
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('GET /api/workspace/:id/files/:fileId/content', () => {
   let app: any;
 
@@ -413,9 +386,6 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 4 — RBAC: viewer cannot write files
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('RBAC — viewer cannot create or delete files', () => {
   let app: any;
 
@@ -472,9 +442,6 @@ describe('RBAC — viewer cannot create or delete files', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 5 — WebSocket Auth: JWT validation and workspace access
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('WebSocket Yjs auth layer', () => {
   let server: any;
   let port: number;
@@ -498,7 +465,6 @@ describe('WebSocket Yjs auth layer', () => {
       client.on('close', (code, reasonBuf) => {
         resolve({ code, reason: reasonBuf.toString() });
       });
-      // If it stays open, resolve as connected (code 0 = success)
       setTimeout(() => { if (client.readyState === WebSocket.OPEN) { client.close(); resolve({ code: 0, reason: 'connected' }); } }, 500);
     });
   }
@@ -536,7 +502,6 @@ describe('WebSocket Yjs auth layer', () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
-      // bindState query
       if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
         return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
@@ -560,12 +525,8 @@ describe('WebSocket Yjs auth layer', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 6 — Persistence: bindState loads content from DB into Yjs doc
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Persistence — bindState content loading', () => {
   it('applyUpdate from a stored yjs_state correctly restores text', () => {
-    // Simulate what bindState does: read yjs_state from DB → applyUpdate → text is present
     const original = 'function hello() { return 42; }';
     const storedState = makeYjsState(original);
 
@@ -580,7 +541,6 @@ describe('Persistence — bindState content loading', () => {
     const legacyContent = 'legacy plain text content';
     const ydoc = new Y.Doc();
 
-    // Simulate the legacy path in bindState
     ydoc.getText('monaco').insert(0, legacyContent);
 
     expect(ydoc.getText('monaco').toString()).toBe(legacyContent);
@@ -602,7 +562,6 @@ describe('Persistence — bindState content loading', () => {
     const clientA = new Y.Doc();
     const clientB = new Y.Doc();
 
-    // Both clients receive the server state (simulates bindState for two connections)
     Y.applyUpdate(clientA, serverState);
     Y.applyUpdate(clientB, serverState);
 
@@ -612,21 +571,16 @@ describe('Persistence — bindState content loading', () => {
   });
 
   it('client B joining after A types sees As content via server state', () => {
-    // Server doc starts empty
     const serverDoc = new Y.Doc();
 
-    // Client A connects and types
     const clientA = new Y.Doc();
     Y.applyUpdate(clientA, Y.encodeStateAsUpdate(serverDoc)); // bindState: load empty
     clientA.getText('monaco').insert(0, 'Hello from A');
 
-    // A's update propagates to server doc (simulates y-websocket sync)
     Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(clientA));
 
-    // Server saves state (writeState / debounced save)
     const savedState = Y.encodeStateAsUpdate(serverDoc);
 
-    // Client B joins AFTER A has typed — bindState loads saved state
     const clientB = new Y.Doc();
     Y.applyUpdate(clientB, savedState);
 
@@ -637,23 +591,18 @@ describe('Persistence — bindState content loading', () => {
   it('client B joining WHILE A is editing receives merged state', () => {
     const serverDoc = new Y.Doc();
 
-    // A connects, server loads from DB (empty), A types
     const clientA = new Y.Doc();
     Y.applyUpdate(clientA, Y.encodeStateAsUpdate(serverDoc));
     clientA.getText('monaco').insert(0, 'Line 1\n');
 
-    // Sync A → server (this is what the y-websocket protocol does in real-time)
     Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(clientA));
 
-    // B connects — bindState gives current in-memory server state
     const clientB = new Y.Doc();
     Y.applyUpdate(clientB, Y.encodeStateAsUpdate(serverDoc));
 
-    // A types more AFTER B joined
     clientA.getText('monaco').insert(clientA.getText('monaco').length, 'Line 2\n');
     Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(clientA));
 
-    // Server broadcasts delta to B
     Y.applyUpdate(clientB, Y.encodeStateAsUpdate(serverDoc));
 
     expect(clientB.getText('monaco').toString()).toContain('Line 1');
@@ -662,9 +611,6 @@ describe('Persistence — bindState content loading', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 7 — Test login endpoint
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('POST /api/auth/test-login', () => {
   let app: any;
 
@@ -693,7 +639,6 @@ describe('POST /api/auth/test-login', () => {
     expect(res.status).toBe(200);
     expect(res.body.token).toBeTruthy();
     expect(res.body.user.username).toBe('testuser');
-    // Verify the JWT is valid
     const decoded = jwt.verify(res.body.token, JWT_SECRET) as any;
     expect(decoded.username).toBe('testuser');
   });
@@ -728,9 +673,6 @@ describe('POST /api/auth/test-login', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 8 — Socket.IO presence events
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Socket.IO presence channel', () => {
   let server: any;
   let port: number;
@@ -786,9 +728,6 @@ describe('Socket.IO presence channel', () => {
 });
 
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 9 — Workspace Lifecycle & Operations
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Workspace Lifecycle & Operations', () => {
   let app: any;
   beforeEach(async () => {
@@ -850,9 +789,6 @@ describe('Workspace Lifecycle & Operations', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 10 — Advanced RBAC & Collaborator Management
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Advanced RBAC & Collaborator Management', () => {
   let app: any;
   beforeEach(async () => {
@@ -885,9 +821,6 @@ describe('Advanced RBAC & Collaborator Management', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 11 — File Tree & Deletion Rigor
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('File Tree & Deletion Rigor', () => {
   let app: any;
   beforeEach(async () => {
@@ -927,9 +860,6 @@ describe('File Tree & Deletion Rigor', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 12 — Multi-User Collaboration Engine (E2E Integration)
-// ═══════════════════════════════════════════════════════════════════════════════
 import { WebsocketProvider } from 'y-websocket';
 
 describe('Multi-User Collaboration Engine (E2E Integration)', () => {
@@ -970,12 +900,10 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
       wsProviderB.on('status', (event: any) => { if (event.status === 'connected') resolve(); });
     });
 
-    // Wait a tiny bit for the server to send the initial bindState sync to both
     await new Promise(r => setTimeout(r, 100));
 
     docA.getText('monaco').insert(0, 'Hello from A');
     
-    // Wait for it to sync to B
     await new Promise<void>(resolve => {
       const check = () => {
         if (docB.getText('monaco').toString() === 'Hello from A') {
@@ -1008,10 +936,8 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
       wsProviderV.on('status', (event: any) => { if (event.status === 'connected') resolve(); });
     });
 
-    // Viewer tries to edit
     docV.getText('monaco').insert(0, 'Illegal Edit');
 
-    // Wait for the sync to be ignored by server
     await new Promise(r => setTimeout(r, 100));
     
     wsProviderV.disconnect();
@@ -1033,14 +959,12 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
     clientA.emit('join-workspace', { workspaceId: WORKSPACE_ID });
     clientB.emit('join-workspace', { workspaceId: WORKSPACE_ID });
 
-    // Wait for B to receive file-tree-update when A broadcasts
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('timeout')), 2000);
       clientB.on('file-tree-update', () => {
         clearTimeout(timeout);
         resolve();
       });
-      // A broadcasts after short delay to ensure both joined
       setTimeout(() => {
         clientA.emit('broadcast-file-tree', { workspaceId: WORKSPACE_ID });
       }, 100);
@@ -1069,23 +993,18 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
       new Promise<void>(resolve => wsProviderB.on('status', (event: any) => { if (event.status === 'connected') resolve(); }))
     ]);
 
-    // B disconnects (leaves the workspace)
     wsProviderB.disconnect();
 
-    // A makes edits while B is gone
     docA.getText('monaco').insert(docA.getText('monaco').toString().length, '\nadded by A while B was away');
 
-    // Wait a tiny bit to make sure B is fully disconnected and A's changes are updated on server
     await new Promise(r => setTimeout(r, 100));
 
-    // B reconnects (joins back)
     wsProviderB.connect();
 
     await new Promise<void>(resolve => {
       wsProviderB.on('status', (event: any) => { if (event.status === 'connected') resolve(); });
     });
 
-    // Wait for the new updates to synchronize to B
     await new Promise<void>(resolve => {
       const check = () => {
         if (docB.getText('monaco').toString().includes('added by A while B was away')) {
@@ -1125,7 +1044,6 @@ describe("Chaos & Concurrency Load Testing", () => {
   it("rapidly connects and disconnects 20 sockets without memory leaks", async () => {
     const clients: any[] = [];
     
-    // Rapidly open 20 connections
     for (let i = 0; i < 20; i++) {
       const doc = new Y.Doc();
       const wsProvider = new WebsocketProvider(wsUrl, `${WORKSPACE_ID}-${FILE_ID}`, doc, {
@@ -1135,7 +1053,6 @@ describe("Chaos & Concurrency Load Testing", () => {
       clients.push(wsProvider);
     }
     
-    // Wait for all 20 to connect
     await new Promise<void>((resolve) => {
       let connections = 0;
       clients.forEach(c => {
@@ -1150,12 +1067,10 @@ describe("Chaos & Concurrency Load Testing", () => {
 
     const connectedCount = 20;
     
-    // Rapidly close all 20 connections
     clients.forEach(c => {
       c.destroy();
     });
     
-    // If it did not crash or throw max listeners warning, it passes!
     expect(connectedCount).toBeGreaterThan(0); // At least some should have connected in 500ms
   }, 10000);
 
@@ -1172,7 +1087,6 @@ describe("Chaos & Concurrency Load Testing", () => {
       clients.push({ doc, provider });
     }
 
-    // Wait for all clients to connect
     await new Promise<void>((resolve) => {
       let connections = 0;
       clients.forEach(c => {
@@ -1185,15 +1099,12 @@ describe("Chaos & Concurrency Load Testing", () => {
       });
     });
 
-    // 10 clients instantly type at the exact same time
     clients.forEach((c, index) => {
       c.doc.getText("monaco").insert(0, `[Client${index}]`);
     });
 
-    // Wait 2 seconds for Yjs CRDT diffs to cross the wire and converge
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Verify convergence: All 10 docs must have EXACTLY the same length and content
     const finalContent = clients[0]!.doc.getText("monaco").toString();
     expect(finalContent.length).toBeGreaterThan(0);
 
@@ -1201,14 +1112,10 @@ describe("Chaos & Concurrency Load Testing", () => {
       expect(clients[i]!.doc.getText("monaco").toString()).toBe(finalContent);
     }
 
-    // Clean up
     clients.forEach(c => c.provider.destroy());
   }, 10000);
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 13 — IDE Awareness (Cursors & Selections)
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('IDE Awareness (Cursors, Selections, and Presence)', () => {
   let server: any;
   let port: number;
@@ -1244,7 +1151,6 @@ describe('IDE Awareness (Cursors, Selections, and Presence)', () => {
       new Promise<void>(resolve => wsB.on('status', (e: any) => { if (e.status === 'connected') resolve(); }))
     ]);
 
-    // Client A sets their cursor position
     const cursorState = { index: 15, length: 0, user: { name: 'owner', color: '#ff0000' } };
     
     await new Promise<void>(resolve => {
@@ -1268,9 +1174,6 @@ describe('IDE Awareness (Cursors, Selections, and Presence)', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 14 — Network Resiliency & Offline Edits
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Network Resiliency & Offline Sync', () => {
   let server: any;
   let port: number;
@@ -1306,18 +1209,13 @@ describe('Network Resiliency & Offline Sync', () => {
       new Promise<void>(resolve => wsB.on('status', (e: any) => { if (e.status === 'connected') resolve(); }))
     ]);
 
-    // Disconnect A entirely
     wsA.disconnect();
 
-    // Client A types while offline
     docA.getText('monaco').insert(0, 'Offline Edit By A. ');
-    // Client B types while online
     docB.getText('monaco').insert(0, 'Online Edit By B. ');
 
-    // Reconnect A
     wsA.connect();
 
-    // Wait for mutual convergence
     await new Promise<void>(resolve => {
       const check = () => {
         const textA = docA.getText('monaco').toString();
@@ -1338,15 +1236,11 @@ describe('Network Resiliency & Offline Sync', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 15 — IDE Edge Cases: Large Payloads & Rapid Interleaved Edits
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('IDE Edge Cases: Large Payloads & Interleaved Edits', () => {
   it('handles massive copy-paste operations without overflowing call stacks', () => {
     const docA = new Y.Doc();
     const docB = new Y.Doc();
 
-    // Generate a 500,000 character string (e.g. copying a huge minified file)
     const massivePayload = 'console.log("hello");\n'.repeat(25000); 
     
     docA.getText('monaco').insert(0, massivePayload);
@@ -1369,19 +1263,15 @@ describe('IDE Edge Cases: Large Payloads & Interleaved Edits', () => {
     const docA = new Y.Doc(); Y.applyUpdate(docA, update);
     const docB = new Y.Doc(); Y.applyUpdate(docB, update);
 
-    // Client A deletes "state" and types "broken"
     docA.getText('monaco').delete(8, 5); 
     docA.getText('monaco').insert(8, 'broken');
 
-    // Client B concurrently deletes "string" and types "data" at the end
     docB.getText('monaco').delete(14, 6);
     docB.getText('monaco').insert(14, 'data');
 
-    // Cross-apply
     Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB));
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
 
-    // Expected convergence: "initial broken data"
     expect(docA.getText('monaco').toString()).toBe('initial broken data');
     expect(docB.getText('monaco').toString()).toBe('initial broken data');
     
@@ -1389,37 +1279,26 @@ describe('IDE Edge Cases: Large Payloads & Interleaved Edits', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 16 — Yjs Undo/Redo Manager Integration
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Yjs Undo/Redo Manager Integration', () => {
   it('correctly manages local undo stack without affecting remote peers unrelated edits', () => {
     const docA = new Y.Doc();
     const docB = new Y.Doc();
     
-    // Bind an UndoManager to Client A's text type
     const yTextA = docA.getText('monaco');
     const undoManagerA = new Y.UndoManager(yTextA);
 
-    // A types something
     yTextA.insert(0, 'const a = 1;');
     
-    // Sync to B
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
 
-    // B types something elsewhere
     docB.getText('monaco').insert(12, '\nconst b = 2;');
     
-    // Sync B back to A with 'remote' origin so UndoManager ignores it
     Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'remote');
 
-    // A hits undo. It should ONLY undo A's insertion, not B's insertion.
     undoManagerA.undo();
 
-    // B's text should still remain in A's doc
     expect(yTextA.toString()).toBe('\nconst b = 2;');
     
-    // A hits redo
     undoManagerA.redo();
     
     expect(yTextA.toString()).toBe('const a = 1;\nconst b = 2;');
@@ -1429,43 +1308,30 @@ describe('Yjs Undo/Redo Manager Integration', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 21 — CRDT Deep Dives: Merge Conflicts, GC & State Vectors
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('CRDT Deep Dives: Merge Conflicts, GC & State Vectors', () => {
   it('resolves Split-Brain (Network Partition) cleanly without duplication', () => {
-    // 1. Initial State
     const serverDoc = new Y.Doc();
     serverDoc.getText('monaco').insert(0, 'function init() {}');
     const initialState = Y.encodeStateAsUpdate(serverDoc);
 
-    // 2. Clients A and B sync the initial state
     const docA = new Y.Doc(); Y.applyUpdate(docA, initialState);
     const docB = new Y.Doc(); Y.applyUpdate(docB, initialState);
 
-    // 3. NETWORK PARTITION: Clients A and B disconnect from the server.
-    // They both make complex, conflicting edits offline.
     docA.getText('monaco').insert(16, '\n  console.log("A");\n');
     docB.getText('monaco').insert(16, '\n  return true;\n');
 
-    // 4. RECONNECTION & MERGE: They reconnect and sync back to the server.
-    // We simulate the Yjs Sync Protocol (State Vectors)
     const serverStateVector = Y.encodeStateVector(serverDoc);
     
-    // Server requests missing updates from A and B using its current state vector
     const diffA = Y.encodeStateAsUpdate(docA, serverStateVector);
     const diffB = Y.encodeStateAsUpdate(docB, serverStateVector);
 
-    // Server applies both diffs
     Y.applyUpdate(serverDoc, diffA);
     Y.applyUpdate(serverDoc, diffB);
 
-    // 5. Cross-sync back to clients
     const finalServerUpdate = Y.encodeStateAsUpdate(serverDoc);
     Y.applyUpdate(docA, finalServerUpdate);
     Y.applyUpdate(docB, finalServerUpdate);
 
-    // ALL THREE must converge to the exact same string
     const textServer = serverDoc.getText('monaco').toString();
     const textA = docA.getText('monaco').toString();
     const textB = docB.getText('monaco').toString();
@@ -1473,7 +1339,6 @@ describe('CRDT Deep Dives: Merge Conflicts, GC & State Vectors', () => {
     expect(textA).toBe(textServer);
     expect(textB).toBe(textServer);
     
-    // Ensure no data was lost, just merged (order is deterministic based on client ID)
     expect(textServer).toContain('console.log("A");');
     expect(textServer).toContain('return true;');
     
@@ -1482,24 +1347,19 @@ describe('CRDT Deep Dives: Merge Conflicts, GC & State Vectors', () => {
 
   it('performs Garbage Collection (GC) on deleted characters to prevent memory leaks', () => {
     const doc = new Y.Doc();
-    // Yjs enables GC by default, but we explicitly ensure it's active
     doc.gc = true; 
 
     const text = doc.getText('monaco');
     
-    // Insert a huge string
     const hugeString = 'A'.repeat(100000);
     text.insert(0, hugeString);
     
     const sizeAfterInsert = Y.encodeStateAsUpdate(doc).byteLength;
 
-    // Delete the entire string
     text.delete(0, hugeString.length);
 
     const sizeAfterDelete = Y.encodeStateAsUpdate(doc).byteLength;
 
-    // Because GC is enabled, the tombstones of the deleted characters are compressed.
-    // The state update size should shrink massively, not stay large.
     expect(sizeAfterDelete).toBeLessThan(sizeAfterInsert / 10);
     expect(text.toString()).toBe('');
     
@@ -1511,34 +1371,26 @@ describe('CRDT Deep Dives: Merge Conflicts, GC & State Vectors', () => {
     const docB = new Y.Doc();
     
     const textA = docA.getText('monaco');
-    // Track origin 'local' for Client A
     const undoManager = new Y.UndoManager(textA, { captureTimeout: 0, trackedOrigins: new Set(['local']) });
 
-    // Client A types (Origin: 'local')
     docA.transact(() => {
       textA.insert(0, 'Client A typed this.\n');
     }, 'local');
 
-    // Sync A to B
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
 
-    // Client B types (Origin: 'remote-B')
     docB.transact(() => {
       docB.getText('monaco').insert(21, 'Client B typed this.');
     }, 'remote-B');
 
-    // Sync B to A (Client A receives this as a remote update)
-    // We apply it with a different origin so the UndoManager ignores it
     docA.transact(() => {
       Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB));
     }, 'remote');
 
     expect(textA.toString()).toContain('Client B');
 
-    // Client A triggers UNDO
     undoManager.undo();
 
-    // EXPECTATION: Client A's text is gone, but Client B's text REMAINS.
     expect(textA.toString()).not.toContain('Client A typed this.');
     expect(textA.toString()).toContain('Client B typed this.');
 
@@ -1547,32 +1399,22 @@ describe('CRDT Deep Dives: Merge Conflicts, GC & State Vectors', () => {
 });
 
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 17 — Rename Preservation (fileId stability across renames)
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Rename Preservation — fileId stability across renames', () => {
   it('inode-matched rename preserves fileId and Yjs content (no delete+recreate)', () => {
-    // Simulates what the watcher should do when it detects a rename via inode match.
-    // The key invariant: the Yjs room name stays the same because fileId doesn't change.
 
     const fileId = FILE_ID;
     const workspaceId = WORKSPACE_ID;
 
-    // Before rename: file has content in its Yjs doc
     const serverDoc = new Y.Doc();
     serverDoc.getText('monaco').insert(0, 'content before rename');
     const savedState = Y.encodeStateAsUpdate(serverDoc);
 
-    // After rename (old path gone, new path appeared, same inode)
-    // The watcher calls dbRenameFile(workspaceId, fileId, newPath) — fileId is preserved.
-    // A client connecting to the SAME room (workspaceId-fileId) should still see the content.
 
     const clientAfterRename = new Y.Doc();
     Y.applyUpdate(clientAfterRename, savedState);
 
     expect(clientAfterRename.getText('monaco').toString()).toBe('content before rename');
 
-    // The room name hasn't changed because fileId hasn't changed
     const roomName = `${workspaceId}-${fileId}`;
     expect(roomName).toBe(`${WORKSPACE_ID}-${FILE_ID}`);
 
@@ -1581,23 +1423,17 @@ describe('Rename Preservation — fileId stability across renames', () => {
   });
 
   it('delete+recreate (no inode match) results in empty doc for new fileId', () => {
-    // When a file is genuinely deleted and a new one created (different inode),
-    // the new file gets a NEW fileId, and its Yjs doc starts empty.
 
     const oldFileId = FILE_ID;
     const newFileId = '66666666-6666-6666-6666-666666666666';
 
-    // Old file had content
     const oldDoc = new Y.Doc();
     oldDoc.getText('monaco').insert(0, 'old content');
     const oldState = Y.encodeStateAsUpdate(oldDoc);
 
-    // New file starts fresh (different room name)
     const newDoc = new Y.Doc();
-    // No state applied — brand new doc for the new fileId
     expect(newDoc.getText('monaco').toString()).toBe('');
 
-    // Room names are different
     const oldRoom = `${WORKSPACE_ID}-${oldFileId}`;
     const newRoom = `${WORKSPACE_ID}-${newFileId}`;
     expect(oldRoom).not.toBe(newRoom);
@@ -1607,23 +1443,18 @@ describe('Rename Preservation — fileId stability across renames', () => {
   });
 
   it('after rename, typing in the renamed file syncs to other clients via same room', () => {
-    // Simulates: Alice and Bob both have the file open, file gets renamed,
-    // they reconnect to the same room (fileId unchanged), and continue collaborating.
 
     const serverDoc = new Y.Doc();
     serverDoc.getText('monaco').insert(0, 'before rename');
     const stateAfterRename = Y.encodeStateAsUpdate(serverDoc);
 
-    // Both clients reconnect to the same room after rename
     const alice = new Y.Doc();
     const bob = new Y.Doc();
     Y.applyUpdate(alice, stateAfterRename);
     Y.applyUpdate(bob, stateAfterRename);
 
-    // Bob types after rename
     bob.getText('monaco').insert(bob.getText('monaco').length, '\nAFTER rename');
 
-    // Sync bob → server → alice
     Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(bob));
     Y.applyUpdate(alice, Y.encodeStateAsUpdate(serverDoc));
 
@@ -1636,9 +1467,6 @@ describe('Rename Preservation — fileId stability across renames', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 18 — Disconnect → Persist → Rejoin Lifecycle
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Disconnect → Persist → Rejoin Lifecycle', () => {
   let server: any;
   let port: number;
@@ -1657,8 +1485,6 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
   });
 
   it('rapid file switching (disconnect/reconnect to different rooms) preserves each file', async () => {
-    // Simulates Test 9 scenario: user rapidly switches between files.
-    // Each switch = disconnect from old room + connect to new room.
     const FILE_A = '22222222-2222-2222-2222-aaaaaaaaaaaa';
     const FILE_B = '22222222-2222-2222-2222-bbbbbbbbbbbb';
 
@@ -1668,22 +1494,17 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT content, yjs_state, author_map FROM files')) {
-        // Check which file is being requested based on room
         const fileId = params?.[0]; // Won't work directly — but the server uses docName parsing
-        // Return empty for both initially
         const stateA = persistedStates.get(FILE_A);
         const stateB = persistedStates.get(FILE_B);
-        // We can't distinguish here easily, so return empty (server handles fresh docs)
         return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       }
       if (sql.includes('UPDATE files SET yjs_state')) {
-        // We'd need the file ID — for this test we just verify no crash
         return Promise.resolve({ rows: [] });
       }
       return Promise.resolve({ rows: [] });
     });
 
-    // Alice types in file-a
     const docA1 = new Y.Doc();
     const provA1 = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_A}`, docA1, {
       WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
@@ -1693,7 +1514,6 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
     docA1.getText('monaco').insert(0, 'file-a content');
     await new Promise(r => setTimeout(r, 100));
 
-    // Alice types in file-b
     const docB1 = new Y.Doc();
     const provB1 = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_B}`, docB1, {
       WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
@@ -1703,7 +1523,6 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
     docB1.getText('monaco').insert(0, 'file-b content');
     await new Promise(r => setTimeout(r, 100));
 
-    // Bob rapidly switches: connects to A, disconnects, connects to B, disconnects, connects to B again
     const docBobA = new Y.Doc();
     const provBobA = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_A}`, docBobA, {
       WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
@@ -1711,11 +1530,9 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
     await new Promise<void>(resolve => provBobA.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
     await new Promise(r => setTimeout(r, 100));
 
-    // Bob should see file-a content
     expect(docBobA.getText('monaco').toString()).toBe('file-a content');
     provBobA.disconnect();
 
-    // Bob switches to file-b
     const docBobB = new Y.Doc();
     const provBobB = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_B}`, docBobB, {
       WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
@@ -1723,17 +1540,13 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
     await new Promise<void>(resolve => provBobB.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
     await new Promise(r => setTimeout(r, 100));
 
-    // Bob should see file-b content (not file-a, not empty)
     expect(docBobB.getText('monaco').toString()).toBe('file-b content');
 
-    // Cleanup
     provA1.disconnect(); provB1.disconnect(); provBobB.disconnect();
     provA1.destroy(); provB1.destroy(); provBobA.destroy(); provBobB.destroy();
   }, 10000);
 
   it('late-joining user receives content from an active room without DB reload', async () => {
-    // Simulates Test 12: Alice is still in a file room typing. Bob joins late.
-    // Server doc is warm in memory (Alice is connected), so Bob gets it directly.
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
@@ -1744,7 +1557,6 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
       return Promise.resolve({ rows: [] });
     });
 
-    // Alice connects and types
     const docAlice = new Y.Doc();
     const provAlice = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docAlice, {
       WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
@@ -1755,14 +1567,12 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
     docAlice.getText('monaco').insert(0, 'alice typed this for late joiner');
     await new Promise(r => setTimeout(r, 100));
 
-    // Bob joins LATE — Alice is still connected, so server doc is warm
     const docBob = new Y.Doc();
     const provBob = new WebsocketProvider(`ws://localhost:${port}`, `${WORKSPACE_ID}-${FILE_ID}`, docBob, {
       WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
     });
     await new Promise<void>(resolve => provBob.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
 
-    // Wait for sync
     await new Promise<void>(resolve => {
       const check = () => {
         if (docBob.getText('monaco').toString() === 'alice typed this for late joiner') {
@@ -1781,9 +1591,6 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
   }, 10000);
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 19 — Docs Map Lifecycle (registration and eviction)
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Docs Map Lifecycle — registration and eviction', () => {
   let server: any;
   let port: number;
@@ -1827,16 +1634,13 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
     await new Promise<void>(resolve => provider.on('status', (e: any) => { if (e.status === 'connected') resolve(); }));
     await new Promise(r => setTimeout(r, 50));
 
-    // Doc should now be in the map
     expect(docsMap.has(docName)).toBe(true);
 
     provider.disconnect();
     provider.destroy();
 
-    // Wait for close handler to evict
     await new Promise(r => setTimeout(r, 300));
 
-    // Doc should be removed after last client leaves
     expect(docsMap.has(docName)).toBe(false);
   }, 10000);
 
@@ -1860,14 +1664,12 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
 
     expect(docsMap.has(docName)).toBe(true);
 
-    // Disconnect A — B is still connected, so doc should remain
     provA.disconnect();
     provA.destroy();
     await new Promise(r => setTimeout(r, 200));
 
     expect(docsMap.has(docName)).toBe(true);
 
-    // Disconnect B — now doc should be evicted
     provB.disconnect();
     provB.destroy();
     await new Promise(r => setTimeout(r, 300));
@@ -1893,7 +1695,6 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
       return Promise.resolve({ rows: [] });
     });
 
-    // First client connects — triggers DB load #1
     const doc1 = new Y.Doc();
     const prov1 = new WebsocketProvider(`ws://localhost:${port}`, docName, doc1, {
       WebSocketPolyfill: WebSocket as any, params: { token: ownerToken }
@@ -1903,13 +1704,11 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
 
     expect(doc1.getText('monaco').toString()).toBe('load #1');
 
-    // Disconnect — evicts the doc
     prov1.disconnect();
     prov1.destroy();
     await new Promise(r => setTimeout(r, 300));
     expect(docsMap.has(docName)).toBe(false);
 
-    // Second client connects — should trigger DB load #2 (fresh load, not cached)
     const doc2 = new Y.Doc();
     const prov2 = new WebsocketProvider(`ws://localhost:${port}`, docName, doc2, {
       WebSocketPolyfill: WebSocket as any, params: { token: editorToken }
@@ -1934,9 +1733,6 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
   }, 10000);
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 10 — Yjs Cache Unit Tests
-// ═══════════════════════════════════════════════════════════════════════════════
 describe('Yjs Cache - Unit Tests', () => {
   const TEST_FILE_ID = '00000000-0000-0000-0000-000000000999';
   

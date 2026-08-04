@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
-// Mock ResizeObserver for Monaco Editor
 class ResizeObserverMock {
   observe() {}
   unobserve() {}
@@ -9,7 +8,6 @@ class ResizeObserverMock {
 }
 global.ResizeObserver = ResizeObserverMock;
 
-// Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation(query => ({
@@ -24,16 +22,13 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// Mock document.queryCommandSupported
 document.queryCommandSupported = vi.fn().mockReturnValue(true);
 
-// Polyfill text encoding/decoding if not present (sometimes jsdom lacks them)
 if (typeof global.TextEncoder === 'undefined') {
   const { TextEncoder, TextDecoder } = require('util');
   global.TextEncoder = TextEncoder;
   global.TextDecoder = TextDecoder;
 }
-// Mock global WebSocket to bypass Node.js/JSDOM Event target prototype mismatch bug
 class MockWebSocket {
   static CONNECTING = 0;
   static OPEN = 1;
