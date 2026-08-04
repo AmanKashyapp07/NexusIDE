@@ -33,7 +33,6 @@ interface CreateState {
   parentId: string | null;
 }
 
-// Helper to give a touch of color to files based on extension, matching modern IDEs
 const getFileColor = (name: string) => {
   const lower = name.toLowerCase();
   if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text-[#3178c6]';
@@ -44,6 +43,16 @@ const getFileColor = (name: string) => {
   if (lower.endsWith('.json')) return 'text-[#cbd5e1]';
   if (lower.endsWith('.md')) return 'text-[#3b82f6]';
   return 'text-zinc-400';
+};
+
+const styles = {
+  container: 'flex h-full w-full flex-col border-r border-ide-subtle bg-[#181818] text-ide-text',
+  header: 'flex items-center justify-between px-4 py-2.5',
+  headerTitle: 'text-[11px] font-semibold uppercase tracking-wider text-zinc-400',
+  treeContainer: 'ide-scrollbar flex-1 overflow-y-auto py-1 outline-none',
+  nodeActive: 'bg-ide-active text-white',
+  nodeInactive: 'text-ide-text hover:bg-ide-hover hover:text-white',
+  input: 'h-6 flex-1 rounded-[3px] border border-[#007fd4] bg-ide-panel px-1.5 text-[13px] text-zinc-200 shadow-sm outline-none font-mono',
 };
 
 export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreate, onFileDelete, onRefresh, readOnly = false }: SidebarProps) {
@@ -153,7 +162,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
             if (e.key === 'Escape') cancelCreate();
           }}
           onBlur={cancelCreate}
-          className="h-6 flex-1 rounded-[3px] border border-[#007fd4] bg-[#252526] px-1.5 text-[13px] text-zinc-200 shadow-sm outline-none font-mono"
+          className={styles.input}
         />
       </div>
     );
@@ -180,9 +189,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
             }}
             style={{ paddingLeft: `${depth * 12 + 4}px` }}
             className={`group relative flex h-[26px] cursor-pointer items-center justify-between pr-2 transition-none ${
-              isActive
-                ? 'bg-[#37373d] text-white'
-                : 'text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white'
+              isActive ? styles.nodeActive : styles.nodeInactive
             }`}
           >
             {isActive && (
@@ -262,7 +269,6 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
 
           {isFolder && (isExpanded || isCreatingInsideThisFolder) && (
             <div className="relative">
-              {/* Hierarchy guide line */}
               <div 
                 className="absolute bottom-0 top-0 border-l border-white/10" 
                 style={{ left: `${depth * 12 + 15}px` }} 
@@ -278,32 +284,9 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
     });
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-[#2b2b2b] bg-[#181818] text-[#cccccc]">
-      <style>
-        {`
-          .ide-scrollbar::-webkit-scrollbar {
-            width: 10px;
-            height: 10px;
-          }
-          .ide-scrollbar::-webkit-scrollbar-track {
-            background: transparent;
-          }
-          .ide-scrollbar::-webkit-scrollbar-thumb {
-            background: transparent;
-            border: 3px solid #181818;
-            border-radius: 6px;
-          }
-          .ide-scrollbar:hover::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-          }
-          .ide-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-          }
-        `}
-      </style>
-      
-      <div className="flex items-center justify-between px-4 py-2.5">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Explorer</span>
+    <div className={styles.container}>
+      <div className={styles.header}>
+        <span className={styles.headerTitle}>Explorer</span>
         {!readOnly && (
           <div className="flex items-center gap-0.5">
             {onRefresh && (
@@ -333,7 +316,7 @@ export default function Sidebar({ files, activeFileId, onFileSelect, onFileCreat
         )}
       </div>
 
-      <div className="ide-scrollbar flex-1 overflow-y-auto py-1 outline-none">
+      <div className={styles.treeContainer}>
         {createState?.parentId === null && renderInlineInput(0)}
         {renderNodes(fileTree.rootNodes)}
       </div>

@@ -1,11 +1,33 @@
+/**
+ * Purpose: Centralized in-memory registry for active Yjs document room promises and eviction routines.
+ * High-Level Architecture: Global Map registry tracking shared `WSSharedDoc` promises to prevent duplicate room creation and coordinate workspace snapshot eviction.
+ * Primary Trade-offs: Holding unresolved promises in a Map enables atomic single-flight room resolution across concurrent WebSocket connection attempts.
+ * Complexity: O(N) traversal over active document keys during workspace-level eviction operations.
+ */
+
 import type { WebSocket } from 'ws';
 
+// =============================================================================
+// GLOBAL DOCUMENT REGISTRY INSTANCE
+// =============================================================================
+
+// INTENT: Store active in-memory document promises keyed by docName (`workspaceId-fileId`).
+// WHY: Deduplicates parallel load attempts and provides single-point management for room eviction.
 const docs = new Map<string, Promise<any>>();
 
+// INTENT: Expose global document Map instance.
 export function getDocsMap(): Map<string, Promise<any>> {
    return docs;
 }
 
+// =============================================================================
+// DOCUMENT EVICTION & CLEANUP ROUTINES
+// =============================================================================
+
+// INTENT: Forcefully terminate active WebSocket connections, cancel debounced save timers, and evict all rooms associated with a workspace.
+// WHY: Used during workspace deletion or snapshot restoration to prevent stale in-memory Yjs documents from overwriting new state.
+// EDGE CASE: Properly handles socket errors during disconnect and clears active connection Maps to prevent memory leaks.
+// INTERVIEW NOTES: Closing client sockets with 4100 closure code signals the client to clear local editor buffers and reload state.
 export async function cancelAndEvictWorkspaceDocs(workspaceId: string): Promise<void> {
    for (const [docName, docPromise] of docs.entries()) {
       if (!docName.startsWith(workspaceId)) continue;
@@ -38,6 +60,13 @@ export async function cancelAndEvictWorkspaceDocs(workspaceId: string): Promise<
    }
 }
 
+// =============================================================================
+// CRDT LIVE STATE RE-HYDRATION
+// =============================================================================
+
+// INTENT: Atomic mutation of live Yjs text instances during snapshot restoration.
+// WHY: Wraps document text replacement inside a single `doc.transact(...)` block to generate a unified CRDT delta update for connected clients.
+// INTERVIEW NOTES: `doc.transact(...)` emits a single delta update packet, eliminating UI flicker or partial text rendering across connected peers.
 export async function applyRestoredContentToLiveDocs(
    workspaceId: string, 
    restoredFiles: { fileId: string; content: string }[]
@@ -75,6 +104,7 @@ export async function applyRestoredContentToLiveDocs(
    }
 }
 
+// INTENT: Alias for `cancelAndEvictWorkspaceDocs`.
 export async function evictWorkspaceDocs(workspaceId: string): Promise<void> {
    return cancelAndEvictWorkspaceDocs(workspaceId);
 }

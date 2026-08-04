@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { X, Check, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, Check } from 'lucide-react';
 import { apiUrl } from '../../lib/backendUrls';
 import { useToast } from '../Toast/Toast';
 
@@ -19,6 +19,16 @@ interface ConflictResolverProps {
   onClose: () => void;
   onResolved: () => void;
 }
+
+const styles = {
+  loadingOverlay: 'absolute inset-0 z-50 flex items-center justify-center bg-[#050505]/80 backdrop-blur-sm',
+  container: 'absolute inset-0 z-50 flex flex-col bg-ide-bg overflow-hidden',
+  header: 'flex h-14 shrink-0 items-center justify-between border-b border-ide-subtle bg-ide-panel px-6 shadow-sm',
+  cancelBtn: 'px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white transition-colors',
+  submitBtn: 'flex items-center gap-2 rounded-md bg-indigo-500 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed',
+  body: 'flex-1 overflow-y-auto p-6',
+  unchangedBlock: 'rounded-lg bg-white/[0.02] border border-ide-subtle p-4 text-xs font-mono text-zinc-400 whitespace-pre-wrap',
+};
 
 export default function ConflictResolver({
   workspaceId,
@@ -43,7 +53,7 @@ export default function ConflictResolver({
         if (!res.ok) throw new Error('Failed to fetch conflicts');
         const data = await res.json();
         setBlocks(data.conflicts || []);
-      } catch (err) {
+      } catch {
         addToast('Failed to load conflicts', 'error');
         onClose();
       } finally {
@@ -54,7 +64,6 @@ export default function ConflictResolver({
   }, [workspaceId, fileId, onClose, addToast]);
 
   const handleResolve = async () => {
-    // Ensure all conflicts are resolved
     const conflictIndexes = blocks.map((b, i) => b.type === 'conflict' ? i : -1).filter(i => i !== -1);
     const missing = conflictIndexes.find(i => !resolutions[i]);
     if (missing !== undefined) {
@@ -64,7 +73,6 @@ export default function ConflictResolver({
 
     setIsResolving(true);
     try {
-      // Build resolved content
       const resolvedContent = blocks.map((block, index) => {
         if (block.type === 'unchanged') return block.content || '';
         return resolutions[index] === 'ours' ? (block.ours || '') : (block.theirs || '');
@@ -93,7 +101,7 @@ export default function ConflictResolver({
 
   if (loading) {
     return (
-      <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#050505]/80 backdrop-blur-sm">
+      <div className={styles.loadingOverlay}>
         <div className="text-zinc-400">Loading conflicts...</div>
       </div>
     );
@@ -103,8 +111,8 @@ export default function ConflictResolver({
   const resolvedCount = Object.keys(resolutions).length;
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col bg-[#0A0A0A] overflow-hidden">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#121214] px-6 shadow-sm">
+    <div className={styles.container}>
+      <div className={styles.header}>
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 border border-red-500/20">
             <X className="text-red-400" size={16} strokeWidth={2.5} />
@@ -117,16 +125,13 @@ export default function ConflictResolver({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button 
-            onClick={onClose}
-            className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white transition-colors"
-          >
+          <button onClick={onClose} className={styles.cancelBtn}>
             Cancel
           </button>
           <button
             onClick={handleResolve}
             disabled={isResolving || resolvedCount < conflictCount}
-            className="flex items-center gap-2 rounded-md bg-indigo-500 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={styles.submitBtn}
           >
             {isResolving ? 'Resolving...' : 'Complete Merge'}
             {!isResolving && <Check size={14} />}
@@ -134,12 +139,12 @@ export default function ConflictResolver({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className={styles.body}>
         <div className="mx-auto max-w-5xl space-y-4">
           {blocks.map((block, index) => {
             if (block.type === 'unchanged') {
               return (
-                <div key={index} className="rounded-lg bg-white/[0.02] border border-white/[0.05] p-4 text-xs font-mono text-zinc-400 whitespace-pre-wrap">
+                <div key={index} className={styles.unchangedBlock}>
                   {block.content}
                 </div>
               );
@@ -149,7 +154,7 @@ export default function ConflictResolver({
             
             return (
               <div key={index} className={`rounded-lg border-2 overflow-hidden transition-colors ${res ? 'border-emerald-500/30' : 'border-amber-500/30'}`}>
-                <div className="flex bg-[#121214]">
+                <div className="flex bg-ide-panel">
                   {/* OURS */}
                   <div className={`flex-1 flex flex-col border-r border-white/[0.05] transition-colors ${res === 'ours' ? 'bg-emerald-500/5' : ''}`}>
                     <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.02] px-3 py-2">

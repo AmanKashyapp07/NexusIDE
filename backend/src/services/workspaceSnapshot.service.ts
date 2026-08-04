@@ -1,3 +1,10 @@
+/**
+ * Purpose: Workspace point-in-time snapshot, time-travel history diffing, and restoration service.
+ * High-Level Architecture: Captures immutable SQL snapshot tree points, computes unified text diffs between historical and live files, and restores CRDT documents inside explicit SQL transactions (`BEGIN`/`COMMIT`).
+ * Primary Trade-offs: Database-level snapshot copies trade minor storage overhead for instantaneous time-travel restoration and offline diff availability.
+ * Complexity: O(F) file snapshot copy per restore operation, where F is total workspace file count.
+ */
+
 import * as Y from 'yjs';
 import { syncFileToTerminal } from '../terminal/terminalHandler.js';
 import { getIO } from '../socket.js';
@@ -13,6 +20,12 @@ export interface SnapshotFileDiff {
    live_content: string | null;
 }
 
+// =============================================================================
+// DIRECTORY TREE RESOLUTION HELPERS
+// =============================================================================
+
+// INTENT: Recursively verify or create directory hierarchy paths when restoring snapshot files.
+// WHY: Snapshot file restoration may contain files whose parent directories were deleted in live workspace state.
 async function ensureDirectoryExists(client: PoolClient, workspaceId: string, dirPath: string): Promise<string | null> {
    if (!dirPath || dirPath === '') return null;
    const parts = dirPath.split('/');
@@ -42,6 +55,12 @@ async function ensureDirectoryExists(client: PoolClient, workspaceId: string, di
    return parentId;
 }
 
+// =============================================================================
+// SNAPSHOT CREATION & TIME-TRAVEL DIFFING
+// =============================================================================
+
+// INTENT: Create atomic point-in-time snapshot copy of entire workspace inside a database transaction.
+// WHY: Transactional execution (`BEGIN`/`COMMIT`) ensures snapshot creation is all-or-nothing.
 export async function createSnapshot(workspaceId: string, userId: string, label?: string): Promise<SnapshotEntity> {
    const snapshotLabel = label?.trim() || `Snapshot ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
    const client = await getPool().connect();
@@ -65,6 +84,8 @@ export async function listSnapshots(workspaceId: string): Promise<SnapshotEntity
    return snapshotRepository.listSnapshots(workspaceId);
 }
 
+// INTENT: Calculate file-level diff comparison between snapshot state and current live workspace state.
+// WHY: Powers the frontend Timelapse/Diff UI viewer without requiring client-side git calculations.
 export async function getSnapshotFilesWithDiff(workspaceId: string, snapshotId: string): Promise<SnapshotFileDiff[]> {
    const snapCheck = await snapshotRepository.findSnapshotById(snapshotId, workspaceId);
    if (!snapCheck) throw new Error('Snapshot not found');
@@ -98,6 +119,13 @@ export async function getSnapshotFilesWithDiff(workspaceId: string, snapshotId: 
    return files;
 }
 
+// =============================================================================
+// SNAPSHOT RESTORATION & CRDT STATE RE-HYDRATION
+// =============================================================================
+
+// INTENT: Revert workspace file hierarchy to a historical snapshot point, updating SQL database, live Yjs CRDT documents, container volume files, and connected WebSocket clients.
+// WHY: Synchronizes database SQL content, active in-memory Yjs documents (`applyRestoredContentToLiveDocs`), and container PTY files inside a unified transaction.
+// INTERVIEW NOTES: Emits `snapshot-restored` Socket.IO broadcast to notify all active collaborators to force-reload their Monaco editor models.
 export async function restoreSnapshot(workspaceId: string, snapshotId: string): Promise<{ label: string; restored_files: number }> {
    const client = await getPool().connect();
    try {

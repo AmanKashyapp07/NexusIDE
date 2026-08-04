@@ -1,3 +1,10 @@
+/**
+ * Purpose: Data Access Object (DAO) and Repository for workspace files, binary Yjs CRDT states, and incremental update logs.
+ * High-Level Architecture: Encapsulates database queries for file CRUD operations, recursive CTE file-path resolving, and CRDT update log append operations.
+ * Primary Trade-offs: Recursive PostgreSQL Common Table Expressions (CTEs) compute full hierarchical file paths on database server nodes rather than fetching raw rows and traversing in Node.js memory.
+ * Complexity: O(Depth) for recursive CTE path resolution.
+ */
+
 import { getPool } from '../db.js';
 import type { QueryResultRow } from 'pg';
 
@@ -20,7 +27,13 @@ export interface FilePathEntity extends QueryResultRow {
    language?: string | null;
 }
 
+// =============================================================================
+// FILE REPOSITORY IMPLEMENTATION
+// =============================================================================
+
 export class FileRepository {
+   // INTENT: Retrieve top-level and nested file tree structures for a workspace ordered by directories first.
+   // WHY: Ordering directories first (`type DESC, name ASC`) optimizes UI file tree rendering in Monaco/React.
    async getWorkspaceFiles(workspaceId: string): Promise<FileEntity[]> {
       const res = await getPool().query<FileEntity>(
          'SELECT id, parent_id, name, type, language FROM files WHERE workspace_id = $1 ORDER BY type DESC, name ASC',
@@ -45,6 +58,13 @@ export class FileRepository {
       return res.rows[0] || null;
    }
 
+   // =============================================================================
+   // RECURSIVE RECURSIVE CTE PATH RESOLUTION
+   // =============================================================================
+
+   // INTENT: Resolve relative path string (`src/components/App.tsx`) for a file ID using a recursive SQL CTE.
+   // WHY: Pushes path concatenation computation down to the PostgreSQL query engine.
+   // INTERVIEW NOTES: Recursive CTEs start at root elements (`parent_id IS NULL`) and iteratively join child nodes.
    async findFilePath(workspaceId: string, fileId: string): Promise<string | null> {
       const res = await getPool().query<{ path: string }>(
          `WITH RECURSIVE cte AS (
@@ -57,6 +77,7 @@ export class FileRepository {
       return res.rows[0]?.path || null;
    }
 
+   // INTENT: Retrieve flattened list of all relative file paths and file contents for container sandbox initialization.
    async getFlattenedFilePaths(workspaceId: string): Promise<FilePathEntity[]> {
       const res = await getPool().query<FilePathEntity>(
          `WITH RECURSIVE file_path_cte AS (
@@ -68,6 +89,10 @@ export class FileRepository {
       );
       return res.rows;
    }
+
+   // =============================================================================
+   // MUTATION OPERATIONS & CRDT LOG APPENDS
+   // =============================================================================
 
    async insertFile(
       workspaceId: string,
@@ -118,6 +143,7 @@ export class FileRepository {
       }
    }
 
+   // INTENT: Retrieve ordered list of binary delta updates for replaying document history.
    async getFileUpdates(fileId: string): Promise<{ update: Buffer }[]> {
       const res = await getPool().query<{ update: Buffer }>(
          'SELECT update FROM file_updates WHERE file_id = $1 ORDER BY seq ASC',
@@ -126,6 +152,7 @@ export class FileRepository {
       return res.rows;
    }
 
+   // INTENT: Append binary CRDT update packet to append-only update log table.
    async insertFileUpdate(fileId: string, update: Buffer): Promise<void> {
       await getPool().query(
          'INSERT INTO file_updates (file_id, update) VALUES ($1, $2)',

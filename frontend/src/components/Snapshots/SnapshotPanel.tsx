@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { GitBranch, Clock, RotateCcw, ChevronRight, FileText, Loader2, X, AlertTriangle, Plus, Minus, Equal, ChevronDown, ChevronUp } from 'lucide-react';
+import { GitBranch, Clock, RotateCcw, FileText, Loader2, X, AlertTriangle, Plus, Minus, Equal, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiUrl } from '../../lib/backendUrls';
 
 // =============================================================================
@@ -16,14 +16,14 @@ interface Snapshot {
 interface SnapshotFile {
   path: string;
   language: string | null;
-  snapshot_content: string | null; // null = file didn't exist at snapshot time (new file)
-  live_content: string | null;     // null = file deleted since snapshot
+  snapshot_content: string | null;
+  live_content: string | null;
 }
 
 type DiffLine =
   | { type: 'unchanged'; text: string; lineA: number; lineB: number }
-  | { type: 'added';     text: string; lineB: number }
-  | { type: 'removed';   text: string; lineA: number };
+  | { type: 'added'; text: string; lineB: number }
+  | { type: 'removed'; text: string; lineA: number };
 
 interface SnapshotPanelProps {
   workspaceId: string;
@@ -33,19 +33,29 @@ interface SnapshotPanelProps {
   isCreating: boolean;
 }
 
+const styles = {
+  overlay: 'fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/60 backdrop-blur-sm',
+  dialog: 'relative w-full max-w-5xl h-[78vh] flex flex-col rounded-2xl border border-white/[0.08] bg-[#0A0A0C] shadow-2xl overflow-hidden',
+  header: 'flex h-12 shrink-0 items-center justify-between border-b border-white/[0.06] px-4 bg-[#0D0D10]',
+  leftPanel: 'w-56 shrink-0 flex flex-col border-r border-white/[0.06] overflow-y-auto bg-[#0A0A0C]',
+  fileListPanel: 'w-52 shrink-0 flex flex-col border-r border-white/[0.06] overflow-y-auto',
+  diffPanel: 'flex min-h-0 flex-1 flex-col overflow-hidden',
+  diffHeader: 'flex h-10 shrink-0 items-center justify-between border-b border-white/[0.05] px-4 bg-[#0D0D10]',
+  restoreBtn: 'flex items-center gap-1.5 h-7 px-3 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-xs font-medium text-amber-400 border border-amber-500/20 transition-colors ml-4',
+  confirmRestoreBtn: 'flex items-center gap-1.5 h-7 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-bold text-white disabled:opacity-50 transition-colors',
+};
+
 // =============================================================================
-// DIFF ENGINE — pure Myers LCS diff, no external deps
+// DIFF ENGINE — pure Myers LCS diff
 // =============================================================================
 
 function computeDiff(oldText: string, newText: string): DiffLine[] {
   const oldLines = oldText.split('\n');
   const newLines = newText.split('\n');
 
-  // LCS-based diff via dynamic programming
   const m = oldLines.length;
   const n = newLines.length;
 
-  // dp[i][j] = LCS length for oldLines[0..i-1], newLines[0..j-1]
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
@@ -57,11 +67,7 @@ function computeDiff(oldText: string, newText: string): DiffLine[] {
     }
   }
 
-  // Backtrack to build diff
-  const result: DiffLine[] = [];
   let i = m, j = n;
-  let lineA = m, lineB = n;
-
   const pending: DiffLine[] = [];
 
   while (i > 0 || j > 0) {
@@ -77,12 +83,11 @@ function computeDiff(oldText: string, newText: string): DiffLine[] {
     }
   }
 
-  // Collapse unchanged runs: show max 3 context lines around changes, fold the rest
   return pending;
 }
 
 // =============================================================================
-// COLLAPSED DIFF — groups unchanged hunks and allows expanding them
+// COLLAPSED DIFF
 // =============================================================================
 
 interface CollapsedDiffProps {
@@ -93,11 +98,9 @@ function CollapsedDiff({ lines }: CollapsedDiffProps) {
   const CONTEXT = 3;
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  // Build groups: each group is { lines, isHidden }
   type Group = { lines: DiffLine[]; isHidden: boolean; groupIndex: number };
   const groups: Group[] = [];
 
-  // Mark which lines are "near a change"
   const changed = lines.map(l => l.type !== 'unchanged');
   const near = lines.map((_, idx) => {
     for (let d = -CONTEXT; d <= CONTEXT; d++) {
@@ -122,21 +125,11 @@ function CollapsedDiff({ lines }: CollapsedDiffProps) {
     groups.push({ lines: current, isHidden: !currentNear, groupIndex: groups.length });
   }
 
-  if (lines.length === 0) {
+  if (lines.length === 0 || !lines.some(l => l.type !== 'unchanged')) {
     return (
       <div className="flex items-center justify-center py-12 text-zinc-500 text-sm">
         <Equal size={16} className="mr-2" />
         Files are identical
-      </div>
-    );
-  }
-
-  const hasChanges = lines.some(l => l.type !== 'unchanged');
-  if (!hasChanges) {
-    return (
-      <div className="flex items-center justify-center py-12 text-zinc-500 text-sm">
-        <Equal size={16} className="mr-2" />
-        No changes — files are identical
       </div>
     );
   }
@@ -246,7 +239,6 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
   const [newLabel, setNewLabel] = useState('');
   const [labelInputOpen, setLabelInputOpen] = useState(false);
 
-  // ── Fetch snapshot list ──────────────────────────────────────────────────
   const fetchSnapshots = useCallback(async () => {
     setLoadingList(true);
     try {
@@ -262,7 +254,6 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
 
   useEffect(() => { fetchSnapshots(); }, [fetchSnapshots]);
 
-  // ── Fetch files for selected snapshot ───────────────────────────────────
   const selectSnapshot = useCallback(async (snap: Snapshot) => {
     setSelectedSnapshot(snap);
     setSelectedFile(null);
@@ -284,7 +275,6 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
     }
   }, [workspaceId]);
 
-  // ── Restore snapshot ─────────────────────────────────────────────────────
   const handleRestore = useCallback(async () => {
     if (!selectedSnapshot || restoring) return;
     setRestoring(true);
@@ -297,7 +287,6 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
       if (res.ok) {
         setRestoreConfirm(false);
         onClose();
-        // Reload the page so the CRDT picks up the restored content
         window.location.reload();
       }
     } finally {
@@ -305,7 +294,6 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
     }
   }, [selectedSnapshot, workspaceId, onClose, restoring]);
 
-  // ── Create snapshot ───────────────────────────────────────────────────────
   const handleCreate = useCallback(async () => {
     await onCreateSnapshot(newLabel.trim());
     setNewLabel('');
@@ -313,16 +301,10 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
     fetchSnapshots();
   }, [newLabel, onCreateSnapshot, fetchSnapshots]);
 
-  // ── Compute diff for selected file ───────────────────────────────────────
   const diffLines: DiffLine[] | null = selectedFile
-    ? (() => {
-        const a = selectedFile.snapshot_content ?? '';
-        const b = selectedFile.live_content ?? '';
-        return computeDiff(a, b);
-      })()
+    ? computeDiff(selectedFile.snapshot_content ?? '', selectedFile.live_content ?? '')
     : null;
 
-  // ── Status badge for a file ──────────────────────────────────────────────
   const fileStatus = (f: SnapshotFile) => {
     if (f.snapshot_content === null) return 'new';
     if (f.live_content === null) return 'deleted';
@@ -331,9 +313,9 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
   };
 
   const statusBadge = (s: string) => {
-    if (s === 'new')       return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">NEW</span>;
-    if (s === 'deleted')   return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">DEL</span>;
-    if (s === 'modified')  return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">MOD</span>;
+    if (s === 'new') return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">NEW</span>;
+    if (s === 'deleted') return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">DEL</span>;
+    if (s === 'modified') return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">MOD</span>;
     return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-700/50 text-zinc-500">—</span>;
   };
 
@@ -343,13 +325,10 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
   const changedCount = snapshotFiles.filter(f => fileStatus(f) !== 'unchanged').length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="relative w-full max-w-5xl h-[78vh] flex flex-col rounded-2xl border border-white/[0.08] bg-[#0A0A0C] shadow-2xl overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* ── Header ── */}
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/[0.06] px-4 bg-[#0D0D10]">
+    <div className={styles.overlay} onClick={onClose}>
+      <div className={styles.dialog} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className={styles.header}>
           <div className="flex items-center gap-2.5">
             <GitBranch size={15} className="text-indigo-400" />
             <span className="text-sm font-semibold text-zinc-100">Snapshot History</span>
@@ -397,8 +376,8 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
         </div>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* ── Snapshot list (left) ── */}
-          <div className="w-56 shrink-0 flex flex-col border-r border-white/[0.06] overflow-y-auto bg-[#0A0A0C]">
+          {/* Snapshot list */}
+          <div className={styles.leftPanel}>
             {loadingList ? (
               <div className="flex items-center justify-center flex-1 text-zinc-600 text-sm gap-2">
                 <Loader2 size={14} className="animate-spin" /> Loading...
@@ -440,7 +419,7 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
             )}
           </div>
 
-          {/* ── Right panel: file list + diff ── */}
+          {/* Right panel: file list + diff */}
           {!selectedSnapshot ? (
             <div className="flex flex-1 items-center justify-center text-zinc-600 text-sm flex-col gap-3">
               <GitBranch size={32} className="text-zinc-800" />
@@ -449,7 +428,7 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
           ) : (
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* File list */}
-              <div className="w-52 shrink-0 flex flex-col border-r border-white/[0.06] overflow-y-auto">
+              <div className={styles.fileListPanel}>
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.05] shrink-0">
                   <FileText size={12} className="text-zinc-600" />
                   <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Files</span>
@@ -486,30 +465,24 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
               </div>
 
               {/* Diff viewer */}
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className={styles.diffPanel}>
                 {!selectedFile ? (
                   <div className="flex flex-1 items-center justify-center text-zinc-700 text-sm">
                     Select a file to view diff
                   </div>
                 ) : (
                   <>
-                    {/* Diff header */}
-                    <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/[0.05] px-4 bg-[#0D0D10]">
+                    <div className={styles.diffHeader}>
                       <div className="flex items-center gap-2 min-w-0">
                         <FileText size={12} className="text-zinc-600 shrink-0" />
                         <span className="text-xs font-medium text-zinc-300 truncate">{selectedFile.path}</span>
                         {statusBadge(fileStatus(selectedFile))}
                       </div>
                       <div className="flex items-center gap-2 shrink-0 ml-4">
-                        {/* Legend */}
                         <span className="flex items-center gap-1 text-[10px] text-emerald-500"><Plus size={10} /> Added</span>
                         <span className="flex items-center gap-1 text-[10px] text-red-500"><Minus size={10} /> Removed</span>
-                        {/* Restore button (admin only) */}
                         {userRole === 'admin' && !restoreConfirm && (
-                          <button
-                            onClick={() => setRestoreConfirm(true)}
-                            className="flex items-center gap-1.5 h-7 px-3 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-xs font-medium text-amber-400 border border-amber-500/20 transition-colors ml-4"
-                          >
+                          <button onClick={() => setRestoreConfirm(true)} className={styles.restoreBtn}>
                             <RotateCcw size={11} />
                             Restore to this snapshot
                           </button>
@@ -518,18 +491,11 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
                           <div className="flex items-center gap-2 ml-4">
                             <AlertTriangle size={12} className="text-amber-400 shrink-0" />
                             <span className="text-[11px] text-amber-400">This will overwrite live files.</span>
-                            <button
-                              onClick={handleRestore}
-                              disabled={restoring}
-                              className="flex items-center gap-1.5 h-7 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-bold text-white disabled:opacity-50 transition-colors"
-                            >
+                            <button onClick={handleRestore} disabled={restoring} className={styles.confirmRestoreBtn}>
                               {restoring ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
                               Confirm Restore
                             </button>
-                            <button
-                              onClick={() => setRestoreConfirm(false)}
-                              className="h-7 px-2 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
-                            >
+                            <button onClick={() => setRestoreConfirm(false)} className="h-7 px-2 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-white/5">
                               Cancel
                             </button>
                           </div>
@@ -537,7 +503,6 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
                       </div>
                     </div>
 
-                    {/* Special states: new file / deleted file */}
                     {selectedFile.snapshot_content === null ? (
                       <div className="flex flex-1 items-center justify-center flex-col gap-3 text-zinc-600">
                         <Plus size={28} className="text-emerald-700" />
@@ -551,7 +516,6 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
                         <p className="text-xs text-zinc-700">This file exists in the snapshot but was removed from the workspace.</p>
                       </div>
                     ) : (
-                      /* Diff output */
                       <div className="flex-1 overflow-auto bg-[#080809]">
                         {diffLines && <CollapsedDiff lines={diffLines} />}
                       </div>

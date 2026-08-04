@@ -1,3 +1,10 @@
+/**
+ * Purpose: Terminal PTY WebSocket handler, Docker execution attach stream demuxer, and bi-directional filesystem watcher.
+ * High-Level Architecture: Bridges raw WebSocket client terminal frames to containerized bash PTY streams, while running a polling file-watcher daemon (`stat`/`inode` tracking) that syncs container filesystem changes back into PostgreSQL and Socket.IO.
+ * Primary Trade-offs: Inode-based diffing over raw path tracking enables atomic file move/rename detection across container volumes.
+ * Complexity: O(K) directory stat scanning per polling interval, where K is container file count (depth-capped at 5).
+ */
+
 import { IncomingMessage } from 'http';
 import { WebSocket } from 'ws';
 import { getPool } from '../db.js';
@@ -29,6 +36,11 @@ const logDebug = (msg: string): void => {
    process.stdout.write(`[DEBUG] ${msg}\n`);
 };
 
+// =============================================================================
+// WRITE COOLDOWN & STATE GUARDS
+// =============================================================================
+
+// INTENT: Prevent infinite write loops between terminal filesystem updates and database synchronization.
 const recentWrites = new Map<string, number>(); 
 const WRITE_COOLDOWN_MS = 3000; 
 
@@ -53,6 +65,13 @@ function hasActiveYjsDoc(workspaceId: string, fileId: string): boolean {
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024; 
 const EXCLUDED_DIRS = ['node_modules', '.git', '.next', 'dist', 'build', '.cache', '__pycache__', '.venv', 'venv'];
 
+// =============================================================================
+// TERMINAL WEBSOCKET CONNECTION HANDLER & DOCKER ATTACH
+// =============================================================================
+
+// INTENT: Connect interactive xterm.js frontend WebSocket to container bash TTY stream.
+// WHY: Stream hijack enables real-time terminal I/O streaming with sub-millisecond input response times.
+// INTERVIEW NOTES: Enforces restricted shell (`/bin/bash --restricted`) and path stripping for 'viewer' role to sandbox non-admin shell access.
 export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
    let stream: { write: (data: Buffer) => void; destroyed?: boolean; writable?: boolean; end: () => void; destroy?: () => void; on: (event: string, cb: (...args: unknown[]) => void) => void } | null = null;
    let container: Docker.Container | null = null;
@@ -181,6 +200,10 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
    }
 }
 
+// =============================================================================
+// CONTAINER FILESYSTEM SYNC ROUTINES
+// =============================================================================
+
 async function getContainerForSync(workspaceId: string): Promise<Docker.Container | null> {
    try {
       const res = await getPool().query<{ owner_id: string }>('SELECT owner_id FROM workspaces WHERE id = $1', [workspaceId]);
@@ -192,6 +215,9 @@ async function getContainerForSync(workspaceId: string): Promise<Docker.Containe
 
 const npmInstallTimeouts = new Map<string, NodeJS.Timeout>();
 
+// INTENT: Write updated editor buffer content directly into container disk volume.
+// WHY: Ensures terminal commands (`python main.py`, `npm start`) execute against the latest edited code state.
+// EDGE CASE: Blocks directory traversal attacks (`..`, NULL byte validation) on target target file path.
 export async function syncFileToTerminal(workspaceId: string, fileId: string, content: string): Promise<void> {
    try {
       const container = await getContainerForSync(workspaceId);
@@ -231,6 +257,7 @@ export async function syncFileToTerminal(workspaceId: string, fileId: string, co
 
       markFileAsWritten(workspaceId, filePath);
 
+      // INTENT: Automatically trigger `npm install` when `package.json` is modified.
       if (filePath === 'package.json') {
          const existingTimeout = npmInstallTimeouts.get(workspaceId);
          if (existingTimeout) clearTimeout(existingTimeout);
@@ -260,6 +287,10 @@ export async function syncFolderToTerminal(wsId: string, folderPath: string): Pr
       (await c.exec({ Cmd: ['mkdir', '-p', `/workspaces/${wsId}/${folderPath}`] })).start({ hijack: true, stdin: false }).catch(() => {});
    }
 }
+
+// =============================================================================
+// DATABASE FILE TREE UTILITIES & MAP BUILDERS
+// =============================================================================
 
 async function getWorkspaceFilesMap(workspaceId: string): Promise<WorkspaceFilesMapResult> {
    const res = await getPool().query<{ id: string; parent_id: string | null; name: string; type: 'file' | 'directory'; content: string; path: string }>(
@@ -377,6 +408,13 @@ async function readContainerFileContent(container: Docker.Container, workspaceId
    }
 }
 
+// =============================================================================
+// RECURSIVE FILESYSTEM POLLED WATCHER DAEMON
+// =============================================================================
+
+// INTENT: Polling watcher thread tracking file creation, deletion, and inode-matched renames inside container workspace directory.
+// WHY: Containerized environments lack reliable `inotify` kernel events across Docker volume mounts.
+// INTERVIEW NOTES: By statting Linux `inode` identifiers (`%i`), moving/renaming a file preserves its underlying `fileId` and Yjs CRDT history.
 function startTerminalWatcher(ws: WebSocket, container: Docker.Container, workspaceId: string, watcherTimeout: { current: NodeJS.Timeout | null }): void {
    logDebug(`[Watcher] Initializing watcher for workspace: ${workspaceId}`);
    const lastState = new Map<string, TerminalWatcherEntry>();
@@ -455,6 +493,7 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
             if (!lastState.has(pathKey)) addedEntries.set(pathKey, current);
          }
 
+         // INTENT: Inode matching to resolve file renames/moves vs delete + recreate.
          for (const [newPath, current] of addedEntries.entries()) {
             let renameOldPath: string | null = null;
             for (const oldPath of deletedPaths) {

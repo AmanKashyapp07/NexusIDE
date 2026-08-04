@@ -78,6 +78,18 @@ interface TimelapseReplayerProps {
 
 type ReplayMode = 'full' | 'legacy';
 
+const styles = {
+  container: 'flex flex-col h-full w-full bg-ide-bg overflow-hidden shadow-2xl z-50',
+  header: 'flex shrink-0 items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-white/10',
+  filename: 'text-zinc-300 text-sm font-semibold truncate',
+  closeBtn: 'text-zinc-400 hover:text-red-400 transition-colors bg-white/5 hover:bg-red-500/20 p-1 rounded ml-2 shrink-0',
+  authorBar: 'shrink-0 flex items-center gap-3 px-4 py-1.5 bg-ide-bg border-b border-white/[0.06] overflow-x-auto',
+  editorContainer: 'flex-1 relative min-h-0 bg-ide-bg',
+  controlsBar: 'shrink-0 bg-ide-panel border-t border-white/10',
+  ctrlBtn: 'flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600 text-white transition-colors shrink-0',
+  playBtn: 'flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 hover:bg-indigo-600 text-white transition-colors shadow-lg shrink-0',
+};
+
 // =============================================================================
 // Colour helpers
 // =============================================================================
@@ -685,11 +697,11 @@ export default function TimelapseReplayer({
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#1e1e1e] overflow-hidden shadow-2xl z-50">
-      <div className="flex shrink-0 items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-white/10">
+    <div className={styles.container}>
+      <div className={styles.header}>
         <div className="flex items-center gap-3 min-w-0">
           <History size={16} className="text-emerald-400 shrink-0" />
-          <span className="text-zinc-300 text-sm font-semibold truncate">{filename}</span>
+          <span className={styles.filename}>{filename}</span>
           <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-400/10 border border-emerald-400/20 shrink-0">
             CRDT Timelapse
           </span>
@@ -704,7 +716,7 @@ export default function TimelapseReplayer({
         </div>
         <button
           onClick={onClose}
-          className="text-zinc-400 hover:text-red-400 transition-colors bg-white/5 hover:bg-red-500/20 p-1 rounded ml-2 shrink-0"
+          className={styles.closeBtn}
           title="Close timelapse"
         >
           <X size={16} />
@@ -713,7 +725,7 @@ export default function TimelapseReplayer({
 
       {visibleAuthors.length > 0 && (
         <div
-          className="shrink-0 flex items-center gap-3 px-4 py-1.5 bg-[#1e1e1e] border-b border-white/[0.06] overflow-x-auto"
+          className={styles.authorBar}
           data-testid="author-legend"
         >
           <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0">Authors:</span>
@@ -730,7 +742,7 @@ export default function TimelapseReplayer({
         </div>
       )}
 
-      <div className="flex-1 relative min-h-0 bg-[#1e1e1e]">
+      <div className={styles.editorContainer}>
         <Editor
           height="100%"
           language={language}
@@ -749,32 +761,32 @@ export default function TimelapseReplayer({
         />
       </div>
 
-      <div className="shrink-0 bg-[#252526] border-t border-white/10">
+      <div className={styles.controlsBar}>
         <div className="flex items-center gap-2 px-4 pt-3">
           <button
             onClick={rewind}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600 text-white transition-colors shrink-0"
+            className={styles.ctrlBtn}
             title="Back to start (Home)"
           >
             <RotateCcw size={14} />
           </button>
           <button
             onClick={stepBack}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600 text-white transition-colors shrink-0"
+            className={styles.ctrlBtn}
             title="Step back (←)"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             onClick={togglePlay}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 hover:bg-indigo-600 text-white transition-colors shadow-lg shrink-0"
+            className={styles.playBtn}
             title={isPlaying ? 'Pause (space)' : 'Play (space)'}
           >
             {isPlaying ? <Pause size={14} /> : <Play size={14} fill="currentColor" className="ml-0.5" />}
           </button>
           <button
             onClick={stepForward}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600 text-white transition-colors shrink-0"
+            className={styles.ctrlBtn}
             title="Step forward (→)"
           >
             <ChevronRight size={16} />
