@@ -235,3 +235,44 @@ export async function setEditorValue(page: Page, text: string) {
 export async function waitForSocketConnect(page: Page) {
   await page.locator('[title="Status: connected"]').waitFor({ state: 'visible', timeout: 25000 });
 }
+
+export async function setupUserAndWorkspace(page: Page, request: APIRequestContext | undefined, username: string, wsTitle: string) {
+  const token = request ? await loginUser(page, request, username) : await login(page, username);
+  const workspaceId = await createTestWorkspace(page, wsTitle);
+  return { token, workspaceId };
+}
+
+export async function createFileAndOpen(page: Page, filename: string) {
+  await createFile(page, filename);
+  await waitForEditorModel(page, filename);
+}
+
+export async function waitForLspStatus(page: Page, status: 'ready' | 'connecting' | 'error', timeout = 30000) {
+  await expect(page.locator('[data-testid="lsp-status-badge"]')).toHaveAttribute('data-lsp-status', status, { timeout });
+}
+
+export async function getMarkers(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const monaco = (window as any).monaco;
+    if (!monaco) return [];
+    return monaco.editor.getModelMarkers({}).map((m: any) => m.message);
+  });
+}
+
+export async function getSliderMax(page: Page): Promise<number> {
+  const max = await page.locator('.shadow-2xl.z-50 input[type="range"]').getAttribute('max');
+  return parseInt(max || '100', 10);
+}
+
+export async function setRangeValue(page: Page, selector: string, value: string) {
+  const targetSelector = selector || '.shadow-2xl.z-50 input[type="range"]';
+  await page.evaluate(({ sel, val }) => {
+    const input = document.querySelector(sel) as HTMLInputElement;
+    if (input) {
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      nativeSetter?.call(input, val);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }, { sel: targetSelector, val: value });
+}
