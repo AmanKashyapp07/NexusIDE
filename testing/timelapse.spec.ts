@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
-import { login, createTestWorkspace, deleteTestWorkspace, createTestFile, typeTextInMonaco } from './testUtils';
+import { login, createTestWorkspace, deleteTestWorkspace, createTestFile, typeTextInMonaco, waitForBootComplete, waitForEditorModel } from './testUtils';
 
 const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -336,25 +336,11 @@ test.describe('Timelapse Author Attribution', () => {
     const bobContext = await browser.newContext();
     const bobPage    = await bobContext.newPage();
     try {
-      console.log(`[TEST 3] Bob logging in and opening workspace: ${workspaceId}`);
+      console.log(`[TEST 3] Bob logging in and opening workspace file: ${workspaceId}/${fileId}`);
       await login(bobPage, 'attr_bob', 'password123');
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
-
-      // Wait for boot + file tree
-      const loadingEl = bobPage.locator('text=Booting environment...');
-      console.log('[TEST 3] Waiting for environment boot...');
-      try { await loadingEl.waitFor({ state: 'visible', timeout: 3000 }); } catch {}
-      try { await loadingEl.waitFor({ state: 'detached', timeout: 35000 }); } catch {}
-
-      console.log('[TEST 3] Waiting for collab.js to appear in file tree...');
-      await bobPage.locator('.ide-scrollbar').getByText('collab.js').waitFor({ state: 'visible', timeout: 15000 });
-      console.log('[TEST 3] Found collab.js, clicking...');
-      await bobPage.locator('.ide-scrollbar').getByText('collab.js').click();
-
-      await bobPage.waitForFunction((name) => {
-        const eds = (window as any).monaco?.editor?.getEditors();
-        return eds && eds.length > 0 && eds[0].getModel()?.uri.path.endsWith(name);
-      }, 'collab.js', { timeout: 20000 });
+      await bobPage.goto(`${APP_URL}/ide/${workspaceId}/${fileId}`);
+      await waitForBootComplete(bobPage);
+      await waitForEditorModel(bobPage, 'collab.js');
 
       // Bob types his line
       await typeTextInMonaco(bobPage, 'bob line\n');
@@ -366,15 +352,16 @@ test.describe('Timelapse Author Attribution', () => {
     }
 
     // Alice: check the authorMap via API — both users should appear
-    const authorMap = await getHistoryAuthorMap(page, fileId);
-    const entries   = Object.values(authorMap) as any[];
-    console.log(`[TEST 3] Retreived authorMap entries: ${JSON.stringify(entries)}`);
-    expect(entries.length).toBeGreaterThan(1);
-
-    const usernames = entries.map((e: any) => (e.username ?? '').toLowerCase());
-    console.log(`[TEST 3] Mapped usernames: ${usernames.join(', ')}`);
-    expect(usernames.some(u => u.includes('attr_alice'))).toBe(true);
-    expect(usernames.some(u => u.includes('attr_bob'))).toBe(true);
+    await expect.poll(async () => {
+      const authorMap = await getHistoryAuthorMap(page, fileId);
+      const entries = Object.values(authorMap) as any[];
+      return entries.map((e: any) => (e.username ?? '').toLowerCase());
+    }, { timeout: 15000, message: 'Waiting for authorMap to contain both Alice and Bob' }).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('attr_alice'),
+        expect.stringContaining('attr_bob'),
+      ])
+    );
 
     // Alice: open timelapse and check legend shows both users
     console.log('[TEST 3] Alice opening Timelapse replayer...');
@@ -383,10 +370,15 @@ test.describe('Timelapse Author Attribution', () => {
     await expect(replayer.getByText('CRDT Timelapse')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="author-legend"]')).toBeVisible({ timeout: 15000 });
 
-    const legendAuthors = await getLegendAuthors(page);
-    console.log(`[TEST 3] Legend authors found in UI: ${legendAuthors.join(', ')}`);
-    expect(legendAuthors.some(a => a.toLowerCase().includes('attr_alice'))).toBe(true);
-    expect(legendAuthors.some(a => a.toLowerCase().includes('attr_bob'))).toBe(true);
+    await expect.poll(async () => {
+      const authors = await getLegendAuthors(page);
+      return authors.map(a => a.toLowerCase());
+    }, { timeout: 15000, message: 'Waiting for timelapse legend to display both Alice and Bob' }).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('attr_alice'),
+        expect.stringContaining('attr_bob'),
+      ])
+    );
 
     await page.locator('.shadow-2xl.z-50 button:has(svg.lucide-x)').click();
   });

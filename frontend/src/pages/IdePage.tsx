@@ -12,6 +12,20 @@ import SnapshotPanel from '../components/Snapshots/SnapshotPanel';
 import ConflictResolver from '../components/Conflict/ConflictResolver';
 import TimelapseReplayer from '../components/Editor/TimelapseReplayer';
 import IdeHeader from '../components/Ide/IdeHeader';
+import { SIDEBAR_WIDTH, EDITOR_WIDTH_PERCENT } from '../constants/layout';
+import { fetchCurrentUser } from '../api/auth';
+import {
+  fetchWorkspace,
+  fetchWorkspaceFiles,
+  createFile as apiCreateFile,
+  deleteFile as apiDeleteFile,
+  exportWorkspace as apiExportWorkspace,
+} from '../api/workspace';
+import { createSnapshot as apiCreateSnapshot } from '../api/snapshots';
+import { fetchFileHistory, fetchFileConflicts } from '../api/history';
+import { WorkspaceProvider } from '../context/WorkspaceContext';
+import { ConnectionProvider } from '../context/ConnectionContext';
+
 
 type UserRole = 'admin' | 'editor' | 'viewer';
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
@@ -62,8 +76,8 @@ function IdePage() {
   const [isSnapshotPanelOpen, setIsSnapshotPanelOpen] = useState(false);
 
   const { addToast } = useToast();
-  const sidebarWidth = 260;
-  const editorWidth = 62;
+  const sidebarWidth = SIDEBAR_WIDTH;
+  const editorWidth = EDITOR_WIDTH_PERCENT;
   const mainSplitRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorHandle | null>(null);
   const presenceSocketRef = useRef<Socket | null>(null);
@@ -102,11 +116,9 @@ function IdePage() {
 
   const fetchFiles = useCallback(async (wsId: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl(`/workspace/${wsId}/files`), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) setFiles(await res.json());
+      const token = localStorage.getItem('token') || '';
+      const data = await fetchWorkspaceFiles(token, wsId);
+      setFiles(data);
     } catch (err) { console.error('Failed to fetch files', err); }
   }, []);
 
@@ -140,14 +152,8 @@ function IdePage() {
   const handleFileCreate = useCallback(async (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => {
     if (!workspaceId) return;
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl(`/workspace/${workspaceId}/files`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name, type, parent_id: parentId, language }),
-      });
-      const newFile = await res.json();
-      if (!res.ok) throw new Error(newFile.error);
+      const token = localStorage.getItem('token') || '';
+      const newFile = await apiCreateFile(token, workspaceId, { name, type, parent_id: parentId, language });
       setFiles(prev => [...prev, newFile].sort((a, b) => a.name.localeCompare(b.name)));
       broadcastFileTreeUpdate();
       if (type === 'file') navigateRef.current(`/ide/${urlWorkspaceId}/${newFile.id}`);
@@ -159,11 +165,8 @@ function IdePage() {
   const handleFileDelete = useCallback(async (id: string) => {
     if (!workspaceId) return;
     try {
-      const token = localStorage.getItem('token');
-      await fetch(apiUrl(`/workspace/${workspaceId}/files/${id}`), {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const token = localStorage.getItem('token') || '';
+      await apiDeleteFile(token, workspaceId, id);
       setFiles(prev => prev.filter(f => f.id !== id));
       if (activeFile?.id === id) editorRef.current?.setValue('');
       broadcastFileTreeUpdate();
@@ -172,12 +175,8 @@ function IdePage() {
 
   const handleExportWorkspace = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl(`/workspace/${workspaceId}/export`), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(await res.text() || 'Failed to export workspace');
-      const blob = await res.blob();
+      const token = localStorage.getItem('token') || '';
+      const blob = await apiExportWorkspace(token, workspaceId!);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -195,17 +194,8 @@ function IdePage() {
     if (!workspaceId || isSnapshotting) return;
     setIsSnapshotting(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl(`/workspace/${workspaceId}/snapshot`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ label }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Snapshot failed' }));
-        throw new Error(data.error || 'Snapshot failed');
-      }
-      const data = await res.json();
+      const token = localStorage.getItem('token') || '';
+      const data = await apiCreateSnapshot(token, workspaceId, label);
       addToast(`Snapshot saved: "${data.label}"`, 'success');
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Failed to create snapshot', 'error');
@@ -221,17 +211,13 @@ function IdePage() {
       const token = localStorage.getItem('token');
       if (!token) return navigateRef.current('/login');
       try {
-        const userRes = await fetch(apiUrl('/auth/me'), { headers: { Authorization: `Bearer ${token}` } });
-        if (!userRes.ok) { localStorage.removeItem('token'); return navigateRef.current('/login'); }
-        const userData = await userRes.json();
-        setUser(userData.user);
+        const userData = await fetchCurrentUser(token);
+        setUser(userData);
 
-        const wsRes = await fetch(apiUrl(`/workspace/${urlWorkspaceId}`), { headers: { Authorization: `Bearer ${token}` } });
-        if (!wsRes.ok) return navigateRef.current('/dashboard');
-        const wsData = await wsRes.json();
+        const wsData = await fetchWorkspace(token, urlWorkspaceId!);
         setWorkspaceId(wsData.id);
         setWorkspaceTitle(wsData.title);
-        setUserRole(wsData.userRole || 'viewer');
+        setUserRole((wsData.userRole || wsData.user_role || 'viewer') as UserRole);
         await fetchFiles(wsData.id);
       } catch { navigateRef.current('/login'); }
     };
@@ -280,11 +266,9 @@ function IdePage() {
       const checkConflicts = async () => {
         if (!urlWorkspaceId) return;
         try {
-          const token = localStorage.getItem('token');
-          const res = await fetch(apiUrl(`/workspace/${urlWorkspaceId}/files/${activeFileId}/conflicts`), {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (res.ok) { const data = await res.json(); setHasConflicts(data.hasConflicts); }
+          const token = localStorage.getItem('token') || '';
+          const data = await fetchFileConflicts(token, urlWorkspaceId, activeFileId);
+          setHasConflicts(data.hasConflicts);
         } catch (e) { console.error('Failed to check conflicts', e); }
       };
       checkConflicts();
@@ -296,19 +280,14 @@ function IdePage() {
     if (!workspaceId || !activeFileId) return;
     const loadAuthorMap = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch(apiUrl(`/workspace/${workspaceId}/files/${activeFileId}/history`), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.authorMap) {
-            const frontendMap: Record<string, { username: string; color: string }> = {};
-            for (const [clientId, info] of Object.entries(data.authorMap as Record<string, any>)) {
-              frontendMap[clientId] = { username: (info as any).username, color: (info as any).color };
-            }
-            setAuthorMap(frontendMap);
+        const token = localStorage.getItem('token') || '';
+        const data = await fetchFileHistory(token, workspaceId, activeFileId);
+        if (data.authorMap) {
+          const frontendMap: Record<string, { username: string; color: string }> = {};
+          for (const [clientId, info] of Object.entries(data.authorMap)) {
+            frontendMap[clientId] = { username: info.username, color: info.color };
           }
+          setAuthorMap(frontendMap);
         }
       } catch (err) { console.error('Failed to load author map:', err); }
     };
@@ -360,33 +339,31 @@ function IdePage() {
 
   /* ─── Page ────────────────────────────────────────────────────────────── */
   return (
-    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#030303] text-zinc-300 font-sans selection:bg-indigo-500/30">
-      {/* Background decorations */}
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:32px_32px]" />
-      <div className="pointer-events-none absolute -left-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-indigo-500/10 blur-[120px]" />
-      <div className="pointer-events-none absolute -bottom-1/4 -right-1/4 h-[600px] w-[600px] rounded-full bg-emerald-500/10 blur-[120px]" />
+    <WorkspaceProvider value={{ workspaceId, workspaceTitle, userRole, user }}>
+      <ConnectionProvider value={{ connectionStatus, presenceSocket: presenceSocketRef.current }}>
+        <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#030303] text-zinc-300 font-sans selection:bg-indigo-500/30">
+          {/* Background decorations */}
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:32px_32px]" />
+          <div className="pointer-events-none absolute -left-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-indigo-500/10 blur-[120px]" />
+          <div className="pointer-events-none absolute -bottom-1/4 -right-1/4 h-[600px] w-[600px] rounded-full bg-emerald-500/10 blur-[120px]" />
 
-      {/* Header */}
-      <IdeHeader
-        workspaceTitle={workspaceTitle}
-        userRole={userRole}
-        connectionStatus={connectionStatus}
-        activeCollaborators={activeCollaborators}
-        typingUsers={typingUsers}
-        files={files}
-        activeFileId={activeFileId}
-        workspaceId={workspaceId}
-        urlWorkspaceId={urlWorkspaceId ?? ''}
-        isActiveMembersOpen={isActiveMembersOpen}
-        isBlameOpen={isBlameOpen}
-        onToggleActiveMembers={() => setIsActiveMembersOpen(prev => !prev)}
-        onJumpToUser={handleJumpToUser}
-        onShare={() => setIsCollabModalOpen(true)}
-        onExport={handleExportWorkspace}
-        onSnapshot={() => setIsSnapshotPanelOpen(true)}
-        onHideBlame={() => setIsBlameOpen(false)}
-        onLogout={handleLogout}
-      />
+          {/* Header */}
+          <IdeHeader
+            activeCollaborators={activeCollaborators}
+            typingUsers={typingUsers}
+            files={files}
+            activeFileId={activeFileId}
+            urlWorkspaceId={urlWorkspaceId ?? ''}
+            isActiveMembersOpen={isActiveMembersOpen}
+            isBlameOpen={isBlameOpen}
+            onToggleActiveMembers={() => setIsActiveMembersOpen(prev => !prev)}
+            onJumpToUser={handleJumpToUser}
+            onShare={() => setIsCollabModalOpen(true)}
+            onExport={handleExportWorkspace}
+            onSnapshot={() => setIsSnapshotPanelOpen(true)}
+            onHideBlame={() => setIsBlameOpen(false)}
+            onLogout={handleLogout}
+          />
 
       {/* Connection status banner */}
       {connectionStatus !== 'connected' && (
@@ -607,7 +584,9 @@ function IdePage() {
           onResolved={() => { setShowConflictResolver(false); setHasConflicts(false); }}
         />
       )}
-    </div>
+        </div>
+      </ConnectionProvider>
+    </WorkspaceProvider>
   );
 }
 

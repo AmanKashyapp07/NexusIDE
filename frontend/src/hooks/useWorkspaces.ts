@@ -1,16 +1,15 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../components/Toast/Toast';
-import { apiUrl } from '../lib/backendUrls';
+import {
+  fetchWorkspaces as apiFetchWorkspaces,
+  createWorkspace as apiCreateWorkspace,
+  deleteWorkspace as apiDeleteWorkspace,
+  renameWorkspace as apiRenameWorkspace,
+  type Workspace
+} from '../api/workspace';
 
-export interface Workspace {
-  id: string;
-  title: string;
-  created_at: string;
-  updated_at: string;
-  owner_id: string;
-  user_role?: string;
-}
+export type { Workspace };
 
 interface UseWorkspacesReturn {
   workspaces: Workspace[];
@@ -48,11 +47,8 @@ export function useWorkspaces(): UseWorkspacesReturn {
 
   const fetchWorkspaces = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl('/workspace'), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
+      const token = localStorage.getItem('token') || '';
+      const data = await apiFetchWorkspaces(token);
       setWorkspaces(data);
     } catch (err) {
       console.error(err);
@@ -63,22 +59,12 @@ export function useWorkspaces(): UseWorkspacesReturn {
     if (!title.trim()) return;
     setIsCreating(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl('/workspace'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ title }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        addToast('Workspace created successfully', 'success');
-        navigate(`/ide/${data.id}`);
-      } else {
-        addToast(data.error || 'Failed to create workspace', 'error');
-        setIsCreating(false);
-      }
-    } catch {
-      addToast('Failed to create workspace', 'error');
+      const token = localStorage.getItem('token') || '';
+      const data = await apiCreateWorkspace(token, title);
+      addToast('Workspace created successfully', 'success');
+      navigate(`/ide/${data.id}`);
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to create workspace', 'error');
       setIsCreating(false);
     }
   }, [navigate, addToast]);
@@ -102,20 +88,12 @@ export function useWorkspaces(): UseWorkspacesReturn {
     setDeletingWorkspace(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl(`/workspace/${ws.id}`), {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        setWorkspaces(prev => prev.filter(item => item.id !== ws.id));
-        addToast('Workspace deleted successfully', 'success');
-      } else {
-        const data = await res.json();
-        addToast(data.error || 'Failed to delete workspace', 'error');
-      }
-    } catch {
-      addToast('Failed to delete workspace', 'error');
+      const token = localStorage.getItem('token') || '';
+      await apiDeleteWorkspace(token, ws.id);
+      setWorkspaces(prev => prev.filter(item => item.id !== ws.id));
+      addToast('Workspace deleted successfully', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to delete workspace', 'error');
     }
   }, [deletingWorkspace, addToast]);
 
@@ -136,21 +114,12 @@ export function useWorkspaces(): UseWorkspacesReturn {
       return;
     }
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl('/workspace'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id, title: editingTitle }),
-      });
-      if (res.ok) {
-        setWorkspaces(prev => prev.map(ws => ws.id === id ? { ...ws, title: editingTitle } : ws));
-        addToast('Workspace title updated', 'success');
-      } else {
-        const data = await res.json();
-        addToast(data.error || 'Failed to update workspace title', 'error');
-      }
-    } catch {
-      addToast('Failed to update workspace title', 'error');
+      const token = localStorage.getItem('token') || '';
+      await apiRenameWorkspace(token, id, editingTitle);
+      setWorkspaces(prev => prev.map(ws => ws.id === id ? { ...ws, title: editingTitle } : ws));
+      addToast('Workspace title updated', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to update workspace title', 'error');
     } finally {
       setEditingWorkspaceId(null);
     }

@@ -2,9 +2,8 @@ import { useNavigate } from 'react-router-dom';
 import { Users, LogOut, Download, History, Zap } from 'lucide-react';
 import ActiveMembersDropdown from './ActiveMembersDropdown';
 import type { AppFile } from '../Sidebar/Sidebar';
-
-type UserRole = 'admin' | 'editor' | 'viewer';
-type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
+import { useWorkspaceContext } from '../../context/WorkspaceContext';
+import { useConnectionContext, type ConnectionStatus } from '../../context/ConnectionContext';
 
 interface CollaboratorPresence {
   userId: string;
@@ -14,14 +13,10 @@ interface CollaboratorPresence {
 }
 
 interface IdeHeaderProps {
-  workspaceTitle: string;
-  userRole: UserRole | null;
-  connectionStatus: ConnectionStatus;
   activeCollaborators: CollaboratorPresence[];
   typingUsers: Set<string>;
   files: AppFile[];
   activeFileId: string | null;
-  workspaceId: string | null;
   urlWorkspaceId: string;
   isActiveMembersOpen: boolean;
   isBlameOpen: boolean;
@@ -49,17 +44,13 @@ const styles = {
 /**
  * IDE Sub-Component: IdeHeader
  * Top navigation bar for the IDE: branding, status, collaborators, and actions.
- * Fully controlled — all state lives in IdePage.
+ * Consumes workspace info and connection status via context providers.
  */
 export default function IdeHeader({
-  workspaceTitle,
-  userRole,
-  connectionStatus,
   activeCollaborators,
   typingUsers,
   files,
   activeFileId,
-  workspaceId,
   urlWorkspaceId,
   isActiveMembersOpen,
   isBlameOpen,
@@ -72,6 +63,8 @@ export default function IdeHeader({
   onLogout,
 }: IdeHeaderProps) {
   const navigate = useNavigate();
+  const { workspaceTitle, userRole, workspaceId } = useWorkspaceContext();
+  const { connectionStatus } = useConnectionContext();
 
   return (
     <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-white/[0.04] bg-[#030303]/80 px-4 shadow-sm backdrop-blur-xl">

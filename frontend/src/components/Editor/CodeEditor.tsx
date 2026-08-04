@@ -1,22 +1,12 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
-import Editor, { type OnMount } from '@monaco-editor/react';
+import { useState, useCallback } from 'react';
+import Editor from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
-import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
-import { MonacoBinding } from 'y-monaco';
-import { apiUrl, wsUrl } from '../../lib/backendUrls';
 import { useLspClient, type LspStatus } from '../../hooks/useLspClient';
-
-// NOTE: Monaco Web Worker configuration lives in main.tsx (set globally before
-// Monaco initializes). Routing language services to workers prevents main-thread
-// starvation that would otherwise stall the Yjs sync handshake under load.
+import { useCodeEditorSetup, type AwarenessUser } from '../../hooks/useCodeEditorSetup';
+import { useBlameAnnotations } from '../../hooks/useBlameAnnotations';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
-type MonacoInstance = typeof Monaco;
 type MonacoCodeEditor = Monaco.editor.IStandaloneCodeEditor;
-
-interface AwarenessUser { name: string; color: string; id?: string; }
-interface AwarenessState { user?: AwarenessUser; selection?: { anchor: unknown; head: unknown }; }
 
 interface CodeEditorProps {
   workspaceId: string;
@@ -24,83 +14,16 @@ interface CodeEditorProps {
   filename?: string;
   language: string;
   currentUser: { username: string; id: string };
-  authorMap?: Record<string, { userId?: string; username: string; color: string }>; // Added for Blame
-  isBlameOpen?: boolean; // External control for blame visibility
-  onBlameToggle?: (open: boolean) => void; // Callback when blame is toggled
+  authorMap?: Record<string, { userId?: string; username: string; color: string }>;
+  isBlameOpen?: boolean;
+  onBlameToggle?: (open: boolean) => void;
   onCodeChange?: (code: string) => void;
   onEditorReady?: (editor: MonacoCodeEditor) => void;
   onAwarenessChange?: (users: AwarenessUser[]) => void;
   onConnectionStatusChange?: (status: ConnectionStatus) => void;
   readOnly?: boolean;
-
-  // Jump-to-member: set to a userId to scroll the editor to that user's cursor.
-  // IdePage clears it via onJumpComplete once the jump is executed.
   jumpToUserId?: string | null;
   onJumpComplete?: () => void;
-}
-
-const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'];
-const getUserColor = (username: string) => {
-  let hash = 0;
-  for (let i = 0; i < username.length; i++) {
-    hash = username.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return COLORS[Math.abs(hash) % COLORS.length];
-};
-
-// ===========================================================================
-// [BLAME FEATURE] Chronological Author Extraction
-// ===========================================================================
-function getChronologicalLineBlame(ytext: Y.Text) {
-  // Map<lineNumber, Map<clientId, charCount>>
-  const lineAuthors = new Map<number, Map<number, number>>();
-  let currentLine = 1;
-  let node: any = (ytext as any)._start;
-
-  while (node !== null) {
-    if (!node.deleted) {
-      const content = node.content?.getContent?.();
-      const str = Array.isArray(content) ? content.join('') : (typeof content === 'string' ? content : '');
-      
-      for (let i = 0; i < str.length; i++) {
-        if (str[i] === '\n') {
-          currentLine++;
-        } else {
-          const clientId = node.id.client;
-          
-          if (!lineAuthors.has(currentLine)) {
-            lineAuthors.set(currentLine, new Map());
-          }
-          
-          // Increment character count for this client on this line
-          const clientCounts = lineAuthors.get(currentLine)!;
-          clientCounts.set(clientId, (clientCounts.get(clientId) || 0) + 1);
-        }
-      }
-    }
-    node = node.right;
-  }
-
-  const result = new Map<number, number>();
-  
-  // Assign authorship to the client with the most characters per line
-  lineAuthors.forEach((clientCounts, line) => {
-    let maxClient = -1;
-    let maxCount = -1;
-    
-    clientCounts.forEach((count, clientId) => {
-      if (count > maxCount) {
-        maxCount = count;
-        maxClient = clientId;
-      }
-    });
-    
-    if (maxClient !== -1) {
-      result.set(line, maxClient);
-    }
-  });
-
-  return result;
 }
 
 export default function CodeEditor({
@@ -109,7 +32,7 @@ export default function CodeEditor({
   filename,
   language,
   currentUser,
-  authorMap = {}, // Added for Blame
+  authorMap = {},
   isBlameOpen = false,
   onBlameToggle,
   onCodeChange,
@@ -120,345 +43,63 @@ export default function CodeEditor({
   jumpToUserId = null,
   onJumpComplete,
 }: CodeEditorProps) {
-  const [editor, setEditor] = useState<MonacoCodeEditor | null>(null);
-  const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
-  const [awarenessStates, setAwarenessStates] = useState<[number, AwarenessState][]>([]);
   const [lspStatus, setLspStatus] = useState<LspStatus>('off');
 
-  // ===========================================================================
-  // [BLAME FEATURE] UI States
-  // ===========================================================================
-  const [showBlame, setShowBlame] = useState(false);
-  const [blameData, setBlameData] = useState<Map<number, number>>(new Map());
-  const [lineCount, setLineCount] = useState(1);
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  // Callback to sync Monaco scroll with blame sidebar
+  const handleScrollSidebar = useCallback((scrollTop: number) => {
+    if (blame.sidebarRef.current) {
+      blame.sidebarRef.current.scrollTop = scrollTop;
+    }
+  }, []);
 
-  // Sync with parent component's blame state
-  useEffect(() => {
-    setShowBlame(isBlameOpen);
-  }, [isBlameOpen]);
+  // 1. Setup Monaco + Yjs setup hook
+  const setup = useCodeEditorSetup({
+    workspaceId,
+    fileId,
+    filename,
+    currentUser,
+    onCodeChange,
+    onEditorReady,
+    onAwarenessChange,
+    onConnectionStatusChange,
+    jumpToUserId,
+    onJumpComplete,
+    onScrollSidebar: handleScrollSidebar,
+  });
 
-  // Notify parent when blame is toggled locally
-  const toggleBlame = () => {
-    const newState = !showBlame;
-    console.log('[CodeEditor] toggleBlame called, newState:', newState);
-    setShowBlame(newState);
-    onBlameToggle?.(newState);
-    console.log('[CodeEditor] onBlameToggle called with:', newState);
-  };
+  // 2. Setup Blame annotations hook
+  const blame = useBlameAnnotations({
+    workspaceId,
+    fileId,
+    isBlameOpen,
+    onBlameToggle,
+    editor: setup.editor,
+    ydoc: setup.ydoc,
+    awarenessStates: setup.awarenessStates,
+    authorMap,
+  });
 
-  // Historical author map loaded from backend API when Blame is active
-  const [historicalAuthorMap, setHistoricalAuthorMap] = useState<Record<string, { userId?: string; username: string; color: string }>>({});
-
-  useEffect(() => {
-    if (!showBlame || !workspaceId || !fileId) return;
-
-    let isMounted = true;
-    const token = localStorage.getItem('token');
-    fetch(`/api/workspace/${workspaceId}/files/${fileId}/history`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (isMounted && data.authorMap) {
-          setHistoricalAuthorMap(data.authorMap);
-        }
-      })
-      .catch(() => {});
-
-    return () => { isMounted = false; };
-  }, [showBlame, workspaceId, fileId]);
-
-  // Build authorMap from awareness states (map Yjs clientId to user info)
-  const liveAuthorMap = useMemo(() => {
-    const map: Record<string, { userId?: string; username: string; color: string }> = {};
-    awarenessStates.forEach(([clientId, state]) => {
-      if (state.user) {
-        map[String(clientId)] = { 
-          userId: state.user.id,
-          username: state.user.name, 
-          color: state.user.color 
-        };
-      }
-    });
-    // Merge with provided authorMap and historical backend authorMap for full user identity mapping
-    return { ...authorMap, ...historicalAuthorMap, ...map };
-  }, [awarenessStates, authorMap, historicalAuthorMap]);
-
-  // ===========================================================================
-  // [FEATURE] LSP Client — real-time diagnostics, hover, completions
-  // ===========================================================================
+  // 3. LSP client hook
   useLspClient({
     workspaceId,
     fileId,
     filename: filename ?? fileId,
     language,
     readOnly,
-    editor,
-    monacoInstance,
+    editor: setup.editor,
+    monacoInstance: setup.monacoInstance,
     onStatusChange: setLspStatus,
   });
 
-  const wsProviderRef = useRef<WebsocketProvider | null>(null);
-  const ydocRef = useRef<Y.Doc | null>(null);
-
-  const [prevFileId, setPrevFileId] = useState(fileId);
-  if (fileId !== prevFileId) {
-    setPrevFileId(fileId);
-    setAwarenessStates([]);
-    // Reset blame state when switching files
-    setShowBlame(false);
-    setBlameData(new Map());
-    setLineCount(1);
-  }
-
-  const callbackRefs = useRef({ onAwarenessChange, onConnectionStatusChange, onCodeChange });
-  callbackRefs.current = { onAwarenessChange, onConnectionStatusChange, onCodeChange };
-
-  // ===========================================================================
-  // [BLAME FEATURE] Isolated Live Calculation
-  // ===========================================================================
-  useEffect(() => {
-    if (!showBlame || !editor || !ydocRef.current) return;
-    
-    const updateBlame = () => {
-      const ydoc = ydocRef.current;
-      if (!ydoc) return;
-      const ytext = ydoc.getText('monaco');
-      setBlameData(getChronologicalLineBlame(ytext));
-      setLineCount(editor.getModel()?.getLineCount() || 1);
-    };
-
-    updateBlame();
-    const disposable = editor.onDidChangeModelContent(updateBlame);
-    return () => disposable.dispose();
-  }, [showBlame, editor]);
-
-  // ===========================================================================
-  // [COLLABORATION SESSION] Deterministic Yjs lifecycle
-  // ===========================================================================
-  useEffect(() => {
-    let isActive = true;
-    let boundModel: Monaco.editor.ITextModel | null = null;
-    let binding: MonacoBinding | null = null;
-
-    if (!editor || !workspaceId || !fileId) return;
-
-    const roomName = `${workspaceId}-${fileId}`;
-    const token = localStorage.getItem('token') || '';
-    
-    const ydoc = new Y.Doc();
-    const wsProvider = new WebsocketProvider(wsUrl(''), roomName, ydoc, { params: { token } });
-
-    wsProviderRef.current = wsProvider;
-    ydocRef.current = ydoc;
-    
-    // Expose for E2E testing
-    if (typeof window !== 'undefined') {
-      (window as any).__yjsProvider = wsProvider;
-      (window as any).__yjsDoc = ydoc;
-    }
-
-    const tryBind = () => {
-      if (!isActive) return;
-      const model = editor.getModel();
-      const expectedName = filename || fileId;
-      
-      if (!model || !model.uri || !model.uri.path.endsWith(expectedName)) return;
-      if (binding && boundModel === model) return;
-
-      const ytext = ydoc.getText('monaco');
-      if (!(wsProvider as any).synced && ytext.length === 0 && model.getValue().length > 0) {
-        return;
-      }
-      
-      if (binding) {
-        binding.destroy();
-        binding = null;
-      }
-      
-      binding = new MonacoBinding(
-        ytext,
-        model,
-        new Set([editor]),
-        wsProvider.awareness as any
-      );
-      boundModel = model;
-    };
-
-    const handleSync = (synced: boolean) => {
-      if (synced && isActive) {
-        if (binding) {
-          binding.destroy();
-          binding = null;
-          boundModel = null;
-        }
-        tryBind();
-      }
-    };
-
-    const handleStatus = (event: { status: ConnectionStatus }) => {
-      if (!isActive) return;
-      callbackRefs.current.onConnectionStatusChange?.(event.status);
-      if (event.status === 'connected') {
-        wsProvider.awareness.setLocalStateField('user', {
-          name: currentUser.username,
-          color: getUserColor(currentUser.username),
-          id: currentUser.id,
-        });
-      }
-    };
-
-    const handleAwareness = () => {
-      if (!isActive) return;
-      const states = Array.from(wsProvider.awareness.getStates().entries()) as [number, AwarenessState][];
-      setAwarenessStates(states);
-      const users = states
-        .map(([, state]) => state.user)
-        .filter((user): user is AwarenessUser => Boolean(user));
-      
-      callbackRefs.current.onAwarenessChange?.(
-        Array.from(new Map(users.map(u => [u.name, u])).values())
-      );
-    };
-
-    const handleUpdate = (_update: Uint8Array, origin: any) => {
-      if (!isActive || origin !== binding) return;
-      callbackRefs.current.onCodeChange?.(editor.getValue());
-    };
-
-    wsProvider.on('sync', handleSync);
-    wsProvider.on('status', handleStatus as any);
-    wsProvider.awareness.on('change', handleAwareness);
-    ydoc.on('update', handleUpdate);
-    
-    tryBind();
-    const modelDisposable = typeof editor.onDidChangeModel === 'function'
-      ? editor.onDidChangeModel(() => tryBind())
-      : null;
-
-    return () => {
-      isActive = false;
-      wsProviderRef.current = null;
-      ydocRef.current = null;
-      
-      // Clean up E2E test instrumentation
-      if (typeof window !== 'undefined') {
-        delete (window as any).__yjsProvider;
-        delete (window as any).__yjsDoc;
-      }
-      
-      if (modelDisposable) modelDisposable.dispose();
-      
-      wsProvider.off('sync', handleSync);
-      wsProvider.off('status', handleStatus as any);
-      wsProvider.awareness.off('change', handleAwareness);
-      ydoc.off('update', handleUpdate);
-      
-      if (binding) binding.destroy();
-      
-      // Clean up local awareness state before destroying provider
-      // This prevents ghost cursors for other users
-      try {
-        wsProvider.awareness.setLocalState(null);
-      } catch (e) {
-        // Ignore errors if already disconnected
-      }
-      
-      wsProvider.destroy();
-      ydoc.destroy();
-    };
-  }, [editor, workspaceId, fileId, filename, currentUser.username]);
-
-  // ===========================================================================
-  // [FEATURE] Jump-to-member cursor
-  // ===========================================================================
-  useEffect(() => {
-    if (!jumpToUserId || !editor || !wsProviderRef.current || !ydocRef.current) return;
-
-    const provider = wsProviderRef.current;
-    const ydoc = ydocRef.current;
-    const model = editor.getModel();
-    if (!model) return;
-
-    const ytext = ydoc.getText('monaco');
-    const states = provider.awareness.getStates();
-
-    for (const [, state] of states) {
-      const s = state as AwarenessState & { user?: AwarenessUser & { id?: string } };
-      if (!s.user?.id || s.user.id !== jumpToUserId) continue;
-      if (!s.selection) continue;
-
-      const headAbs = Y.createAbsolutePositionFromRelativePosition(
-        s.selection.head as Y.RelativePosition,
-        ydoc
-      );
-      if (headAbs === null || headAbs.type !== ytext) continue;
-
-      const position = model.getPositionAt(headAbs.index);
-      editor.revealPositionInCenter(position, 0 /* Smooth */);
-      editor.setPosition(position);
-      editor.focus();
-      break;
-    }
-
-    onJumpComplete?.();
-  }, [jumpToUserId, editor, onJumpComplete]);
-
-
-  const handleEditorDidMount: OnMount = (editorInstance, monaco) => {
-    if (typeof window !== 'undefined') (window as any).monaco = monaco;
-    setEditor(editorInstance);
-    setMonacoInstance(monaco as MonacoInstance);
-
-    // [BLAME FEATURE] Sync editor scroll to blame sidebar
-    // Guard against missing API in test environments
-    if (typeof editorInstance.onDidScrollChange === 'function') {
-      editorInstance.onDidScrollChange((e) => {
-        if (sidebarRef.current) {
-          sidebarRef.current.scrollTop = e.scrollTop;
-        }
-      });
-    }
-
-    monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-      target: monaco.languages.typescript.ScriptTarget.ES2020,
-      allowNonTsExtensions: true,
-      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-      module: monaco.languages.typescript.ModuleKind.CommonJS,
-      noEmit: true,
-      esModuleInterop: true,
-    });
-    
-    monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-      target: monaco.languages.typescript.ScriptTarget.ES2020,
-      allowNonTsExtensions: true,
-    });
-
-    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
-    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
-    monaco.languages.css.cssDefaults.setDiagnosticsOptions({ validate: false });
-    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({ validate: false });
-
-    editorInstance.updateOptions({ 
-      wordBasedSuggestions: 'off',  // Disable word-based suggestions
-      inlineSuggest: { enabled: false },  // Disable inline suggestions
-      quickSuggestions: false,  // Disable quick suggestions
-      suggestOnTriggerCharacters: false,  // Disable suggestions on trigger characters
-      acceptSuggestionOnEnter: 'off',  // Disable accept on enter
-    });
-    onEditorReady?.(editorInstance);
-  };
-
   return (
-    // Replaced absolute wrapper with flex for split pane architecture
     <div className="relative flex h-full w-full bg-[#1e1e1e] overflow-hidden">
+      {/* Remote cursor and selection styles */}
       <style>
-        {awarenessStates.map(([clientId, state]) => {
-            if (!state.user?.color) return '';
-            const color = state.user.color;
-            const name = state.user.name || 'Anonymous';
-            return `
+        {setup.awarenessStates.map(([clientId, state]) => {
+          if (!state.user?.color) return '';
+          const color = state.user.color;
+          const name = state.user.name || 'Anonymous';
+          return `
             .yRemoteSelection-${clientId} { background-color: ${color}35 !important; }
             .yRemoteSelectionHead-${clientId} {
               position: absolute;
@@ -485,38 +126,34 @@ export default function CodeEditor({
             @keyframes cursorFadeIn-${clientId} { from { opacity: 0; } to { opacity: 1; } }
             .yRemoteSelectionHead-${clientId}:hover::after { animation: none; opacity: 1; transform: translateY(0); }
           `;
-          }).join('\n')}
+        }).join('\n')}
       </style>
-      
-      {/* ===========================================================================
-          [BLAME FEATURE] Custom React Blame Sidebar
-          =========================================================================== */}
-      {showBlame && (
-        <div 
-          ref={sidebarRef}
+
+      {/* Blame Sidebar */}
+      {blame.showBlame && (
+        <div
+          ref={blame.sidebarRef}
           className="w-[260px] shrink-0 overflow-hidden bg-[#252526] border-r border-white/10 text-xs z-10"
-          style={{ scrollbarWidth: 'none' }} 
+          style={{ scrollbarWidth: 'none' }}
         >
-          {/* pt/pb-[16px] perfectly matches Monaco's { top: 16, bottom: 16 } padding options */}
-          <div className="pt-[16px] pb-[16px]"> 
-            {Array.from({ length: lineCount }, (_, i) => i + 1).map(line => {
-              const clientId = blameData.get(line);
-              const author = clientId ? liveAuthorMap[String(clientId)] : null;
-              
+          <div className="pt-[16px] pb-[16px]">
+            {Array.from({ length: blame.lineCount }, (_, i) => i + 1).map((line) => {
+              const clientId = blame.blameData.get(line);
+              const author = clientId ? blame.liveAuthorMap[String(clientId)] : null;
+
               return (
-                <div 
-                  key={line} 
-                  // h-[21px] must exactly match Monaco's configured lineHeight
+                <div
+                  key={line}
                   className="flex items-center h-[21px] px-3 hover:bg-white/5 border-l-2 border-transparent group transition-colors cursor-default"
                   style={{ borderLeftColor: author?.color || 'transparent' }}
                 >
                   {author ? (
                     <>
-                      <span 
-                        className="w-2 h-2 rounded-full mr-2 shrink-0 opacity-80" 
-                        style={{ backgroundColor: author.color }} 
+                      <span
+                        className="w-2 h-2 rounded-full mr-2 shrink-0 opacity-80"
+                        style={{ backgroundColor: author.color }}
                       />
-                      <span 
+                      <span
                         className="truncate w-24 mr-2 font-medium text-zinc-300"
                         title={author.userId ? `User: ${author.username} (${author.userId})` : author.username}
                       >
@@ -536,7 +173,7 @@ export default function CodeEditor({
         </div>
       )}
 
-      {/* Editor Main Canvas Wrapper */}
+      {/* Editor Canvas */}
       <div className="flex-1 relative min-w-0">
         <Editor
           path={filename || fileId}
@@ -554,30 +191,27 @@ export default function CodeEditor({
           options={{
             minimap: { enabled: false },
             fontSize: 14,
-            lineHeight: 21, // Added to enforce perfect alignment with the React sidebar h-[21px]
+            lineHeight: 21,
             fontFamily: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, Menlo, monospace",
             fontLigatures: true,
-            // Dynamically disable word wrap when blame is open to preserve row-to-row alignment
-            wordWrap: showBlame ? 'off' : 'on',
+            wordWrap: blame.showBlame ? 'off' : 'on',
             padding: { top: 16, bottom: 16 },
             lineNumbersMinChars: 3,
             readOnly: readOnly,
             automaticLayout: true,
           }}
-          onMount={handleEditorDidMount}
+          onMount={setup.handleEditorDidMount}
         />
-        
-        {/* ===========================================================================
-            [BLAME FEATURE] Toggle Button Overlay
-            =========================================================================== */}
+
+        {/* Blame Toggle Overlay Button */}
         <button
-          onClick={toggleBlame}
+          onClick={blame.toggleBlame}
           className="absolute top-4 right-6 z-30 flex items-center gap-1.5 rounded-md bg-[#2d2d2d] hover:bg-[#3d3d3d] px-3 py-1.5 text-xs font-medium text-zinc-300 border border-white/10 transition-colors shadow-lg"
         >
-          <svg className={`w-3.5 h-3.5 transition-transform ${showBlame ? 'text-indigo-400' : 'text-zinc-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className={`w-3.5 h-3.5 transition-transform ${blame.showBlame ? 'text-indigo-400' : 'text-zinc-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          {showBlame ? 'Hide Blame' : 'Blame'}
+          {blame.showBlame ? 'Hide Blame' : 'Blame'}
         </button>
 
         {readOnly && (
@@ -589,7 +223,7 @@ export default function CodeEditor({
           </div>
         )}
 
-        {/* LSP status badge */}
+        {/* LSP Status Badge */}
         {lspStatus !== 'off' && !readOnly && ['typescript', 'javascript', 'typescriptreact', 'javascriptreact', 'python'].includes(language) && (
           <div
             data-testid="lsp-status-badge"

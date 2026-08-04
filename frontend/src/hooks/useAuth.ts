@@ -1,12 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '../lib/backendUrls';
+import { fetchCurrentUser, type AuthUser } from '../api/auth';
 
-export interface AuthUser {
-  id: string;
-  username: string;
-  avatar_url?: string;
-}
+export type { AuthUser };
 
 interface UseAuthReturn {
   user: AuthUser | null;
@@ -33,18 +29,8 @@ export function useAuth(): UseAuthReturn {
       }
 
       try {
-        const res = await fetch(apiUrl('/auth/me'), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!res.ok) {
-          localStorage.removeItem('token');
-          navigate('/login');
-          return;
-        }
-
-        const data = await res.json();
-        setUser(data.user);
+        const userData = await fetchCurrentUser(token);
+        setUser(userData);
       } catch {
         localStorage.removeItem('token');
         navigate('/login');
