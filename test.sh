@@ -10,7 +10,8 @@
 # =============================================================================
 set -e
 
-LOCAL_BASE="/Users/amankashyap/Documents/sandbox"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
 DEPLOYED_URL="http://129.154.39.198"
 
 # ─── Colours ──────────────────────────────────────────────────────────────────

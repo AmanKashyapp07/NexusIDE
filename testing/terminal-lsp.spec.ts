@@ -1695,6 +1695,7 @@ def get_status():
     await page.keyboard.type(`cat << 'EOF' > my_package/submodule/helper.py\n${helperCode}\nEOF\n`, { delay: 10 });
 
     const mainPyCode = `
+import sys
 from my_package.submodule.helper import get_status
 
 def main():

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
 # deploy.sh — Full fresh deployment to VM
-# Usage: bash /Users/amankashyap/Documents/sandbox/deploy.sh
+# Usage: bash deploy.sh
 # =============================================================================
 set -e
 
-SSH_KEY="/Users/amankashyap/Documents/sandbox/ssh-key-2022-12-01.key"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
+SSH_KEY="${SSH_KEY:-$LOCAL_BASE/ssh-key-2022-12-01.key}"
 REMOTE="ubuntu@129.154.39.198"
 REMOTE_BASE="/home/ubuntu/sandbox-ide"
-LOCAL_BASE="/Users/amankashyap/Documents/sandbox"
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'

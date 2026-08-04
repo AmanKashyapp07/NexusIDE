@@ -1,6 +1,7 @@
-// Disable all console operations globally in the project
-console.log = () => {};
-console.error = () => {};
-console.warn = () => {};
-console.info = () => {};
-console.debug = () => {};
+const noop = (): void => {};
+
+console.log = noop;
+console.error = noop;
+console.warn = noop;
+console.info = noop;
+console.debug = noop;
