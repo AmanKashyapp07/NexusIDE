@@ -7,9 +7,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
-SSH_KEY="${SSH_KEY:-$LOCAL_BASE/ssh-key-2022-12-01.key}"
-REMOTE="ubuntu@129.154.39.198"
-REMOTE_BASE="/home/ubuntu/sandbox-ide"
+SSH_KEY="${SSH_KEY:-$LOCAL_BASE/deploy.key}"
+REMOTE="${REMOTE:-ubuntu@YOUR_VM_IP}"
+REMOTE_BASE="${REMOTE_BASE:-/home/ubuntu/sandbox-ide}"
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -27,9 +27,10 @@ VITE_API_URL="" npm run build
 info "Build complete → dist/"
 
 # ─── 2. Upload frontend dist to VM ───────────────────────────────────────────
-section "2/4  Uploading frontend dist"
+section "2/4  Uploading frontend dist & vite.config.ts"
 tar -czf /tmp/dist.tar.gz -C dist .
 scp -i "${SSH_KEY}" /tmp/dist.tar.gz "${REMOTE}:${REMOTE_BASE}/frontend/dist.tar.gz"
+scp -i "${SSH_KEY}" vite.config.ts "${REMOTE}:${REMOTE_BASE}/frontend/vite.config.ts"
 ssh -i "${SSH_KEY}" "${REMOTE}" bash <<'REMOTE_FRONTEND'
   cd /home/ubuntu/sandbox-ide/frontend
   rm -rf dist
@@ -80,8 +81,8 @@ REMOTE_BACKEND
 
 info "All done! Deployment complete."
 echo ""
-echo -e "${GREEN}Frontend:${NC} http://129.154.39.198"
-echo -e "${GREEN}API:      ${NC} http://129.154.39.198/api"
+echo -e "${GREEN}Frontend:${NC} http://${REMOTE#*@}"
+echo -e "${GREEN}API:      ${NC} http://${REMOTE#*@}/api"
 echo ""
 warn "Bundle built WITHOUT VITE_API_URL — runtime fallback in backendUrls.ts"
 warn "now correctly resolves the API to http://<hostname>/api in the browser."

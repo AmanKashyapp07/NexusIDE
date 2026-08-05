@@ -211,14 +211,24 @@ nexus-ide/
 │   │   └── server.ts            # Entrypoint & raw WS handler
 ├── frontend/
 │   ├── src/
-│   │   ├── components/          # Shared components (ConflictResolver, SnapshotPanel)
-│   │   ├── pages/               # IdePage, Dashboard, Login pages
-│   │   ├── hooks/               # Custom React hooks (voice chat, sockets)
-│   │   └── lib/                 # Utility connections
+│   │   ├── api/                 # Modular REST API layer (workspace, auth, files, AI, snapshots)
+│   │   ├── components/          # Shared components (ConflictResolver, SnapshotPanel, CodeEditor)
+│   │   ├── contexts/            # React Context Providers (Workspace, Socket, Collaboration, LSP)
+│   │   ├── hooks/               # Custom React hooks (useCodeEditorSetup, useBlameAnnotations, useTimelapsePlayer)
+│   │   ├── services/            # Standalone OOP Services (LspService, MonacoLspAdapter)
+│   │   └── pages/               # IdePage, Dashboard, Login pages
 ├── database/
 │   └── schema.sql               # Database schemas & triggers
 └── testing/
-    └── e2e/                     # Playwright integration & collaborative tests
+    ├── test-utils.ts            # Composable test setup & helper utilities
+    ├── api.test.ts               # REST API service unit tests
+    ├── backend.test.ts           # Backend API & DB integration tests
+    ├── frontend.test.tsx         # React IDE component unit tests
+    ├── lsp-service.test.ts       # JSON-RPC framing & LSP service unit tests
+    ├── timelapse.test.ts         # Timelapse calculation engine unit tests
+    ├── collaboration.spec.ts     # Playwright E2E Collaboration & Git Merge tests
+    ├── terminal-lsp.spec.ts      # Playwright E2E Terminal PTY & LSP tests
+    └── timelapse.spec.ts         # Playwright E2E Timelapse Replay & Attribution tests
 ```
 
 ---
@@ -274,15 +284,35 @@ cd ../frontend && npm run dev
 
 ## Testing Suite
 
-NexusIDE features a comprehensive test suite validating full, real-browser collaboration flows. 
+NexusIDE features a comprehensive test suite validating full, real-browser collaboration flows, REST APIs, JSON-RPC framing, and CRDT replay engines.
 
-* **Backend Unit Tests (Vitest):** Core REST paths, permissions, and database operations.
-* **Frontend Component Tests (Vitest):** Monaco loading, socket reconnect loops, and viewer role blockages.
-* **E2E Integration Tests (Playwright):** Simulated browser instances typing concurrently, triggering conflict resolutions, terminal execution checks, and snapshot time-travel.
+* **Frontend Unit & Integration Tests (Vitest / JSDOM):** 
+  - `frontend.test.tsx`: Monaco editor initialization, Socket.IO reconnect loops, UI error boundary stability, viewer blockages.
+  - `lsp-service.test.ts`: JSON-RPC protocol framing, buffer parsing, request timeouts, and LSP event handling.
+* **Backend Integration Tests (Vitest / Node):** 
+  - `backend.test.ts`: REST API routes, PostgreSQL transactions, Redis caching, RBAC authorization, PTY lifecycle.
+  - `api.test.ts`: API service client headers, request formatting, and authorization payload validation.
+  - `timelapse.test.ts`: Pure unit tests for the CRDT snapshot extraction, activity downsampling, and Monaco offset calculations.
+* **E2E Integration Tests (Playwright):** 
+  - `collaboration.spec.ts`: Multi-user live typing, cursor presence, snapshot time-travel, and Git merge conflict resolution.
+  - `terminal-lsp.spec.ts`: Interactive PTY bash streaming, background process execution, and Pyright / TS Language Server diagnostics.
+  - `timelapse.spec.ts`: Keystroke recording, timeline scrubbing, author attribution, and full-fidelity replay engine tests.
 
-To run the Playwright test suite locally, ensure the development servers are up and execute:
+### Running Test Suites
+You can run test suites using the project test runner script:
+
 ```bash
-npx --prefix frontend playwright test ../testing/e2e/conflict.spec.ts
+# Run Frontend Unit & Component Tests (107/107 tests passing)
+bash test.sh --frontend
+
+# Run Backend API & Integration Tests (92/92 tests passing)
+bash test.sh --backend
+
+# Run E2E Playwright Integration Tests against deployed VM
+BASE_URL="http://YOUR_SERVER_IP" bash test.sh --e2e
+
+# Run a specific E2E test in isolation
+(cd frontend && BASE_URL="http://YOUR_SERVER_IP" npx playwright test ../testing/collaboration.spec.ts -g "14. broadcasts snapshot-restored")
 ```
 
 ### 5. Deployment & Remote E2E Testing

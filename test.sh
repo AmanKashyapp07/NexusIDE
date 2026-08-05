@@ -12,7 +12,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
-DEPLOYED_URL="http://129.154.39.198"
+DEPLOYED_URL="${BASE_URL:-http://localhost:5173}"
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'

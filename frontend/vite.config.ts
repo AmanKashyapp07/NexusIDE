@@ -10,9 +10,13 @@ export default defineConfig({
   // Exclude monaco-editor from Vite's dep optimizer so the local worker files
   // are served as-is and @monaco-editor/react doesn't fall back to the CDN.
   server: {
+    allowedHosts: true,
     fs: {
       allow: ['..']
     }
+  },
+  preview: {
+    allowedHosts: true,
   },
   optimizeDeps: {
     exclude: ['monaco-editor'],
