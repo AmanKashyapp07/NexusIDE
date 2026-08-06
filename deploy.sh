@@ -7,7 +7,6 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
-SSH_KEY="${SSH_KEY:-$LOCAL_BASE/deploy.key}"
 SSH_KEY="${SSH_KEY:-$LOCAL_BASE/ssh-key-2022-12-01.key}"
 REMOTE="${REMOTE:-ubuntu@129.154.39.198}"
 REMOTE_BASE="${REMOTE_BASE:-/home/ubuntu/sandbox-ide}"
