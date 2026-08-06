@@ -22,5 +22,14 @@ const getFallbackWsUrl = () => {
 const apiBase = trimTrailingSlash(import.meta.env.VITE_API_URL || getFallbackApiUrl());
 const wsBase = trimTrailingSlash(import.meta.env.VITE_WS_URL || getFallbackWsUrl());
 
+export const getSocketIoOptions = () => {
+  if (typeof window === 'undefined') return { url: 'http://localhost:4000', path: '/socket.io' };
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return { url: `${window.location.protocol}//${hostname}:4000`, path: '/socket.io' };
+  }
+  return { url: `${window.location.protocol}//${hostname}`, path: '/ide/socket.io' };
+};
+
 export const apiUrl = (path: string) => `${apiBase}${path.startsWith('/') ? path : `/${path}`}`;
 export const wsUrl = (path: string) => `${wsBase}${path.startsWith('/') ? path : `/${path}`}`;

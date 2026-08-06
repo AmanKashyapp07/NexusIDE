@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { login, createTestWorkspace, deleteTestWorkspace, createTestFile, typeTextInMonaco, waitForBootComplete, waitForEditorModel, setRangeValue, getSliderMax } from './test-utils';
-const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
+const APP_URL = process.env.NEXUS_BASE_URL || process.env.BASE_URL || 'http://localhost:5173';
 
 test.describe('Timelapse - Replay Engine', () => {
   let workspaceId: string;
@@ -124,8 +124,9 @@ test.describe('Timelapse - Attribution Engine', () => {
   const WS_TITLE = `Attribution-Test-${Date.now()}`;
   async function inviteViaApi(page: Page, username: string, role = 'editor') {
     await page.evaluate(async ({ wsId, username, role }) => {
-      const token = localStorage.getItem('token');
-      await fetch(`/api/workspace/${wsId}/collaborators`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiBase = window.location.pathname.includes('/ide') ? '/ide/api' : '/api';
+      await fetch(`${apiBase}/workspace/${wsId}/collaborators`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ usernameOrEmail: username, role }),
@@ -143,8 +144,9 @@ test.describe('Timelapse - Attribution Engine', () => {
   }
   async function getHistoryAuthorMap(page: Page, fileId: string): Promise<Record<string, any>> {
     return page.evaluate(async ({ wsId, fileId }) => {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/workspace/${wsId}/files/${fileId}/history`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiBase = window.location.pathname.includes('/ide') ? '/ide/api' : '/api';
+      const res = await fetch(`${apiBase}/workspace/${wsId}/files/${fileId}/history`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return {};
@@ -167,8 +169,9 @@ test.describe('Timelapse - Attribution Engine', () => {
     await typeTextInMonaco(page, 'hello from alice');
     await page.waitForTimeout(3000);
     const fileId = await page.evaluate(async (wsId) => {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/workspace/${wsId}/files`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiBase = window.location.pathname.includes('/ide') ? '/ide/api' : '/api';
+      const res = await fetch(`${apiBase}/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const files = await res.json();
@@ -201,8 +204,9 @@ test.describe('Timelapse - Attribution Engine', () => {
     await typeTextInMonaco(page, 'alice line\n');
     await page.waitForTimeout(3000);
     const fileId = await page.evaluate(async (wsId) => {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/workspace/${wsId}/files`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiBase = window.location.pathname.includes('/ide') ? '/ide/api' : '/api';
+      const res = await fetch(`${apiBase}/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const files = await res.json();
@@ -602,14 +606,15 @@ test.describe('Timelapse Full-Fidelity Replay', () => {
     await typeTextInMonaco(page, 'test');
     await page.waitForTimeout(3000); // debounce save
     const response = await page.evaluate(async (wsId) => {
-      const token = localStorage.getItem('token');
-      const filesRes = await fetch(`/api/workspace/${wsId}/files`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiBase = window.location.pathname.includes('/ide') ? '/ide/api' : '/api';
+      const filesRes = await fetch(`${apiBase}/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const files = await filesRes.json();
       const fileId = files.find((f: any) => f.name === 'fidelity.js')?.id;
       if (!fileId) return { hasUpdates: false, hasYjsState: false };
-      const historyRes = await fetch(`/api/workspace/${wsId}/files/${fileId}/history`, {
+      const historyRes = await fetch(`${apiBase}/workspace/${wsId}/files/${fileId}/history`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await historyRes.json();

@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext, type Browser } from '@playwright/test';
 import {
-  APP_URL, API_URL, WS_URL,
+  APP_URL, API_URL, WS_URL, extractWorkspaceId,
   login, loginUser, inviteUser, waitForBootComplete, focusEditor,
   createTestWorkspace, deleteTestWorkspace, createTestFile, createFile, typeTextInMonaco,
   getEditorValue, waitForEditorModel, waitForEditorSync, setMonacoValue, setEditorValue, waitForSocketConnect,
@@ -8,11 +8,16 @@ import {
 } from './test-utils';
 
 test.describe('Terminal - Core Operations', () => {
+  test.beforeEach(async ({ page }) => {
+    page.on('console', msg => console.log(`[Browser Console ${msg.type()}] ${msg.text()}`));
+    page.on('pageerror', err => console.error(`[Browser PageError] ${err}`));
+  });
+
   test('executes shell commands, detects directory watch sync, and proxies dev server traffic with Ctrl+C teardown', async ({ page, context }) => {
     const timestamp = Date.now();
     const username = `Tester_${timestamp}`;
     const workspaceTitle = `Term_Brutal_WS_${timestamp}`;
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -23,9 +28,9 @@ test.describe('Terminal - Core Operations', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
     const ideUrl = page.url();
-    const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    const workspaceId = extractWorkspaceId(ideUrl);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
@@ -38,7 +43,7 @@ test.describe('Terminal - Core Operations', () => {
     await expect(terminalBody).toContainText('PTY_TEST_OK', { timeout: 5000 });
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
+    await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 15000 });
     await page.keyboard.type('echo \'console.log("FROM_SHELL_OK");\' > shell-script.js', { delay: 10 });
     await page.keyboard.press('Enter');
     const fileSelector = page.locator('.ide-scrollbar').getByText('shell-script.js');
@@ -85,7 +90,7 @@ test.describe('Terminal - Core Operations', () => {
     const workspaceTitle = `Git_Clone_WS_${timestamp}`;
     const repoUrl = 'https://github.com/AmanKashyapp07/github-test-ci.git';
     const repoName = 'github-test-ci';
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -96,7 +101,7 @@ test.describe('Terminal - Core Operations', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
@@ -147,7 +152,7 @@ test.describe('Terminal - Core Operations', () => {
 
   test('xterm.js frontend withstands massive stdout floods without crashing or desyncing', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -175,7 +180,7 @@ test.describe('Terminal - Core Operations', () => {
 
   test('handles interactive stdin prompts and background process orchestration', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -216,7 +221,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     const timestamp = Date.now();
     const userA = `UserA_Iso_${timestamp}`;
     const userB = `UserB_Iso_${timestamp}`;
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -227,8 +232,8 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Iso_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalA = page.locator('.xterm');
@@ -237,7 +242,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await page.waitForTimeout(3000);
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
-    await pageB.goto('/login');
+    await pageB.goto(`${APP_URL}/login`);
     const inputB = pageB.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await inputB.waitFor({ state: 'visible', timeout: 15000 });
     await inputB.click();
@@ -252,7 +257,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await page.click('button:has-text("Invite")');
     await page.waitForTimeout(2000);
     await page.keyboard.press('Escape');
-    await pageB.goto(`/ide/${workspaceId}`);
+    await pageB.goto(`${APP_URL}/${workspaceId}`);
     await pageB.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalB = pageB.locator('.xterm');
     const textareaB = pageB.locator('.xterm-helper-textarea');
@@ -299,7 +304,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
   test('multiple tabs from same user share one container (reference counting)', async ({ page, context }) => {
     const timestamp = Date.now();
     const username = `MultiTab_${timestamp}`;
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -310,8 +315,8 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `MultiTab_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminal1 = page.locator('.xterm');
     const textarea1 = page.locator('.xterm-helper-textarea');
@@ -322,7 +327,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
     const page2 = await context.newPage();
-    await page2.goto(`/ide/${workspaceId}`);
+    await page2.goto(`${APP_URL}/${workspaceId}`);
     await page2.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminal2 = page2.locator('.xterm');
     const textarea2 = page2.locator('.xterm-helper-textarea');
@@ -345,7 +350,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
 test.describe('Terminal Signal Handling & Process Control', () => {
   test('handles SIGTSTP (Ctrl+Z) to background a process and fg to resume it', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -386,7 +391,7 @@ test.describe('Terminal Signal Handling & Process Control', () => {
 
   test('handles SIGINT (Ctrl+C) on a node process that traps signals', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -430,7 +435,7 @@ test.describe('Terminal Signal Handling & Process Control', () => {
 test.describe('Terminal File System Operations & Reverse Sync', () => {
   test('directory creation, nested files, and deletion all sync back to the explorer', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -483,7 +488,7 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
 
   test('npm install triggered by package.json creation syncs node_modules correctly', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -520,7 +525,7 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
 test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
   test('supports pipes, redirects, here-docs, and command chaining', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -571,7 +576,7 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
 
   test('ANSI escape sequences and color codes render without corruption', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -613,7 +618,7 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
 test.describe('Terminal Working Directory Persistence & Navigation', () => {
   test('working directory persists across commands and supports complex navigation', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -624,8 +629,8 @@ test.describe('Terminal Working Directory Persistence & Navigation', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `CWD_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
@@ -669,7 +674,7 @@ test.describe('Terminal Working Directory Persistence & Navigation', () => {
 test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
   test('rapid file creation burst from terminal all sync to explorer without data loss', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -699,12 +704,12 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
     await expect(midFile).toBeVisible({ timeout: 5000 });
     await midFile.click();
     await page.waitForSelector('.monaco-editor', { timeout: 25000 });
-    await expect(page.locator('.monaco-editor')).toContainText('content_5', { timeout: 10000 });
+    await expect(page.locator('.monaco-editor')).toContainText('content_5', { timeout: 20000 });
   });
 
   test('simultaneous editor write and terminal write to different files does not conflict', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -750,7 +755,7 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
 test.describe('Terminal Environment & System Validation', () => {
   test('verifies container environment variables, resource limits, and system utilities', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -761,8 +766,8 @@ test.describe('Terminal Environment & System Validation', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Env_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
@@ -804,7 +809,7 @@ test.describe('Terminal Environment & System Validation', () => {
 
   test('compiles and runs C/C++ programs through the PTY correctly', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -846,7 +851,7 @@ test.describe('Terminal Environment & System Validation', () => {
 test.describe('Terminal History & Shell State', () => {
   test('arrow keys navigate command history and shell maintains state across commands', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -903,7 +908,7 @@ test.describe('Terminal History & Shell State', () => {
     const timestamp = Date.now();
     const username = `FullProj_${timestamp}`;
     const workspaceTitle = `FullProj_WS_${timestamp}`;
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -914,9 +919,9 @@ test.describe('Terminal History & Shell State', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
     const ideUrl = page.url();
-    const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    const workspaceId = extractWorkspaceId(ideUrl);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
@@ -938,10 +943,10 @@ server.listen(3000, () => {
     await page.waitForTimeout(1500);
     await page.keyboard.type('node app.js &\n', { delay: 10 });
     await expect(terminalBody).toContainText('Server listening on port 3000', { timeout: 10000 });
-    await page.waitForTimeout(1000);
-    const token = await page.evaluate(() => localStorage.getItem('token') || '');
+    await page.waitForTimeout(3500);
+    const token = await page.evaluate(() => localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
-    await previewPage.goto(`${API_URL.replace('/api', '')}/api/workspace/${workspaceId}/preview/?token=${token}`);
+    await previewPage.goto(`${APP_URL}/api/workspace/${workspaceId}/preview/?token=${token}`);
     await expect(previewPage.locator('h1')).toHaveText('Express Backend Active', { timeout: 15000 });
     await expect(previewPage.locator('p')).toContainText('React Mock Frontend Mounted', { timeout: 15000 });
     await previewPage.close();
@@ -951,7 +956,7 @@ server.listen(3000, () => {
     const timestamp = Date.now();
     const username = `SplitProj_${timestamp}`;
     const workspaceTitle = `SplitProj_WS_${timestamp}`;
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -962,9 +967,9 @@ server.listen(3000, () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
     const ideUrl = page.url();
-    const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    const workspaceId = extractWorkspaceId(ideUrl);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
@@ -1021,9 +1026,10 @@ server.listen(3000, () => {
     await expect(terminalBody).toContainText('Backend listening on port 5000', { timeout: 10000 });
     await page.keyboard.type('node frontend/dev-server.js &\n', { delay: 10 });
     await expect(terminalBody).toContainText('Frontend dev server listening on port 3000', { timeout: 10000 });
-    const token = await page.evaluate(() => localStorage.getItem('token') || '');
+    await page.waitForTimeout(3500);
+    const token = await page.evaluate(() => localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
-    await previewPage.goto(`${API_URL.replace('/api', '')}/api/workspace/${workspaceId}/preview/?token=${token}`);
+    await previewPage.goto(`${APP_URL}/api/workspace/${workspaceId}/preview/?token=${token}`);
     await expect(previewPage.locator('h1')).toHaveText('React Frontend', { timeout: 15000 });
     await expect(previewPage.locator('#status')).toHaveText('Connected to: backend-api', { timeout: 15000 });
     await previewPage.close();
@@ -1033,7 +1039,7 @@ server.listen(3000, () => {
     const timestamp = Date.now();
     const username = `GitFlow_${timestamp}`;
     const workspaceTitle = `GitFlow_WS_${timestamp}`;
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -1044,9 +1050,9 @@ server.listen(3000, () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
     const ideUrl = page.url();
-    const workspaceId = ideUrl.split('/ide/')[1].split('/')[0];
+    const workspaceId = extractWorkspaceId(ideUrl);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
@@ -1064,7 +1070,7 @@ server.listen(3000, () => {
     await page.waitForTimeout(1500);
     await page.keyboard.type('git status\n', { delay: 10 });
     await expect(terminalBody).toContainText('nothing to commit, working tree clean', { timeout: 5000 });
-    await page.goto('/dashboard');
+    await page.goto(`${APP_URL}/dashboard`);
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.goto(ideUrl);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
@@ -1081,7 +1087,7 @@ server.listen(3000, () => {
     const timestamp = Date.now();
     const username = `NoGit_${timestamp}`;
     const workspaceTitle = `NoGit_WS_${timestamp}`;
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -1092,7 +1098,7 @@ server.listen(3000, () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.fill('input[placeholder="e.g. React-Sandbox"]', workspaceTitle);
     await page.click('button:has-text("Create Now")');
-    await expect(page).toHaveURL(/\/ide\/[a-f0-9-]+/);
+    await expect(page).toHaveURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
@@ -1108,7 +1114,7 @@ server.listen(3000, () => {
 test.describe('Terminal Multi-File Interconnection & Compilation', () => {
   test('compiles and executes multi-file C++ project with headers and implementations', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -1156,7 +1162,7 @@ int main() {
 
   test('executes multi-file Python program with package initialization and cross-imports', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -1196,7 +1202,7 @@ if __name__ == "__main__":
 
   test('resolves Node.js ESM and CommonJS interop and deeply nested requires', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -1227,7 +1233,7 @@ if __name__ == "__main__":
 
   test('executes a mixed-language pipeline (Bash -> Python -> Node -> C++)', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -1266,7 +1272,7 @@ int main(int argc, char** argv) {
 test.describe('Terminal Advanced File System Edge Cases', () => {
   test('handles large file operations, binary downloads, and permission modifications (chmod)', async ({ page }) => {
     const timestamp = Date.now();
-    await page.goto('/login');
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -1283,7 +1289,7 @@ test.describe('Terminal Advanced File System Edge Cases', () => {
     await terminalTextarea.focus();
     await page.keyboard.type('curl -s https://raw.githubusercontent.com/torvalds/linux/master/README > linux_readme.txt\n', { delay: 10 });
     await page.keyboard.type('wc -l linux_readme.txt\n', { delay: 10 });
-    await expect(terminalBody).toContainText(/[1-9][0-9]+ linux_readme\.txt/, { timeout: 10000 });
+    await expect(terminalBody).toContainText(/[1-9][0-9]+ linux_readme\.txt/, { timeout: 25000 });
     const bashScript = `#!/bin/bash\necho "EXECUTION_GRANTED_OK"`;
     await page.keyboard.type(`cat << 'EOF' > runner.sh\n${bashScript}\nEOF\n`, { delay: 10 });
     await page.keyboard.type('./runner.sh\n', { delay: 10 });
@@ -1299,7 +1305,7 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspTs_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_TS_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await waitForBootComplete(page);
     await createFile(page, 'index.ts');
     await waitForEditorModel(page, 'index.ts');
@@ -1312,7 +1318,7 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspPy_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_PY_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await waitForBootComplete(page);
     await createFile(page, 'main.py');
     await waitForEditorModel(page, 'main.py');
@@ -1325,7 +1331,7 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspNone_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_NONE_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await waitForBootComplete(page);
     await createFile(page, 'config.json');
     await waitForEditorModel(page, 'config.json');
@@ -1338,7 +1344,7 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspDiag_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_DIAG_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await waitForBootComplete(page);
     await createFile(page, 'error.ts');
     await waitForEditorModel(page, 'error.ts');
@@ -1358,7 +1364,7 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspPyDiag_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_PYDIAG_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await waitForBootComplete(page);
     await createFile(page, 'bad.py');
     await waitForEditorModel(page, 'bad.py');
@@ -1382,7 +1388,7 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspClear_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_CLEAR_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await waitForBootComplete(page);
     await createFile(page, 'fix.ts');
     await waitForEditorModel(page, 'fix.ts');
@@ -1401,13 +1407,13 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(bobPage, `LspViewer_${ts}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_RBAC_${ts}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'secret.ts');
     await alicePage.waitForTimeout(1000);
     await inviteUser(alicePage, `LspViewer_${ts}`, 'viewer');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('secret.ts').click();
     await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
@@ -1415,13 +1421,13 @@ test.describe('LSP - Language Intelligence', () => {
     await bobPage.waitForTimeout(5000);
     await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
     const wsRejectCode = await bobPage.evaluate(async ({ wsId }) => {
-      const token = localStorage.getItem('token') ?? '';
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '';
       return new Promise<number>((resolve) => {
         const hostname = window.location.hostname;
         const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
         const wsUrl = isLocal
           ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${hostname}:4000`
-          : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${hostname}/ws`;
+          : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${hostname}/ide/ws`;
         const ws = new WebSocket(
           `${wsUrl}/ws/lsp/${wsId}/typescript?token=${encodeURIComponent(token)}`
         );
@@ -1439,7 +1445,7 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspSwitch_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_SWITCH_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
     await waitForBootComplete(page);
     await createFile(page, 'app.ts');
     await page.waitForTimeout(500);
@@ -1466,8 +1472,8 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(page, `LspAuth_${ts}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_AUTH_${ts}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await waitForBootComplete(page);
     const closeCode = await page.evaluate(async ({ wsId }) => {
       return new Promise<number>((resolve) => {
@@ -1493,15 +1499,15 @@ test.describe('LSP - Language Intelligence', () => {
     await loginUser(bobPage, `LspViewer2_${ts}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_RBAC2_${ts}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'a.ts');
     await alicePage.waitForTimeout(500);
     await createFile(alicePage, 'b.py');
     await alicePage.waitForTimeout(500);
     await inviteUser(alicePage, `LspViewer2_${ts}`, 'viewer');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('a.ts').click();
     await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });

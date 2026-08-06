@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { wsUrl } from '../lib/backendUrls';
+import { getNexusToken } from '../lib/tokenStorage';
 import { getUserColor } from '../constants/editor';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
@@ -68,7 +69,7 @@ export function useCodeEditorSetup({
     if (!editor || !workspaceId || !fileId) return;
 
     const roomName = `${workspaceId}-${fileId}`;
-    const token = localStorage.getItem('token') || '';
+    const token = getNexusToken();
 
     const ydoc = new Y.Doc();
     const wsProvider = new WebsocketProvider(wsUrl(''), roomName, ydoc, { params: { token } });

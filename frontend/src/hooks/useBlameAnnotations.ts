@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type * as Monaco from 'monaco-editor';
 import * as Y from 'yjs';
 import { fetchFileHistory } from '../api/history';
+import { getNexusToken } from '../lib/tokenStorage';
 
 export interface AwarenessUser { name: string; color: string; id?: string; }
 export type AwarenessState = [number, { user?: AwarenessUser; selection?: { anchor: unknown; head: unknown } }];
@@ -93,7 +94,7 @@ export function useBlameAnnotations({
     if (!showBlame || !workspaceId || !fileId) return;
 
     let isMounted = true;
-    const token = localStorage.getItem('token') || '';
+    const token = getNexusToken();
     fetchFileHistory(token, workspaceId, fileId)
       .then((data) => {
         if (isMounted && data.authorMap) {

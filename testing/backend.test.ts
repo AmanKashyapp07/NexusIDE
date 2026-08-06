@@ -758,8 +758,8 @@ describe('Workspace Lifecycle & Operations', () => {
 
   it('owner can delete workspace', async () => {
     mockQuery.mockImplementation((sql: string) => {
-      if (sql.includes('SELECT owner_id FROM workspaces')) return Promise.resolve({ rows: [{ owner_id: OWNER_ID }] });
-      if (sql.includes('DELETE FROM workspaces')) return Promise.resolve({ rows: [] });
+      if (sql.includes('owner_id') && sql.includes('workspaces')) return Promise.resolve({ rows: [{ owner_id: OWNER_ID }] });
+      if (sql.includes('DELETE') || sql.includes('delete')) return Promise.resolve({ rows: [] });
       return Promise.resolve({ rows: [] });
     });
     const res = await request(app).delete(`/api/workspace/${WORKSPACE_ID}`).set('Authorization', `Bearer ${ownerToken}`);

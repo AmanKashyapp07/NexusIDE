@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy.sh — Full fresh deployment to VM
-# Usage: bash deploy.sh
+# NexusIDE Production Deployment Manager
+# Target Server: Oracle Cloud VM (129.154.39.198)
+# Stack: Node.js / Express / Socket.IO / Docker / Nginx / PM2
 # =============================================================================
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
@@ -11,43 +12,62 @@ SSH_KEY="${SSH_KEY:-$LOCAL_BASE/ssh-key-2022-12-01.key}"
 REMOTE="${REMOTE:-ubuntu@129.154.39.198}"
 REMOTE_BASE="${REMOTE_BASE:-/home/ubuntu/sandbox-ide}"
 
-# ─── Colours ──────────────────────────────────────────────────────────────────
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-info()    { echo -e "${GREEN}[deploy]${NC} $*"; }
-warn()    { echo -e "${YELLOW}[warn]${NC}   $*"; }
-section() { echo -e "\n${YELLOW}══ $* ══${NC}"; }
+# ─── Formatting ───────────────────────────────────────────────────────────────
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
 
-# ─── 1. Build frontend LOCALLY (no VITE_API_URL so runtime fallback is used) ─
-section "1/4  Building frontend"
-info "Overriding VITE_API_URL to empty so localhost:4000 is NOT baked into the bundle"
-info "(The .env file sets it to localhost:4000 for local dev — we override it for prod)"
+info()    { echo -e "${CYAN}${BOLD}[INFO]${NC} $*"; }
+success() { echo -e "${GREEN}${BOLD}[SUCCESS]${NC} $*"; }
+warn()    { echo -e "${YELLOW}${BOLD}[WARN]${NC} $*"; }
+error()   { echo -e "${RED}${BOLD}[ERROR]${NC} $*"; }
+section() { echo -e "\n${YELLOW}${BOLD}══ $* ══${NC}"; }
+
+# ─── 0. Prerequisite Checks ───────────────────────────────────────────────────
+section "0/4  Verifying Prerequisites"
+
+if [ ! -f "$SSH_KEY" ]; then
+  error "SSH key not found at $SSH_KEY"
+  exit 1
+fi
+chmod 600 "$SSH_KEY"
+
+for cmd in ssh rsync tar npm; do
+  if ! command -v $cmd &>/dev/null; then
+    error "Required command '$cmd' is not installed locally."
+    exit 1
+  fi
+done
+
+info "Testing SSH connectivity to ${REMOTE}..."
+if ! ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${REMOTE}" "echo SSH_OK" &>/dev/null; then
+  error "Failed to connect to ${REMOTE}. Check SSH configuration or network state."
+  exit 1
+fi
+success "SSH Connection Verified."
+
+# ─── 1. Build Frontend Locally ────────────────────────────────────────────────
+section "1/4  Building Production Frontend Bundle"
+info "Overriding VITE_API_URL to empty string for dynamic runtime API resolution"
 cd "${LOCAL_BASE}/frontend"
-# Pass VITE_API_URL as empty string — Vite inline env vars beat .env files
 VITE_API_URL="" npm run build
-info "Build complete → dist/"
+success "Frontend built successfully → dist/"
 
-# ─── 2. Upload frontend dist to VM ───────────────────────────────────────────
-section "2/4  Uploading frontend dist & vite.config.ts"
+# ─── 2. Sync Source & Bundles to VM ───────────────────────────────────────────
+section "2/4  Syncing Assets to Remote Host"
 tar -czf /tmp/dist.tar.gz -C dist .
-scp -i "${SSH_KEY}" /tmp/dist.tar.gz "${REMOTE}:${REMOTE_BASE}/frontend/dist.tar.gz"
-scp -i "${SSH_KEY}" vite.config.ts "${REMOTE}:${REMOTE_BASE}/frontend/vite.config.ts"
-ssh -i "${SSH_KEY}" "${REMOTE}" bash <<'REMOTE_FRONTEND'
-  cd /home/ubuntu/sandbox-ide/frontend
-  rm -rf dist
-  mkdir -p dist
-  tar -xzf dist.tar.gz -C dist
-  rm dist.tar.gz
-  sudo chmod 755 /home/ubuntu
-  sudo systemctl reload nginx || true
-  echo "Frontend dist extracted OK"
-REMOTE_FRONTEND
-rm /tmp/dist.tar.gz
-info "Frontend dist deployed"
 
-# ─── 3. Sync backend + testing source to VM ──────────────────────────────────
-section "3/4  Syncing backend & testing source"
-rsync -avz --progress \
-  -e "ssh -i ${SSH_KEY}" \
+info "Uploading frontend distribution package..."
+scp -i "${SSH_KEY}" -o StrictHostKeyChecking=no /tmp/dist.tar.gz "${REMOTE}:${REMOTE_BASE}/frontend/dist.tar.gz"
+scp -i "${SSH_KEY}" -o StrictHostKeyChecking=no vite.config.ts "${REMOTE}:${REMOTE_BASE}/frontend/vite.config.ts"
+rm -f /tmp/dist.tar.gz
+
+info "Syncing backend codebase..."
+rsync -avz --delete \
+  -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no" \
   --exclude 'node_modules' \
   --exclude 'dist' \
   --exclude '.env' \
@@ -55,36 +75,67 @@ rsync -avz --progress \
   --exclude '*.log' \
   "${LOCAL_BASE}/backend/" \
   "${REMOTE}:${REMOTE_BASE}/backend/"
-info "Backend source synced"
 
-rsync -avz --progress \
-  -e "ssh -i ${SSH_KEY}" \
+info "Syncing frontend package metadata..."
+rsync -avz \
+  -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no" \
+  --include 'package*.json' \
+  --exclude '*' \
+  "${LOCAL_BASE}/frontend/" \
+  "${REMOTE}:${REMOTE_BASE}/frontend/"
+
+info "Syncing testing suite..."
+rsync -avz \
+  -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no" \
   --exclude 'node_modules' \
   --exclude 'dist' \
   --exclude 'test-results' \
   --exclude 'playwright-report' \
   "${LOCAL_BASE}/testing/" \
   "${REMOTE}:${REMOTE_BASE}/testing/"
-info "Testing directory synced"
 
-# ─── 4. Install backend deps & restart PM2 ───────────────────────────────────
-section "4/4  Rebuilding backend & restarting PM2"
-ssh -i "${SSH_KEY}" "${REMOTE}" bash <<'REMOTE_BACKEND'
-  set -e
+success "File synchronization complete."
+
+# ─── 3. Remote Service Deployment ────────────────────────────────────────────
+section "3/4  Executing Remote Deployment & Service Reload"
+ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE}" bash <<'REMOTE_EXEC'
+  set -euo pipefail
+  
+  echo "→ Extracting frontend distribution bundle..."
+  cd /home/ubuntu/sandbox-ide/frontend
+  rm -rf dist
+  mkdir -p dist
+  tar -xzf dist.tar.gz -C dist
+  rm -f dist.tar.gz
+  
+  echo "→ Updating backend dependencies..."
   cd /home/ubuntu/sandbox-ide/backend
-  echo "→ Installing backend npm deps..."
-  npm install --prefer-offline 2>&1 | tail -5
+  npm install --prefer-offline --no-audit --no-fund 2>&1 | tail -5
+  
   echo "→ Restarting PM2 processes..."
-  pm2 restart all
+  pm2 restart all --update-env
   sleep 3
-  echo "→ PM2 status:"
-  pm2 list --no-color
-REMOTE_BACKEND
+  
+  echo "→ Reloading Nginx..."
+  sudo chmod 755 /home/ubuntu
+  sudo nginx -t
+  sudo systemctl reload nginx
+REMOTE_EXEC
+success "Remote services reloaded."
 
-info "All done! Deployment complete."
+# ─── 4. Health Check & Verification ──────────────────────────────────────────
+section "4/4  Verifying Deployment Health"
+info "Checking backend health status on VM..."
+HEALTH_CHECK=$(ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE}" "curl -s -o /dev/null -w '%{http_code}' http://localhost:4000/api/workspace || true")
+
+if [ "$HEALTH_CHECK" -eq 200 ] || [ "$HEALTH_CHECK" -eq 401 ]; then
+  success "Backend API is online and responding (HTTP $HEALTH_CHECK)."
+else
+  warn "Backend API responded with unexpected status HTTP $HEALTH_CHECK. Check PM2 logs using: pm2 logs backend"
+fi
+
 echo ""
-echo -e "${GREEN}NexusIDE: ${NC} http://${REMOTE#*@}/ide/"
-echo -e "${GREEN}MagnusCI: ${NC} http://${REMOTE#*@}"
+success "NexusIDE Deployment Completed Successfully!"
+echo -e "${GREEN}NexusIDE App:${NC} http://${REMOTE#*@}/ide/"
+echo -e "${GREEN}MagnusCI App:${NC} http://${REMOTE#*@}/ci/"
 echo ""
-warn "Bundle built WITHOUT VITE_API_URL — runtime fallback in backendUrls.ts"
-warn "now correctly resolves the API to http://<hostname>/api in the browser."

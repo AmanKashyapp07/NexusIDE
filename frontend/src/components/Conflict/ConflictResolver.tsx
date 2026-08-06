@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, Check } from 'lucide-react';
 import { apiUrl } from '../../lib/backendUrls';
+import { getNexusToken } from '../../lib/tokenStorage';
 import { useToast } from '../Toast/Toast';
 
 interface ConflictBlock {
@@ -46,7 +47,7 @@ export default function ConflictResolver({
   useEffect(() => {
     const fetchConflicts = async () => {
       try {
-        const token = localStorage.getItem('token');
+        const token = getNexusToken();
         const res = await fetch(apiUrl(`/workspace/${workspaceId}/files/${fileId}/conflicts`), {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -78,7 +79,7 @@ export default function ConflictResolver({
         return resolutions[index] === 'ours' ? (block.ours || '') : (block.theirs || '');
       }).join('\n');
 
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/files/${fileId}/conflicts/resolve`), {
         method: 'POST',
         headers: { 

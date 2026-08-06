@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getNexusToken } from '../lib/tokenStorage';
 import { useToast } from '../components/Toast/Toast';
 import {
   fetchWorkspaces as apiFetchWorkspaces,
@@ -47,7 +48,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
 
   const fetchWorkspaces = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       const data = await apiFetchWorkspaces(token);
       setWorkspaces(data);
     } catch (err) {
@@ -59,10 +60,10 @@ export function useWorkspaces(): UseWorkspacesReturn {
     if (!title.trim()) return;
     setIsCreating(true);
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       const data = await apiCreateWorkspace(token, title);
       addToast('Workspace created successfully', 'success');
-      navigate(`/ide/${data.id}`);
+      navigate(`/${data.id}`);
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Failed to create workspace', 'error');
       setIsCreating(false);
@@ -71,7 +72,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
 
   const handleJoin = useCallback((id: string) => {
     if (!id.trim()) return;
-    navigate(`/ide/${id.trim()}`);
+    navigate(`/${id.trim()}`);
   }, [navigate]);
 
   const handleDelete = useCallback((ws: Workspace, userId: string) => {
@@ -88,7 +89,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
     setDeletingWorkspace(null);
 
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       await apiDeleteWorkspace(token, ws.id);
       setWorkspaces(prev => prev.filter(item => item.id !== ws.id));
       addToast('Workspace deleted successfully', 'success');
@@ -114,7 +115,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
       return;
     }
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       await apiRenameWorkspace(token, id, editingTitle);
       setWorkspaces(prev => prev.map(ws => ws.id === id ? { ...ws, title: editingTitle } : ws));
       addToast('Workspace title updated', 'success');

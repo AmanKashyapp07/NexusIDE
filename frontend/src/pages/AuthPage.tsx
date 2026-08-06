@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiUrl } from '../lib/backendUrls';
+import { setNexusToken } from '../lib/tokenStorage';
 
 interface FeatureCardProps {
   icon: string;
@@ -136,7 +137,7 @@ export default function AuthPage() {
                   });
                   const data = await res.json();
                   if (!res.ok) throw new Error(data.error || 'Login failed');
-                  localStorage.setItem('token', data.token);
+                  setNexusToken(data.token);
                   navigate('/dashboard');
                 } catch (err: any) {
                   setTestError(err.message || 'Login failed');

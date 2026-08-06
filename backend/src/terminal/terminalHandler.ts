@@ -80,8 +80,12 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 
    try {
       const url = new URL(req.url || '', 'http://' + (req.headers.host || 'localhost'));
-      workspaceId = url.pathname.split('/').filter(Boolean)[1] as string;
+      const pathSegments = url.pathname.split('/').filter(Boolean);
+      // Support both /terminal/{id} and /ws/terminal/{id} path forms
+      const uuidSegment = pathSegments.find(seg => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(seg));
+      workspaceId = uuidSegment || (pathSegments[1] as string);
       const token = url.searchParams.get('token');
+
 
       if (!workspaceId || !token) return ws.close(4401, 'Unauthorized');
 
@@ -123,7 +127,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 
       const isViewer = userRole === 'viewer';
       const envVars = [
-         'PS1=\\[\\033[1;35m\\]sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[1;32m\\]\\$\\[\\033[0m\\] ',
+         'PS1=\\[\\033[1;35m\\]sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]~#\\[\\033[0m\\] ',
          'PROMPT_DIRTRIM=2',
          'TERM=xterm-256color', 'LANG=C.UTF-8', `HOME=/workspaces/${workspaceId}`
       ];

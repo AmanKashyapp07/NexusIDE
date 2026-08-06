@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchCurrentUser, type AuthUser } from '../api/auth';
+import { getNexusToken, removeNexusToken } from '../lib/tokenStorage';
 
 export type { AuthUser };
 
@@ -22,7 +23,7 @@ export function useAuth(): UseAuthReturn {
 
   useEffect(() => {
     const init = async () => {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       if (!token) {
         navigate('/login');
         return;
@@ -32,7 +33,7 @@ export function useAuth(): UseAuthReturn {
         const userData = await fetchCurrentUser(token);
         setUser(userData);
       } catch {
-        localStorage.removeItem('token');
+        removeNexusToken();
         navigate('/login');
       } finally {
         setIsLoading(false);
@@ -43,7 +44,7 @@ export function useAuth(): UseAuthReturn {
   }, [navigate]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
+    removeNexusToken();
     navigate('/login');
   }, [navigate]);
 

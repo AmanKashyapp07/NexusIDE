@@ -61,7 +61,8 @@ app.use((req, res, next) => {
    if (referer) {
       const match = referer.match(/\/api\/workspace\/([^\/]+)\/preview/);
       if (match) {
-         return res.redirect(`/api/workspace/${match[1]}/preview${req.originalUrl}`);
+         const prefix = referer.includes('/ide/') ? '/ide' : '';
+         return res.redirect(`${prefix}/api/workspace/${match[1]}/preview${req.originalUrl}`);
       }
    }
    next();

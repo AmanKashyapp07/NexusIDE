@@ -309,22 +309,22 @@ bash test.sh --frontend
 bash test.sh --backend
 
 # Run E2E Playwright Integration Tests against deployed VM
-BASE_URL="http://YOUR_SERVER_IP" bash test.sh --e2e
+NEXUS_BASE_URL="http://YOUR_SERVER_IP" bash test.sh --e2e
 
 # Run a specific E2E test in isolation
-(cd frontend && BASE_URL="http://YOUR_SERVER_IP" npx playwright test ../testing/collaboration.spec.ts -g "14. broadcasts snapshot-restored")
+(cd frontend && NEXUS_BASE_URL="http://YOUR_SERVER_IP" npx playwright test ../testing/collaboration.spec.ts -g "14. broadcasts snapshot-restored")
 ```
 
 ### 5. Deployment & Remote E2E Testing
 
 The project is designed to be fully deployable on cloud VMs (e.g., Oracle VM) under PM2 process management.
 - **Dynamic Host Resolution**: The client application dynamically resolves the API endpoint and WebSocket gateway hostnames relative to `window.location.hostname` (mapping port `4000` for API/WS traffic). This allows out-of-the-box support for remote deployments and SSH tunneling without needing to hardcode target servers at compile time.
-- **Headless E2E Execution**: To validate the integration suite directly on your deployed VM, install the headless browsers and execute playwright with the target `BASE_URL`:
+- **Headless E2E Execution**: To validate the integration suite directly on your deployed VM, install the headless browsers and execute playwright with the target `NEXUS_BASE_URL`:
   ```bash
   # Inside your SSH session on the VM:
   cd /home/ubuntu/sandbox-ide/frontend
   npx playwright install --with-deps
-  BASE_URL=http://localhost:3000 npm run test:e2e
+  NEXUS_BASE_URL=http://localhost:3000 npm run test:e2e
   ```
 
 ---

@@ -7,7 +7,8 @@ import { useToast } from '../components/Toast/Toast';
 import CollaboratorsModal from '../components/Collaborators/CollaboratorsModal';
 import { Loader2, TerminalSquare, RotateCcw, Globe, Code2, FileText, Folder, ChevronRight, Activity, GitBranch, History } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
-import { apiUrl } from '../lib/backendUrls';
+import { apiUrl, getSocketIoOptions } from '../lib/backendUrls';
+import { getNexusToken, removeNexusToken } from '../lib/tokenStorage';
 import SnapshotPanel from '../components/Snapshots/SnapshotPanel';
 import ConflictResolver from '../components/Conflict/ConflictResolver';
 import TimelapseReplayer from '../components/Editor/TimelapseReplayer';
@@ -116,7 +117,7 @@ function IdePage() {
 
   const fetchFiles = useCallback(async (wsId: string) => {
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       const data = await fetchWorkspaceFiles(token, wsId);
       setFiles(data);
     } catch (err) { console.error('Failed to fetch files', err); }
@@ -136,13 +137,13 @@ function IdePage() {
   }, [urlWorkspaceId]);
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('token');
+    removeNexusToken();
     navigateRef.current('/login');
   }, []);
 
   const handleJumpToUser = useCallback((userId: string, fileId: string | null) => {
     if (fileId) {
-      if (fileId !== activeFileId) navigate(`/ide/${urlWorkspaceId}/${fileId}`);
+      if (fileId !== activeFileId) navigate(`/${urlWorkspaceId}/${fileId}`);
       setJumpToUserId(userId);
       setIsActiveMembersOpen(false);
     }
@@ -152,11 +153,11 @@ function IdePage() {
   const handleFileCreate = useCallback(async (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => {
     if (!workspaceId) return;
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       const newFile = await apiCreateFile(token, workspaceId, { name, type, parent_id: parentId, language });
       setFiles(prev => [...prev, newFile].sort((a, b) => a.name.localeCompare(b.name)));
       broadcastFileTreeUpdate();
-      if (type === 'file') navigateRef.current(`/ide/${urlWorkspaceId}/${newFile.id}`);
+      if (type === 'file') navigateRef.current(`/${urlWorkspaceId}/${newFile.id}`);
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Failed to create file', 'error');
     }
@@ -165,7 +166,7 @@ function IdePage() {
   const handleFileDelete = useCallback(async (id: string) => {
     if (!workspaceId) return;
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       await apiDeleteFile(token, workspaceId, id);
       setFiles(prev => prev.filter(f => f.id !== id));
       if (activeFile?.id === id) editorRef.current?.setValue('');
@@ -175,7 +176,7 @@ function IdePage() {
 
   const handleExportWorkspace = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       const blob = await apiExportWorkspace(token, workspaceId!);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -194,7 +195,7 @@ function IdePage() {
     if (!workspaceId || isSnapshotting) return;
     setIsSnapshotting(true);
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getNexusToken();
       const data = await apiCreateSnapshot(token, workspaceId, label);
       addToast(`Snapshot saved: "${data.label}"`, 'success');
     } catch (err) {
@@ -208,7 +209,7 @@ function IdePage() {
   // Initialize workspace from URL param
   useEffect(() => {
     const initWorkspace = async () => {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       if (!token) return navigateRef.current('/login');
       try {
         const userData = await fetchCurrentUser(token);
@@ -227,8 +228,9 @@ function IdePage() {
   // Presence socket
   useEffect(() => {
     if (!urlWorkspaceId || !user?.id) return;
-    const token = localStorage.getItem('token') || '';
-    const socket = io(apiUrl('').replace(/\/api\/?$/, ''), { auth: { token }, transports: ['websocket'] });
+    const token = getNexusToken();
+    const { url: socketServerUrl, path: socketIoPath } = getSocketIoOptions();
+    const socket = io(socketServerUrl, { path: socketIoPath, auth: { token }, transports: ['websocket'] });
     presenceSocketRef.current = socket;
 
     socket.on('connect', () => {
@@ -266,7 +268,7 @@ function IdePage() {
       const checkConflicts = async () => {
         if (!urlWorkspaceId) return;
         try {
-          const token = localStorage.getItem('token') || '';
+          const token = getNexusToken();
           const data = await fetchFileConflicts(token, urlWorkspaceId, activeFileId);
           setHasConflicts(data.hasConflicts);
         } catch (e) { console.error('Failed to check conflicts', e); }
@@ -280,7 +282,7 @@ function IdePage() {
     if (!workspaceId || !activeFileId) return;
     const loadAuthorMap = async () => {
       try {
-        const token = localStorage.getItem('token') || '';
+        const token = getNexusToken();
         const data = await fetchFileHistory(token, workspaceId, activeFileId);
         if (data.authorMap) {
           const frontendMap: Record<string, { username: string; color: string }> = {};
@@ -299,7 +301,7 @@ function IdePage() {
     if (files.length === 0) return;
     if (!urlFileId) {
       const firstFile = files.find(f => f.type === 'file');
-      if (firstFile) navigateRef.current(`/ide/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
+      if (firstFile) navigateRef.current(`/${urlWorkspaceId}/${firstFile.id}`, { replace: true });
     }
   }, [urlFileId, files, urlWorkspaceId]);
 
@@ -390,7 +392,7 @@ function IdePage() {
             activeFileId={activeFileId}
             readOnly={userRole === 'viewer'}
             onRefresh={() => { if (workspaceId) fetchFiles(workspaceId); }}
-            onFileSelect={(file) => { navigate(`/ide/${urlWorkspaceId}/${file.id}`); }}
+            onFileSelect={(file) => { navigate(`/${urlWorkspaceId}/${file.id}`); }}
             onFileCreate={handleFileCreate}
             onFileDelete={handleFileDelete}
           />
@@ -416,7 +418,7 @@ function IdePage() {
                             className={`flex items-center gap-1.5 rounded-md px-2 py-1 transition-all ${
                               isLast ? 'text-zinc-100 bg-white/5 shadow-sm' : 'hover:bg-white/5 hover:text-zinc-200 cursor-pointer'
                             }`}
-                            onClick={() => { if (!isLast && crumb.type === 'file') navigate(`/ide/${urlWorkspaceId}/${crumb.id}`); }}
+                            onClick={() => { if (!isLast && crumb.type === 'file') navigate(`/${urlWorkspaceId}/${crumb.id}`); }}
                           >
                             {crumb.type === 'directory' ? (
                               <Folder size={14} className="text-zinc-500" />
@@ -528,7 +530,7 @@ function IdePage() {
               </div>
               <div className="flex items-center gap-2 bg-[#121214] p-1 rounded-lg border border-white/[0.04]">
                 <button
-                  onClick={() => window.open(apiUrl(`/workspace/${workspaceId}/preview/?token=${localStorage.getItem('token')}`), '_blank')}
+                  onClick={() => window.open(apiUrl(`/workspace/${workspaceId}/preview/?token=${getNexusToken()}`), '_blank')}
                   className="group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-all hover:bg-emerald-500/20"
                 >
                   <Globe size={12} className="transition-transform group-hover:scale-110" />

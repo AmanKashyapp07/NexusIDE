@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../Toast/Toast';
 import { apiUrl, wsUrl } from '../../lib/backendUrls';
+import { getNexusToken } from '../../lib/tokenStorage';
 
 interface TerminalPanelProps {
   workspaceId: string;
@@ -111,33 +112,38 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     };
     window.addEventListener('resize', handleWindowResize);
 
-    const token = localStorage.getItem('token') || '';
+    const token = getNexusToken();
     
     const terminalWsUrl = wsUrl(`/terminal/${workspaceId}?token=${token}`);
+    console.log('[TerminalPanel] Initiating WS:', terminalWsUrl, 'Token present:', Boolean(token), 'Length:', token.length);
     const ws = new WebSocket(terminalWsUrl);
     wsRef.current = ws;
 
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
+      console.log('[TerminalPanel] WS ONOPEN successful');
       setConnectionStatus('connected');
       setError(null);
       addToast('Terminal session connected', 'success');
     };
 
     ws.onmessage = (event) => {
-      if (terminal && !terminal.element) return;
       const data = new Uint8Array(event.data);
+      const text = new TextDecoder().decode(data);
+      console.log('[TerminalPanel] WS ONMESSAGE bytes:', data.length, 'text:', JSON.stringify(text.slice(0, 80)));
       terminal.write(data);
     };
 
-    ws.onerror = () => {
+    ws.onerror = (err) => {
+      console.error('[TerminalPanel] WS ONERROR event:', err);
       setError('Connection error');
       setConnectionStatus('disconnected');
       addToast('Terminal connection error', 'error');
     };
 
     ws.onclose = (event) => {
+      console.warn('[TerminalPanel] WS ONCLOSE code:', event.code, 'reason:', event.reason);
       setConnectionStatus('disconnected');
       if (event.code === 4401) {
         const msg = 'Session expired. Please log out and log back in.';
@@ -204,7 +210,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     const interval = setInterval(() => {
       if (isActive) {
         isActive = false; // reset for next cycle
-        const token = localStorage.getItem('token');
+        const token = getNexusToken();
         fetch(apiUrl(`/workspace/${workspaceId}/heartbeat`), {
           method: 'POST',
           headers: {

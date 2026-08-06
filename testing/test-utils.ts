@@ -1,26 +1,51 @@
 import { expect, type Page, type APIRequestContext } from '@playwright/test';
 
-export const APP_URL = process.env.BASE_URL || 'http://localhost:5173';
+export function extractWorkspaceId(url: string): string {
+  const match = url.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+  if (match) return match[1];
+  const parts = url.split('/ide/').filter(Boolean);
+  const lastPart = parts[parts.length - 1];
+  return lastPart ? lastPart.split('/')[0] : '';
+}
+
+export const APP_BASE_URL = (() => {
+  const base = process.env.NEXUS_BASE_URL || process.env.BASE_URL || 'http://localhost:5173';
+  return base.replace(/\/$/, '');
+})();
+export const APP_URL = APP_BASE_URL;
+
 export const API_URL = (() => {
-  const base = process.env.BASE_URL;
-  if (!base) return 'http://localhost:4000/api';
+  const base = process.env.NEXUS_BASE_URL || process.env.BASE_URL;
+  if (!base) return 'http://127.0.0.1:4000/api';
   try {
     const u = new URL(base);
-    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = '4000';
-    u.pathname = '/api';
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      u.hostname = '127.0.0.1';
+      u.port = '4000';
+      u.pathname = '/api';
+    } else {
+      const basePath = u.pathname.replace(/\/$/, '');
+      u.pathname = `${basePath}/api`;
+    }
     return u.toString().replace(/\/$/, '');
-  } catch { return 'http://localhost:4000/api'; }
+  } catch { return 'http://127.0.0.1:4000/api'; }
 })();
 export const WS_URL = (() => {
-  const base = process.env.BASE_URL;
-  if (!base) return 'ws://localhost:4000';
+  const base = process.env.NEXUS_BASE_URL || process.env.BASE_URL;
+  if (!base) return 'ws://127.0.0.1:4000';
   try {
     const u = new URL(base);
-    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = '4000';
-    else u.pathname = '/ws';
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      u.hostname = '127.0.0.1';
+      u.port = '4000';
+      u.pathname = '';
+    } else {
+      const basePath = u.pathname.replace(/\/$/, '');
+      u.pathname = `${basePath}/ws`;
+    }
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
     return u.toString().replace(/\/$/, '');
-  } catch { return 'ws://localhost:4000'; }
+  } catch { return 'ws://127.0.0.1:4000'; }
 })();
 
 export async function login(page: Page, username: string, password?: string): Promise<string> {
@@ -30,15 +55,15 @@ export async function login(page: Page, username: string, password?: string): Pr
     });
     if (res.ok()) {
       const { token } = await res.json();
-      await page.goto(`${APP_URL}/login`);
-      await page.evaluate((t) => localStorage.setItem('token', t), token);
-      await page.goto(`${APP_URL}/dashboard`);
+      await page.goto(`${APP_BASE_URL}/login`);
+      await page.evaluate((t) => { localStorage.setItem('nexus_ide_token', t); localStorage.setItem('token', t); }, token);
+      await page.goto(`${APP_BASE_URL}/dashboard`);
       await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
       return token;
     }
   } catch {}
 
-  await page.goto(`${APP_URL}/login`);
+  await page.goto(`${APP_BASE_URL}/login`);
   const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
   await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
   await usernameInput.click();
@@ -69,9 +94,9 @@ export async function loginUser(page: Page, arg2: APIRequestContext | string, ar
     throw new Error(`Login API failed for "${username}": ${loginRes.status()} ${await loginRes.text()}`);
   }
   const { token } = await loginRes.json();
-  await page.goto(`${APP_URL}/login`);
-  await page.evaluate((t) => localStorage.setItem('token', t), token);
-  await page.goto(`${APP_URL}/dashboard`);
+  await page.goto(`${APP_BASE_URL}/login`);
+  await page.evaluate((t) => { localStorage.setItem('nexus_ide_token', t); localStorage.setItem('token', t); }, token);
+  await page.goto(`${APP_BASE_URL}/dashboard`);
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
   return token;
 }
@@ -105,8 +130,9 @@ export async function createTestWorkspace(page: Page, title: string): Promise<st
   await input.fill(title);
   await page.click('button:has-text("Create Now")');
   
-  await page.waitForURL(/\/ide\/[a-f0-9-]+/, { timeout: 20000 });
-  const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+  await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/, { timeout: 20000 });
+  const match = page.url().match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+  const workspaceId = match ? match[1] : page.url().split('/ide/').pop()!.split('/')[0];
   
   const loadingEl = page.locator('text=Booting environment...');
   try {
@@ -124,7 +150,7 @@ export async function deleteTestWorkspace(page: Page, workspaceId: string) {
       const origin = window.location.origin;
       const apiUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
         ? `${window.location.protocol}//${window.location.hostname}:4000/api`
-        : `${origin}/api`;
+        : `${origin}/ide/api`;
       const res = await fetch(`${apiUrl}/workspace/${id}`, {
         method: 'DELETE',
         headers: {

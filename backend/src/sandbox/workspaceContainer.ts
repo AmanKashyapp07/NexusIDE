@@ -119,6 +119,13 @@ export const getRunningContainer = (userId: string, workspaceId: string): Docker
 export const getRunningContainerRef = (userId: string, workspaceId: string): WorkspaceContainerRef | null => 
    activeWorkspaceContainers.get(`${userId}-${workspaceId}`) || null;
 
+export const getRunningContainerRefByWorkspaceId = (workspaceId: string): WorkspaceContainerRef | null => {
+   for (const [key, ref] of activeWorkspaceContainers.entries()) {
+      if (key.endsWith(`-${workspaceId}`)) return ref;
+   }
+   return null;
+};
+
 export function touchWorkspaceActivity(userId: string, workspaceId: string): void {
    const key = `${userId}-${workspaceId}`;
    const ref = activeWorkspaceContainers.get(key);

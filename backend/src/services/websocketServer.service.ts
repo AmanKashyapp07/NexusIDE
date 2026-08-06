@@ -59,7 +59,7 @@ export function setupWebSocketServer(server: http.Server): WebSocketServer {
          
          // INTENT: Delegate terminal PTY and LSP requests to their specialized handlers.
          // WHY: Isolates stream-based terminal/LSP protocols from Yjs binary CRDT sync protocol.
-         if (url.pathname.startsWith('/terminal/')) return await handleTerminalConnection(ws, req);
+         if (url.pathname.startsWith('/terminal/') || url.pathname.startsWith('/ws/terminal/')) return await handleTerminalConnection(ws, req);
          if (url.pathname.startsWith('/ws/lsp/') || url.pathname.startsWith('/lsp/')) return await handleLspConnection(ws, req);
 
          // INTENT: Extract and verify JWT authorization token from query params.

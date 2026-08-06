@@ -15,6 +15,7 @@ function App() {
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/ide/:workspaceId/:fileId?" element={<IdePage />} />
+          <Route path="/:workspaceId/:fileId?" element={<IdePage />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

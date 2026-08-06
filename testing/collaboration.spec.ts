@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext, type Browser } from '@playwright/test';
 import {
-  APP_URL, API_URL, WS_URL,
+  APP_URL, API_URL, WS_URL, extractWorkspaceId,
   login, loginUser, inviteUser, waitForBootComplete, focusEditor,
   createTestWorkspace, deleteTestWorkspace, createTestFile, createFile, typeTextInMonaco,
   getEditorValue, waitForEditorModel, waitForEditorSync, setMonacoValue, setEditorValue, waitForSocketConnect,
@@ -16,13 +16,14 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(bobPage, request, `Bob_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `E2E_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const match = alicePage.url().match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+    const workspaceId = match ? match[1] : alicePage.url().split('/ide/').pop()!.split('/')[0];
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'index.js');
     await waitForEditorModel(alicePage, 'index.js');
     await inviteUser(alicePage, `Bob_${timestamp}`, 'editor');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('index.js').click();
     await waitForEditorModel(bobPage, 'index.js');
@@ -42,11 +43,11 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(bobPage, request, `Bob_Sync_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Sync_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await inviteUser(alicePage, `Bob_Sync_${timestamp}`, 'editor');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await createFile(alicePage, 'shared-data.json');
     const bobFileSelector = bobPage.locator('.ide-scrollbar').getByText('shared-data.json');
@@ -70,13 +71,13 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(bobPage, request, `Bob_Pres_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Pres_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await inviteUser(alicePage, `Bob_Pres_${timestamp}`, 'editor');
     await createFile(alicePage, 'presence.js');
     await waitForEditorModel(alicePage, 'presence.js');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('presence.js').click();
     await waitForEditorModel(bobPage, 'presence.js');
@@ -99,14 +100,14 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(alicePage, request, `Alice_Simul_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Simul_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'conflict.js');
     await waitForEditorModel(alicePage, 'conflict.js');
     await loginUser(bobPage, request, `Bob_Simul_${timestamp}`);
     await inviteUser(alicePage, `Bob_Simul_${timestamp}`, 'editor');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('conflict.js').click();
     await waitForEditorModel(bobPage, 'conflict.js');
@@ -130,14 +131,14 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(alicePage, request, `Alice_Rename_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Rename_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'old-name.js');
     await waitForEditorModel(alicePage, 'old-name.js');
     await loginUser(bobPage, request, `Bob_Rename_${timestamp}`);
     await inviteUser(alicePage, `Bob_Rename_${timestamp}`, 'editor');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('old-name.js').click();
     await waitForEditorModel(bobPage, 'old-name.js');
@@ -173,8 +174,8 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(alicePage, request, `Alice_Late_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Late_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'late.js');
     await waitForEditorModel(alicePage, 'late.js');
@@ -183,7 +184,7 @@ test.describe('Collab - Core Engine', () => {
     await alicePage.waitForTimeout(5000);
     await loginUser(bobPage, request, `Bob_Late_${timestamp}`);
     await inviteUser(alicePage, `Bob_Late_${timestamp}`, 'editor');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('late.js').click();
     await waitForEditorModel(bobPage, 'late.js');
@@ -203,8 +204,8 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(bobPage, request, `Bob_Reconn_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Reconn_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await inviteUser(alicePage, `Bob_Reconn_${timestamp}`, 'editor');
     await createFile(alicePage, 'reconnect.js');
@@ -212,14 +213,14 @@ test.describe('Collab - Core Engine', () => {
     await focusEditor(alicePage);
     await alicePage.keyboard.type(`const x = "${SENTINEL}";`);
     await alicePage.waitForTimeout(5000);
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('reconnect.js').click();
     await waitForEditorModel(bobPage, 'reconnect.js');
     await bobPage.goto(`${APP_URL}/dashboard`);
     await bobPage.waitForURL(/\/dashboard/);
     await bobPage.waitForTimeout(2000);
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('reconnect.js').click();
     await waitForEditorModel(bobPage, 'reconnect.js');
@@ -238,15 +239,15 @@ test.describe('Collab - Core Engine', () => {
     await loginUser(bobPage, request, `Bob_Jump_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Jump_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'jump.js');
     await waitForEditorModel(alicePage, 'jump.js');
     await inviteUser(alicePage, `Bob_Jump_${timestamp}`, 'editor');
     await focusEditor(alicePage);
     await alicePage.keyboard.type('// line 1\n// line 2\n// line 3\n// line 4\n// line 5\n', { delay: 10 });
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('jump.js').click();
     await waitForEditorModel(bobPage, 'jump.js');
@@ -291,8 +292,8 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_Switch_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Switch_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await inviteUser(alicePage, `Bob_Switch_${timestamp}`, 'editor');
       await createFile(alicePage, 'file-a.js');
@@ -305,7 +306,7 @@ test.describe('Collab - Advanced Sync', () => {
       await focusEditor(alicePage);
       await alicePage.keyboard.type(`console.log("${FILE_B_CONTENT}");`);
       await alicePage.waitForTimeout(4000);
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       for (let i = 0; i < 2; i++) {
         await bobPage.locator('.ide-scrollbar').getByText('file-a.js').click();
@@ -343,8 +344,8 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_Persist_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Persist_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await inviteUser(alicePage, `Bob_Persist_${timestamp}`, 'editor');
       await createFile(alicePage, 'persist-test.js');
@@ -355,7 +356,7 @@ test.describe('Collab - Advanced Sync', () => {
       await alicePage.goto(`${APP_URL}/dashboard`);
       await alicePage.waitForURL(/\/dashboard/);
       await alicePage.waitForTimeout(5000);
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       await bobPage.locator('.ide-scrollbar').getByText('persist-test.js').click();
       await waitForEditorModel(bobPage, 'persist-test.js');
@@ -379,13 +380,13 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_Undo_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Undo_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await inviteUser(alicePage, `Bob_Undo_${timestamp}`, 'editor');
       await createFile(alicePage, 'undo-test.js');
       await waitForEditorModel(alicePage, 'undo-test.js');
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       await bobPage.locator('.ide-scrollbar').getByText('undo-test.js').click();
       await waitForEditorModel(bobPage, 'undo-test.js');
@@ -433,14 +434,14 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_Offline_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Offline_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await waitForSocketConnect(alicePage);
       await inviteUser(alicePage, `Bob_Offline_${timestamp}`, 'editor');
       await createFile(alicePage, 'partition.js');
       await waitForEditorModel(alicePage, 'partition.js');
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       await waitForSocketConnect(bobPage);
       await bobPage.locator('.ide-scrollbar').getByText('partition.js').click();
@@ -481,8 +482,8 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_LateTree_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LateTree_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await createFile(alicePage, 'file-alpha.js');
       await waitForEditorModel(alicePage, 'file-alpha.js');
@@ -494,7 +495,7 @@ test.describe('Collab - Advanced Sync', () => {
       await alicePage.keyboard.type(`const b = "${CONTENT_2}";`);
       await alicePage.waitForTimeout(5000);
       await inviteUser(alicePage, `Bob_LateTree_${timestamp}`, 'editor');
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       const bobFileAlpha = bobPage.locator('.ide-scrollbar').getByText('file-alpha.js');
       const bobFileBeta = bobPage.locator('.ide-scrollbar').getByText('file-beta.js');
@@ -527,11 +528,11 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_LiveFile_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LiveFile_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await inviteUser(alicePage, `Bob_LiveFile_${timestamp}`, 'editor');
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       await waitForSocketConnect(bobPage);
       const LIVE_FILENAME = `dynamic-${timestamp}.js`;
@@ -567,8 +568,8 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_Slow_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Slow_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await inviteUser(alicePage, `Bob_Slow_${timestamp}`, 'editor');
       await createFile(alicePage, 'latency.js');
@@ -576,7 +577,7 @@ test.describe('Collab - Advanced Sync', () => {
       await focusEditor(alicePage);
       await alicePage.keyboard.type(`const data = "${CONTENT}";`);
       await alicePage.waitForTimeout(4000);
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       const bobCDP = await bobPage.context().newCDPSession(bobPage);
       await bobCDP.send('Network.enable');
@@ -608,13 +609,13 @@ test.describe('Collab - Advanced Sync', () => {
       await loginUser(bobPage, request, `Bob_Flaky_${timestamp}`);
       await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Flaky_WS_${timestamp}`);
       await alicePage.click('button:has-text("Create Now")');
-      await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-      const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
       await waitForBootComplete(alicePage);
       await inviteUser(alicePage, `Bob_Flaky_${timestamp}`, 'editor');
       await createFile(alicePage, 'flaky.js');
       await waitForEditorModel(alicePage, 'flaky.js');
-      await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
       await waitForBootComplete(bobPage);
       await bobPage.locator('.ide-scrollbar').getByText('flaky.js').click();
       await waitForEditorModel(bobPage, 'flaky.js');
@@ -1004,11 +1005,11 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(bobPage, request, bobName);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Split_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await inviteUser(alicePage, bobName, 'editor');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await waitForSocketConnect(bobPage);
     await createFile(alicePage, 'conflict.txt');
@@ -1082,13 +1083,13 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(bobPage, request, bobName);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `RBAC_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'viewer-test.js');
     await alicePage.waitForTimeout(2000);
     await inviteUser(alicePage, bobName, 'viewer');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('viewer-test.js').waitFor({ state: 'visible', timeout: 15000 });
     await bobPage.locator('.ide-scrollbar').getByText('viewer-test.js').click();
@@ -1121,13 +1122,13 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(bobPage, request, `Bob_RugPull_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `RugPull_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await inviteUser(alicePage, `Bob_RugPull_${timestamp}`, 'editor');
     await createFile(alicePage, 'doomed.js');
     await alicePage.waitForTimeout(2000);
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('doomed.js').waitFor({ state: 'visible', timeout: 15000 });
     await bobPage.locator('.ide-scrollbar').getByText('doomed.js').click();
@@ -1160,13 +1161,13 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(bobPage, request, `Bob_Bomb_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Bomb_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await inviteUser(alicePage, `Bob_Bomb_${timestamp}`, 'editor');
     await createFile(alicePage, 'payload.js');
     await waitForEditorModel(alicePage, 'payload.js');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('payload.js').waitFor({ state: 'visible', timeout: 15000 });
     await bobPage.locator('.ide-scrollbar').getByText('payload.js').click();
@@ -1219,16 +1220,16 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(bobPage, request, `Bob_API_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `API_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await inviteUser(alicePage, `Bob_API_${timestamp}`, 'viewer');
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     const apiResponseStatus = await bobPage.evaluate(async (wsId) => {
       const token = localStorage.getItem('token');
       try {
-        const res = await fetch(`/api/workspace/${wsId}/files`, {
+        const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1258,8 +1259,8 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(evePage, request, eveName);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Snap_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'history.js');
     await waitForEditorModel(alicePage, 'history.js');
@@ -1273,15 +1274,15 @@ test.describe('Collab - Security & RBAC', () => {
       bob:   await bobPage.evaluate(() => localStorage.getItem('token')),
       eve:   await evePage.evaluate(() => localStorage.getItem('token')),
     };
-    await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
-    await evePage.goto(`${APP_URL}/ide/${workspaceId}`);
+    await bobPage.goto(`${APP_URL}/${workspaceId}`);
+    await evePage.goto(`${APP_URL}/${workspaceId}`);
     await waitForBootComplete(bobPage);
     await waitForBootComplete(evePage);
     const bobToken = await bobPage.evaluate(() => localStorage.getItem('token'));
     const eveToken = await evePage.evaluate(() => localStorage.getItem('token'));
     const aliceToken = await alicePage.evaluate(() => localStorage.getItem('token'));
     const bobCreateStatus = await bobPage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'bob-attempt' }),
@@ -1290,7 +1291,7 @@ test.describe('Collab - Security & RBAC', () => {
     }, workspaceId);
     expect(bobCreateStatus).toBe(403);
     const eveCreateStatus = await evePage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'eve-attempt' }),
@@ -1299,7 +1300,7 @@ test.describe('Collab - Security & RBAC', () => {
     }, workspaceId);
     expect(eveCreateStatus).toBe(403);
     const createResult = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'v1-baseline' }),
@@ -1311,7 +1312,7 @@ test.describe('Collab - Security & RBAC', () => {
     const snapshotId = createResult.body.id as string;
     expect(snapshotId).toBeTruthy();
     const aliceList = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return { status: res.status, body: await res.json() };
@@ -1322,14 +1323,14 @@ test.describe('Collab - Security & RBAC', () => {
     expect(aliceList.body[0].label).toBe('v1-baseline');
     expect(aliceList.body[0].created_by).toBe(aliceName);
     const bobList = await bobPage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
     }, workspaceId);
     expect(bobList).toBe(200);
     const eveList = await evePage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
@@ -1339,7 +1340,7 @@ test.describe('Collab - Security & RBAC', () => {
     await alicePage.waitForTimeout(3000); // debounce save
     await alicePage.waitForTimeout(1500);
     const diffResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return { status: res.status, body: await res.json() };
@@ -1350,14 +1351,14 @@ test.describe('Collab - Security & RBAC', () => {
     expect(historyFile.snapshot_content).toContain('version 1');
     expect(historyFile.live_content).toContain('version 2');
     const eveDiffStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.status;
     }, { wsId: workspaceId, snapId: snapshotId });
     expect(eveDiffStatus).toBe(200);
     const bobRestoreStatus = await bobPage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -1365,7 +1366,7 @@ test.describe('Collab - Security & RBAC', () => {
     }, { wsId: workspaceId, snapId: snapshotId });
     expect(bobRestoreStatus).toBe(403);
     const eveRestoreStatus = await evePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -1376,7 +1377,7 @@ test.describe('Collab - Security & RBAC', () => {
     await evePage.close();
     await alicePage.waitForTimeout(1500);
     const restoreResult = await alicePage.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -1406,7 +1407,7 @@ test.describe('Collab - Security & RBAC', () => {
     console.log(15);
     for (let i = 2; i <= 11; i++) {
       const r = await alicePage.evaluate(async ({ wsId, i }) => {
-        const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+        const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
           body: JSON.stringify({ label: `auto-snap-${i}` }),
@@ -1416,7 +1417,7 @@ test.describe('Collab - Security & RBAC', () => {
       expect(r).toBe(201);
     }
     const finalList = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       return res.json();
@@ -1436,15 +1437,15 @@ test.describe('Collab - Security & RBAC', () => {
   await loginUser(bobPage, request, `Bob_Race_${timestamp}`);
   await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Race_WS_${timestamp}`);
   await alicePage.click('button:has-text("Create Now")');
-  await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-  const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+  await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+  const workspaceId = extractWorkspaceId(alicePage.url());
   await waitForBootComplete(alicePage);
   await createFile(alicePage, 'race.js');
   await alicePage.waitForTimeout(2000);
   await setEditorValue(alicePage, '// Baseline');
   await alicePage.waitForTimeout(2000);
   const snapRes = await alicePage.evaluate(async (wsId) => {
-    const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+    const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
@@ -1452,7 +1453,7 @@ test.describe('Collab - Security & RBAC', () => {
   }, workspaceId);
   const snapshotId = snapRes.id;
   await inviteUser(alicePage, `Bob_Race_${timestamp}`, 'editor');
-  await bobPage.goto(`${APP_URL}/ide/${workspaceId}`);
+  await bobPage.goto(`${APP_URL}/${workspaceId}`);
   await waitForBootComplete(bobPage);
   await bobPage.locator('.ide-scrollbar').getByText('race.js').click();
   await waitForEditorModel(bobPage, 'race.js');
@@ -1465,7 +1466,7 @@ test.describe('Collab - Security & RBAC', () => {
   });
   const aliceRestorePromise = alicePage.evaluate(async ({ wsId, snapId }) => {
     await new Promise(r => setTimeout(r, 300)); // wait a bit so Bob is mid-typing
-    return fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+    return fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/restore`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
@@ -1473,12 +1474,12 @@ test.describe('Collab - Security & RBAC', () => {
   await Promise.all([bobTypingPromise, aliceRestorePromise]);
   await alicePage.waitForTimeout(2000);
   const dbContent = await alicePage.evaluate(async (wsId) => {
-    const filesRes = await fetch(`/api/workspace/${wsId}/files`, {
+    const filesRes = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
     const files = await filesRes.json();
     const fileId = files.find((f: any) => f.name === 'race.js').id;
-    const contentRes = await fetch(`/api/workspace/${wsId}/files/${fileId}/content`, {
+    const contentRes = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${fileId}/content`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     });
     return (await contentRes.json()).content;
@@ -1492,11 +1493,11 @@ test.describe('Collab - Security & RBAC', () => {
   await loginUser(page, request, `Alice_Empty_${timestamp}`);
   await page.fill('input[placeholder="e.g. React-Sandbox"]', `Empty_WS_${timestamp}`);
   await page.click('button:has-text("Create Now")');
-  await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-  const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+  await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+  const workspaceId = extractWorkspaceId(page.url());
   await waitForBootComplete(page);
   const snapRes = await page.evaluate(async (wsId) => {
-    const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+    const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
       body: JSON.stringify({ label: 'Empty State' }),
@@ -1507,7 +1508,7 @@ test.describe('Collab - Security & RBAC', () => {
   await createFile(page, 'temp.js');
   await page.waitForTimeout(1000);
   const restoreStatus = await page.evaluate(async ({ wsId, snapId }) => {
-    const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+    const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/restore`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
     });
@@ -1520,33 +1521,33 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(page, request, `Alice_Diff_${timestamp}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Diff_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await waitForBootComplete(page);
     const largeContent = "const data = 'A';\n".repeat(600);
     await page.evaluate(async ({ wsId, payload }) => {
       const token = localStorage.getItem('token');
-      await fetch(`/api/workspace/${wsId}/files`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: 'src/components/mod.js', type: 'file' })
       });
-      await fetch(`/api/workspace/${wsId}/files`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: 'del.js', type: 'file' })
       });
-      const files = await fetch(`/api/workspace/${wsId}/files`, {
+      const files = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${token}` }
       }).then(r => r.json());
       const modFile = files.find((f: any) => f.name === 'src/components/mod.js');
       const delFile = files.find((f: any) => f.name === 'del.js');
-      await fetch(`/api/workspace/${wsId}/files/${modFile.id}`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${modFile.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: payload })
       });
-      await fetch(`/api/workspace/${wsId}/files/${delFile.id}`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${delFile.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: '// to be deleted' })
@@ -1554,7 +1555,7 @@ test.describe('Collab - Security & RBAC', () => {
     }, { wsId: workspaceId, payload: largeContent });
     await page.waitForTimeout(2000); // Give DB a moment to settle
     const snapRes = await page.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'Baseline' }),
@@ -1564,26 +1565,26 @@ test.describe('Collab - Security & RBAC', () => {
     const snapshotId = snapRes.id;
     await page.evaluate(async ({ wsId, payload }) => {
       const token = localStorage.getItem('token');
-      const files = await fetch(`/api/workspace/${wsId}/files`, {
+      const files = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${token}` }
       }).then(r => r.json());
       const modFile = files.find((f: any) => f.name === 'src/components/mod.js');
       const delFile = files.find((f: any) => f.name === 'del.js');
-      await fetch(`/api/workspace/${wsId}/files/${modFile.id}`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${modFile.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: payload + '\n// NEW LINE' })
       });
-      await fetch(`/api/workspace/${wsId}/files/${delFile.id}`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${delFile.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-      const newFile = await fetch(`/api/workspace/${wsId}/files`, {
+      const newFile = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: 'new.js', type: 'file' })
       }).then(r => r.json());
-      await fetch(`/api/workspace/${wsId}/files/${newFile.id}`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${newFile.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: '// brand new' })
@@ -1591,7 +1592,7 @@ test.describe('Collab - Security & RBAC', () => {
     }, { wsId: workspaceId, payload: largeContent });
     await page.waitForTimeout(1000);
     const diffFiles = await page.evaluate(async ({ wsId, snapId }) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/files`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/files`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       return res.json();
@@ -1616,11 +1617,11 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(page, request, username);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Meta_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await waitForBootComplete(page);
     await page.evaluate(async (wsId) => {
-      await fetch(`/api/workspace/${wsId}/snapshot`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'First Snapshot' })
@@ -1628,14 +1629,14 @@ test.describe('Collab - Security & RBAC', () => {
     }, workspaceId);
     await page.waitForTimeout(1000);
     await page.evaluate(async (wsId) => {
-      await fetch(`/api/workspace/${wsId}/snapshot`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'Second Snapshot' })
       });
     }, workspaceId);
     const snapshots = await page.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       return res.json();
@@ -1655,8 +1656,8 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(bobPage, request, `Bob_Sync_${timestamp}`);
     await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `Sync_WS_${timestamp}`);
     await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = alicePage.url().split('/ide/')[1].split('/')[0];
+    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(alicePage.url());
     await waitForBootComplete(alicePage);
     await createFile(alicePage, 'live.js');
     await waitForEditorModel(alicePage, 'live.js');
@@ -1664,8 +1665,8 @@ test.describe('Collab - Security & RBAC', () => {
     await alicePage.waitForTimeout(3000);
 
     const fileId = await alicePage.evaluate(async (wsId) => {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/workspace/${wsId}/files`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const files = await res.json();
@@ -1673,9 +1674,10 @@ test.describe('Collab - Security & RBAC', () => {
     }, workspaceId);
 
     const snapRes = await alicePage.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ label: 'Base' })
       });
       return res.json();
@@ -1687,9 +1689,10 @@ test.describe('Collab - Security & RBAC', () => {
     await setEditorValue(alicePage, '// MISTAKE DATA');
     await expect.poll(async () => await getEditorValue(bobPage), { timeout: 25000, intervals: [1000] }).toBe('// MISTAKE DATA');
     await alicePage.evaluate(async ({ wsId, snapId }) => {
-      await fetch(`/api/workspace/${wsId}/snapshots/${snapId}/restore`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshots/${snapId}/restore`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
     }, { wsId: workspaceId, snapId: snapRes.id });
     await bobPage.waitForURL(/\/ide\/[a-f0-9-]+/, { timeout: 20000 }).catch(() => {});
@@ -1710,29 +1713,35 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(page, request, `Alice_Cascade_${timestamp}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Cascade_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await waitForBootComplete(page);
     const snapRes = await page.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiPrefix = window.location.pathname.startsWith('/ide') ? '/ide/api' : '/api';
+      const res = await fetch(`${apiPrefix}/workspace/${wsId}/snapshot`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ label: 'Doomed Snapshot' })
       });
       return res.json();
     }, workspaceId);
     expect(snapRes.id).toBeTruthy();
     const deleteRes = await page.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}`, {
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiPrefix = window.location.pathname.startsWith('/ide') ? '/ide/api' : '/api';
+      const res = await fetch(`${apiPrefix}/workspace/${wsId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
       return res.status;
     }, workspaceId);
     expect(deleteRes).toBe(200); // Or 204 depending on your API standard
     const postDeleteSnapshots = await page.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshots`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token');
+      const apiPrefix = window.location.pathname.startsWith('/ide') ? '/ide/api' : '/api';
+      const res = await fetch(`${apiPrefix}/workspace/${wsId}/snapshots`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
       return res.status;
     }, workspaceId);
@@ -1744,17 +1753,17 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(page, request, `Alice_Restore_${timestamp}`);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Restore_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await waitForBootComplete(page);
     await page.evaluate(async (wsId) => {
       const token = localStorage.getItem('token');
-      const createRes = await fetch(`/api/workspace/${wsId}/files`, {
+      const createRes = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: 'src/components/button.js', type: 'file' })
       }).then(r => r.json());
-      await fetch(`/api/workspace/${wsId}/files/${createRes.id}`, {
+      await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${createRes.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: '// button v1' })
@@ -1762,7 +1771,7 @@ test.describe('Collab - Security & RBAC', () => {
     }, workspaceId);
     await page.waitForTimeout(2000); // Allow Yjs debounced save and db write
     const snapRes = await page.evaluate(async (wsId) => {
-      const res = await fetch(`/api/workspace/${wsId}/snapshot`, {
+      const res = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ label: 'Snapshot V1' }),
@@ -1772,12 +1781,12 @@ test.describe('Collab - Security & RBAC', () => {
     const snapshotId = snapRes.id;
     await page.evaluate(async (wsId) => {
       const token = localStorage.getItem('token');
-      const files = await fetch(`/api/workspace/${wsId}/files`, {
+      const files = await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files`, {
         headers: { Authorization: `Bearer ${token}` }
       }).then(r => r.json());
       const file = files.find((f: any) => f.name.includes('button.js'));
       if (file) {
-        await fetch(`/api/workspace/${wsId}/files/${file.id}`, {
+        await fetch(`${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/ide/api'}/workspace/${wsId}/files/${file.id}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -1812,8 +1821,8 @@ test.describe('Collab - Security & RBAC', () => {
     await loginUser(page, request, aliceName);
     await page.fill('input[placeholder="e.g. React-Sandbox"]', `Blame_WS_${timestamp}`);
     await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[a-f0-9-]+/);
-    const workspaceId = page.url().split('/ide/')[1].split('/')[0];
+    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+    const workspaceId = extractWorkspaceId(page.url());
     await waitForBootComplete(page);
     await createFile(page, 'blame.js');
     await waitForEditorModel(page, 'blame.js');

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { GitBranch, Clock, RotateCcw, FileText, Loader2, X, AlertTriangle, Plus, Minus, Equal, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiUrl } from '../../lib/backendUrls';
+import { getNexusToken } from '../../lib/tokenStorage';
 
 // =============================================================================
 // TYPES
@@ -242,7 +243,7 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
   const fetchSnapshots = useCallback(async () => {
     setLoadingList(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/snapshots`), {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -261,7 +262,7 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
     setRestoreConfirm(false);
     setLoadingFiles(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/snapshots/${snap.id}/files`), {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -279,7 +280,7 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
     if (!selectedSnapshot || restoring) return;
     setRestoring(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/snapshots/${selectedSnapshot.id}/restore`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },

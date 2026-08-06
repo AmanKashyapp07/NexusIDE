@@ -23,7 +23,7 @@ export const requireAuth = (req: AuthRequest, res: Response, next: NextFunction)
             cookies[parts[0]] = parts[1] || '';
          }
       });
-      token = cookies['preview_token'];
+      token = cookies['preview_token'] || cookies['nexus_ide_token'] || cookies['token'];
    }
 
    if (!token) {

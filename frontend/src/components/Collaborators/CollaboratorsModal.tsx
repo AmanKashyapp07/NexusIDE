@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { X, Users, UserPlus, Loader2, Trash2, Shield, Mail } from 'lucide-react';
 import { apiUrl } from '../../lib/backendUrls';
+import { getNexusToken } from '../../lib/tokenStorage';
 
 type CollaboratorRole = 'admin' | 'editor' | 'viewer';
 
@@ -69,7 +70,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
   const [error, setError] = useState<string | null>(null);
 
   const loadCollaborators = useCallback(async () => {
-    const token = localStorage.getItem('token');
+    const token = getNexusToken();
     const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators`), {
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -105,7 +106,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
     setIsAdding(true);
     setError(null);
     try {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators`), {
         method: 'POST',
         headers: {
@@ -133,7 +134,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
     setProcessingId(userId);
     setError(null);
     try {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators/${userId}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
@@ -156,7 +157,7 @@ export default function CollaboratorsModal({ workspaceId, userRole, isOpen, onCl
     setProcessingId(userId);
     setError(null);
     try {
-      const token = localStorage.getItem('token');
+      const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/collaborators/${userId}`), {
         method: 'PUT',
         headers: {

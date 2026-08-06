@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { LSP_LANGUAGE_MAP, MONACO_TO_LSP_LANG } from '../constants/lsp';
 import { LspService, type LspStatus } from '../services/LspService';
+import { getNexusToken } from '../lib/tokenStorage';
 import {
   registerDiagnosticsHandler,
   registerHoverProvider,
@@ -42,7 +43,7 @@ export function useLspClient({
 
     const fileUri = `file:///workspaces/${workspaceId}/${filename}`;
     const lspLang = MONACO_TO_LSP_LANG[language] ?? language;
-    const token = localStorage.getItem('token') ?? '';
+    const token = getNexusToken();
 
     const lspService = new LspService(workspaceId, backendLang, fileUri, lspLang, token);
     

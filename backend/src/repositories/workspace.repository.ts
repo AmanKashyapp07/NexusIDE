@@ -103,6 +103,13 @@ export class WorkspaceRepository {
    }
 
    async deleteWorkspace(id: string): Promise<void> {
+      await getPool().query('DELETE FROM workspace_collaborators WHERE workspace_id = $1', [id]).catch(() => {});
+      await getPool().query('DELETE FROM file_updates WHERE file_id IN (SELECT id FROM files WHERE workspace_id = $1)', [id]).catch(() => {});
+      await getPool().query('DELETE FROM files WHERE workspace_id = $1', [id]).catch(() => {});
+      await getPool().query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM workspace_snapshots WHERE workspace_id = $1)', [id]).catch(() => {});
+      await getPool().query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM snapshots WHERE workspace_id = $1)', [id]).catch(() => {});
+      await getPool().query('DELETE FROM workspace_snapshots WHERE workspace_id = $1', [id]).catch(() => {});
+      await getPool().query('DELETE FROM snapshots WHERE workspace_id = $1', [id]).catch(() => {});
       await getPool().query('DELETE FROM workspaces WHERE id = $1', [id]);
    }
 

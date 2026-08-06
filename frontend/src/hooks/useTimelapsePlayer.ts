@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import * as Y from 'yjs';
 import { fetchFileHistory, type AuthorMap, type AuthorInfo } from '../api/history';
+import { getNexusToken } from '../lib/tokenStorage';
 
 export type ReplayMode = 'full' | 'legacy';
 
@@ -316,7 +317,7 @@ export function useTimelapsePlayer({ workspaceId, fileId }: UseTimelapsePlayerOp
       setError(null);
       prevTextRef.current = null;
       try {
-        const token = localStorage.getItem('token') || '';
+        const token = getNexusToken();
         const json = await fetchFileHistory(token, workspaceId, fileId);
         if (cancelled) return;
 

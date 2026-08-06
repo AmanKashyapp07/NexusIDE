@@ -3,7 +3,7 @@ import type { AuthRequest } from '../middleware/auth.js';
 import { requireWorkspaceRole, WorkspaceAuthRequest } from '../middleware/workspaceAuth.js';
 import { ZipArchive } from 'archiver';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { getRunningContainerRef, touchWorkspaceActivity } from '../sandbox/workspaceContainer.js';
+import { getRunningContainerRef, getRunningContainerRefByWorkspaceId, touchWorkspaceActivity, releaseWorkspaceContainer } from '../sandbox/workspaceContainer.js';
 import { WORKSPACE_DATA_DIR } from '../sandbox/pool.js';
 import * as path from 'path';
 import { rmSync, existsSync } from 'fs';
@@ -114,6 +114,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       if (ws.owner_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
       
       await workspaceRepository.deleteWorkspace(id);
+      try { await releaseWorkspaceContainer(req.user.id, id); } catch {}
 
       const wsHostDir = path.join(WORKSPACE_DATA_DIR, id);
       if (existsSync(wsHostDir)) {
@@ -123,6 +124,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       res.json({ success: true });
    } catch (err: unknown) { 
       const msg = err instanceof Error ? err.message : String(err);
+      console.error('[Delete Workspace Error]', err);
       res.status(500).json({ error: msg }); 
    }
 });
@@ -332,24 +334,30 @@ router.post('/:id/heartbeat', requireWorkspaceRole('viewer'), async (req: Worksp
 
 router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
    const url = new URL(req.originalUrl, `http://${req.headers.host || 'localhost'}`);
+   const prefix = (req.headers['x-forwarded-prefix'] as string) || (req.headers.referer?.includes('/ide/') ? '/ide' : '');
    if (req.query.token) { 
       res.cookie('preview_token', req.query.token, { path: '/', httpOnly: true, sameSite: 'lax' }); 
       url.searchParams.delete('token'); 
-      return res.redirect(url.pathname + url.search); 
+      return res.redirect(`${prefix}${url.pathname}${url.search}`); 
    }
-   if (url.pathname === `/api/workspace/${req.params.id}/preview`) return res.redirect(url.pathname + '/');
+   if (url.pathname.endsWith('/preview')) {
+      return res.redirect(`${prefix}${url.pathname}/${url.search}`);
+   }
    next();
 }, createProxyMiddleware({
    target: 'http://localhost', changeOrigin: true, ws: false,
    router: (req: unknown) => {
       const wsReq = req as WorkspaceAuthRequest;
-      const wsId = wsReq.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/)?.[1];
-      const port = wsId && wsReq.user?.id ? getRunningContainerRef(wsReq.user.id, wsId)?.hostPort : null;
+      const wsId = wsReq.originalUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || (wsReq.params as Record<string, string>)?.id;
+      const ref = (wsReq.user?.id && wsId ? getRunningContainerRef(wsReq.user.id, wsId) : null) || (wsId ? getRunningContainerRefByWorkspaceId(wsId) : null);
+      const port = ref?.hostPort;
       return port ? `http://localhost:${port}` : 'http://localhost:1'; 
    },
    pathRewrite: (_p: string, req: unknown) => {
       const wsReq = req as WorkspaceAuthRequest;
-      return _p.replace(new RegExp(`^/api/workspace/${wsReq.originalUrl.match(/^\/api\/workspace\/([^\/]+)\/preview/)?.[1]}/preview`), '');
+      const wsId = wsReq.originalUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || (wsReq.params as Record<string, string>)?.id;
+      if (!wsId) return _p;
+      return _p.replace(new RegExp(`^.*\/api\/workspace\/${wsId}\/preview`), '');
    },
    on: {
       error: (_err: unknown, _req: unknown, res: unknown) => {

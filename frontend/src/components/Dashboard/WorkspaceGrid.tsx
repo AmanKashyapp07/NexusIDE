@@ -53,7 +53,7 @@ export default function WorkspaceGrid({
           userId={userId}
           editingWorkspaceId={editingWorkspaceId}
           editingTitle={editingTitle}
-          onNavigate={(id) => { if (editingWorkspaceId !== ws.id) navigate(`/ide/${id}`); }}
+          onNavigate={(id) => { if (editingWorkspaceId !== ws.id) navigate(`/${id}`); }}
           onEditStart={onEditStart}
           onEditSave={onEditSave}
           onEditCancel={onEditCancel}

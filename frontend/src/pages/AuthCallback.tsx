@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Zap } from 'lucide-react';
+import { setNexusToken } from '../lib/tokenStorage';
 
 export default function AuthCallback() {
   const [searchParams] = useSearchParams();
@@ -10,7 +11,7 @@ export default function AuthCallback() {
     const token = searchParams.get('token');
 
     if (token) {
-      localStorage.setItem('token', token);
+      setNexusToken(token);
       navigate('/dashboard');
     } else {
       navigate('/');
