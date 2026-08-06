@@ -73,8 +73,8 @@ app.use((req, res, next) => {
 
 // INTENT: Mount authentication and workspace resource controllers.
 // WHY: Isolates unauthenticated OAuth/login routes from JWT-protected workspace resources.
-app.use('/api/auth', authRoutes);
-app.use('/api/workspace', requireAuth, workspaceRoutes);
+app.use(['/auth', '/api/auth', '/ide/api/auth'], authRoutes);
+app.use(['/workspace', '/api/workspace', '/ide/api/workspace'], requireAuth, workspaceRoutes);
 
 // =============================================================================
 // HTTP & WEBSOCKET SERVER CREATION & ROUTING SETUP
