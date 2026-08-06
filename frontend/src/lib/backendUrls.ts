@@ -6,7 +6,7 @@ const getFallbackApiUrl = () => {
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return `${window.location.protocol}//${hostname}:4000/api`;
   }
-  return `${window.location.protocol}//${hostname}/api`;
+  return `${window.location.protocol}//${hostname}/ide/api`;
 };
 
 const getFallbackWsUrl = () => {
@@ -16,7 +16,7 @@ const getFallbackWsUrl = () => {
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return `${protocol}//${hostname}:4000`;
   }
-  return `${protocol}//${hostname}/ws`;
+  return `${protocol}//${hostname}/ide/ws`;
 };
 
 const apiBase = trimTrailingSlash(import.meta.env.VITE_API_URL || getFallbackApiUrl());
