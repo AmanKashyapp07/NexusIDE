@@ -8,7 +8,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
 SSH_KEY="${SSH_KEY:-$LOCAL_BASE/deploy.key}"
-REMOTE="${REMOTE:-ubuntu@YOUR_VM_IP}"
+SSH_KEY="${SSH_KEY:-$LOCAL_BASE/ssh-key-2022-12-01.key}"
+REMOTE="${REMOTE:-ubuntu@129.154.39.198}"
 REMOTE_BASE="${REMOTE_BASE:-/home/ubuntu/sandbox-ide}"
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
@@ -37,6 +38,8 @@ ssh -i "${SSH_KEY}" "${REMOTE}" bash <<'REMOTE_FRONTEND'
   mkdir -p dist
   tar -xzf dist.tar.gz -C dist
   rm dist.tar.gz
+  sudo chmod 755 /home/ubuntu
+  sudo systemctl reload nginx || true
   echo "Frontend dist extracted OK"
 REMOTE_FRONTEND
 rm /tmp/dist.tar.gz
@@ -81,8 +84,8 @@ REMOTE_BACKEND
 
 info "All done! Deployment complete."
 echo ""
-echo -e "${GREEN}Frontend:${NC} http://${REMOTE#*@}"
-echo -e "${GREEN}API:      ${NC} http://${REMOTE#*@}/api"
+echo -e "${GREEN}NexusIDE: ${NC} http://${REMOTE#*@}/ide/"
+echo -e "${GREEN}MagnusCI: ${NC} http://${REMOTE#*@}"
 echo ""
 warn "Bundle built WITHOUT VITE_API_URL — runtime fallback in backendUrls.ts"
 warn "now correctly resolves the API to http://<hostname>/api in the browser."
