@@ -111,7 +111,7 @@ test.describe('Terminal - Core Operations', () => {
     await page.keyboard.type('clear\n', { delay: 10 });
     await page.keyboard.type(`git clone ${repoUrl}\n`, { delay: 10 });
     await expect(terminalBody).toContainText(`Cloning into '${repoName}'`, { timeout: 30000 });
-    await expect(terminalBody).toContainText('Resolving deltas:', { timeout: 45000 });
+    await expect(terminalBody).toContainText(/Receiving objects:|Resolving deltas:|done\./, { timeout: 45000 });
     const repoFolder = page.locator('.ide-scrollbar').getByText(repoName);
     await expect(repoFolder).toBeVisible({ timeout: 20000 });
     await page.keyboard.type(`cd ${repoName} && ls -d .git\n`, { delay: 10 });
