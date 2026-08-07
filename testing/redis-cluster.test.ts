@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import http from 'http';
+import WebSocket from 'ws';
+import jwt from 'jsonwebtoken';
 import * as Y from 'yjs';
+import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
 import {
    redisPublisher,
    redisSubscriber,
@@ -12,6 +18,46 @@ import {
 import { withDistributedLock, POD_ID } from '../backend/src/services/distributedLock.service.js';
 import { getDocsMap, cancelAndEvictWorkspaceDocs } from '../backend/src/docsRegistry.js';
 import { WSSharedDoc } from '../backend/src/services/yjsSyncEngine.service.js';
+import { setupWebSocketServer } from '../backend/src/services/websocketServer.service.js';
+
+let mockQuery = vi.fn().mockImplementation((sql: string) => {
+   if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
+      return Promise.resolve({ rows: [{ owner_id: 'user-cluster-1', is_public: false }] });
+   if (sql.includes('SELECT role FROM workspace_collaborators'))
+      return Promise.resolve({ rows: [{ role: 'editor' }] });
+   if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
+      return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
+   return Promise.resolve({ rows: [] });
+});
+
+vi.mock('../backend/src/db.js', () => ({
+   getPool: () => ({ query: (...args: any[]) => mockQuery(...args) }),
+}));
+
+vi.mock('../backend/src/sandbox/pool.js', () => ({
+   warmPoolManager: { initializePools: vi.fn(), cleanup: vi.fn() },
+   WORKSPACE_DATA_DIR: '/tmp/test-workspace',
+}));
+
+vi.mock('../backend/src/sandbox/workspaceContainer.js', () => ({
+   getOrCreateWorkspaceContainer: vi.fn(),
+   releaseWorkspaceContainer: vi.fn(),
+   getRunningContainer: vi.fn(() => null),
+   getRunningContainerRef: vi.fn(() => null),
+   cleanupAllWorkspaceContainers: vi.fn(),
+   touchWorkspaceActivity: vi.fn(),
+}));
+
+vi.mock('../backend/src/terminal/terminalHandler.js', () => ({
+   handleTerminalConnection: vi.fn(),
+   syncFileToTerminal: vi.fn().mockResolvedValue(undefined),
+   syncDeleteToTerminal: vi.fn().mockResolvedValue(undefined),
+   syncFolderToTerminal: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../backend/src/terminal/lspHandler.js', () => ({
+   handleLspConnection: vi.fn(),
+}));
 
 describe('Stateless WebSocket Clustering (Redis Adapter & Redlock)', () => {
    const testWorkspaceId = 'test-cluster-ws-123';
@@ -80,7 +126,7 @@ describe('Stateless WebSocket Clustering (Redis Adapter & Redlock)', () => {
    it('handles lock contention by preventing concurrent task execution on the same resource', async () => {
       const lockKey = `test:lock:contention:${Date.now()}`;
       
-      // First task acquires the lock and holds it for 500ms
+      // First task acquires the lock and holds it for 300ms
       const task1Promise = withDistributedLock(lockKey, 5000, async () => {
          await new Promise((resolve) => setTimeout(resolve, 300));
          return 'first-worker';
@@ -161,5 +207,107 @@ describe('Stateless WebSocket Clustering (Redis Adapter & Redlock)', () => {
       expect(successfulExecutions).toBe(1);
       expect(rejectedAttempts).toBe(49);
       expect(executedTasks).toBe(1);
+   });
+});
+
+describe('Multi-Pod Real WebSocket Cluster Mesh (Cross-Server E2E)', () => {
+   const meshWorkspaceId = '00000000-0000-0000-0000-000000000001';
+   const meshFileId = '00000000-0000-0000-0000-000000000002';
+   const meshDocName = `${meshWorkspaceId}-${meshFileId}`;
+   const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+   const token = jwt.sign({ id: 'user-cluster-1', username: 'mesh_user' }, JWT_SECRET);
+
+   let server1: http.Server;
+   let server2: http.Server;
+   let port1: number;
+   let port2: number;
+
+   beforeEach(async () => {
+      initializeRedisCollaborationMesh();
+      server1 = http.createServer();
+      server2 = http.createServer();
+      setupWebSocketServer(server1);
+      setupWebSocketServer(server2);
+
+      await new Promise<void>((resolve) => server1.listen(0, resolve));
+      await new Promise<void>((resolve) => server2.listen(0, resolve));
+
+      port1 = (server1.address() as any).port;
+      port2 = (server2.address() as any).port;
+   });
+
+   afterEach(async () => {
+      await cancelAndEvictWorkspaceDocs(meshWorkspaceId, true);
+      await new Promise((r) => server1.close(r));
+      await new Promise((r) => server2.close(r));
+   });
+
+   it('exchanges real-time typing across two distinct WebSocket server instances via Redis', async () => {
+      const ws1 = new WebSocket(`ws://127.0.0.1:${port1}/${meshDocName}?token=${token}`);
+      const ws2 = new WebSocket(`ws://127.0.0.1:${port2}/${meshDocName}?token=${token}`);
+
+      await Promise.all([
+         new Promise<void>((resolve) => ws1.once('open', resolve)),
+         new Promise<void>((resolve) => ws2.once('open', resolve)),
+      ]);
+
+      // Allow initial SyncStep1 server handshake to stabilize
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const client2Doc = new Y.Doc();
+
+      ws2.on('message', (data: WebSocket.RawData) => {
+         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+         const decoder = decoding.createDecoder(new Uint8Array(buf));
+         const messageType = decoding.readVarUint(decoder);
+         if (messageType === 0) {
+            syncProtocol.readSyncMessage(decoder, encoding.createEncoder(), client2Doc, null);
+         }
+      });
+
+      // Client 1 types on Server 1
+      const client1Doc = new Y.Doc();
+      const ytext1 = client1Doc.getText('monaco');
+      ytext1.insert(0, 'Cross-Pod Real WS Mesh Converged!');
+
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 0); // Sync message
+      syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(client1Doc));
+      ws1.send(encoding.toUint8Array(encoder));
+
+      // Wait for Client 2 on Server 2 to receive the update via Redis Pub/Sub
+      await vi.waitFor(() => {
+         expect(client2Doc.getText('monaco').toString()).toBe('Cross-Pod Real WS Mesh Converged!');
+      }, { timeout: 3000, interval: 100 });
+
+      ws1.close();
+      ws2.close();
+      client1Doc.destroy();
+      client2Doc.destroy();
+   });
+
+   it('broadcasts cluster-wide eviction and closes sockets with code 4100 across both server pods', async () => {
+      const ws1 = new WebSocket(`ws://127.0.0.1:${port1}/${meshDocName}?token=${token}`);
+      const ws2 = new WebSocket(`ws://127.0.0.1:${port2}/${meshDocName}?token=${token}`);
+
+      await Promise.all([
+         new Promise<void>((resolve) => ws1.once('open', resolve)),
+         new Promise<void>((resolve) => ws2.once('open', resolve)),
+      ]);
+
+      let ws1ClosedCode = 0;
+      let ws2ClosedCode = 0;
+
+      ws1.once('close', (code) => { ws1ClosedCode = code; });
+      ws2.once('close', (code) => { ws2ClosedCode = code; });
+
+      // Trigger workspace eviction on Server 1 (or snapshot restore)
+      await publishWorkspaceEvict(meshWorkspaceId);
+
+      // Both sockets across both distinct server instances should receive eviction code 4100
+      await vi.waitFor(() => {
+         expect(ws1ClosedCode).toBe(4100);
+         expect(ws2ClosedCode).toBe(4100);
+      }, { timeout: 3000, interval: 100 });
    });
 });
