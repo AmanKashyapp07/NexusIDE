@@ -23,6 +23,7 @@ import {
    getSnapshotFilesWithDiff,
    restoreSnapshot
 } from '../services/workspaceSnapshot.service.js';
+import { cancelAndEvictWorkspaceDocs } from '../docsRegistry.js';
 import { PREVIEW_FALLBACK_HTML } from '../utils/previewFallback.utils.js';
 import { workspaceRepository } from '../repositories/workspace.repository.js';
 import { fileRepository } from '../repositories/file.repository.js';
@@ -114,6 +115,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       if (ws.owner_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
       
       await workspaceRepository.deleteWorkspace(id);
+      try { await cancelAndEvictWorkspaceDocs(id); } catch {}
       try { await releaseWorkspaceContainer(req.user.id, id); } catch {}
 
       const wsHostDir = path.join(WORKSPACE_DATA_DIR, id);
