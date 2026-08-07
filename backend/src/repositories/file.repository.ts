@@ -58,6 +58,17 @@ export class FileRepository {
       return res.rows[0] || null;
    }
 
+   // INTENT: Multi-key batch file lookup (O(1) roundtrip for multi-tab loads).
+   async findFilesByIds(fileIds: string[], workspaceId: string): Promise<FileEntity[]> {
+      if (fileIds.length === 0) return [];
+      const res = await getPool().query<FileEntity>({
+         name: 'find-files-by-ids',
+         text: 'SELECT id, parent_id, name, type, language, content FROM files WHERE id = ANY($1::uuid[]) AND workspace_id = $2',
+         values: [fileIds, workspaceId]
+      });
+      return res.rows;
+   }
+
    // =============================================================================
    // RECURSIVE RECURSIVE CTE PATH RESOLUTION
    // =============================================================================
@@ -108,6 +119,34 @@ export class FileRepository {
          [workspaceId, name, type, parentId, language, content, yjsState]
       );
       return res.rows[0]!;
+   }
+
+   // INTENT: Bulk insert multiple files in a single roundtrip network packet via unnest arrays.
+   // WHY: Reduces repository scaffolding / template creation from 50 sequential roundtrips to 1 atomic transaction.
+   async insertManyFiles(
+      workspaceId: string,
+      files: Array<{
+         name: string;
+         type: 'file' | 'directory';
+         parentId?: string | null;
+         language?: string | null;
+         content?: string;
+      }>
+   ): Promise<FileEntity[]> {
+      if (files.length === 0) return [];
+      const names = files.map(f => f.name);
+      const types = files.map(f => f.type);
+      const parentIds = files.map(f => f.parentId || null);
+      const languages = files.map(f => f.language || null);
+      const contents = files.map(f => f.content || '');
+
+      const res = await getPool().query<FileEntity>(
+         `INSERT INTO files (workspace_id, name, type, parent_id, language, content)
+          SELECT $1, unnest($2::text[]), unnest($3::node_type[]), unnest($4::uuid[]), unnest($5::text[]), unnest($6::text[])
+          RETURNING id, parent_id, name, type, language`,
+         [workspaceId, names, types, parentIds, languages, contents]
+      );
+      return res.rows;
    }
 
    async updateFileContent(fileId: string, workspaceId: string, content: string): Promise<void> {

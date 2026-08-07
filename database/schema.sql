@@ -86,6 +86,8 @@ CREATE TABLE workspace_collaborators (
 );
 
 CREATE INDEX idx_collaborators_user ON workspace_collaborators(user_id);
+-- Covering index for instantaneous RBAC role authorization (Index-Only Scans)
+CREATE INDEX IF NOT EXISTS idx_collab_auth ON workspace_collaborators (workspace_id, user_id) INCLUDE (role);
 
 -- 4. FILES & DIRECTORIES TABLE
 -- Purpose: Models virtual filesystem directory trees for sandboxes.
@@ -115,6 +117,10 @@ CREATE UNIQUE INDEX unique_name_child ON files (workspace_id, parent_id, name) W
 
 CREATE INDEX idx_files_workspace ON files(workspace_id);
 CREATE INDEX idx_files_parent ON files(parent_id);
+-- Covering index for UI file tree navigation (Index-Only Scans with 0 table heap fetches)
+CREATE INDEX IF NOT EXISTS idx_files_tree ON files (workspace_id, parent_id, type DESC, name ASC) INCLUDE (id, language);
+-- Covering index for single file fetches with workspace verification
+CREATE INDEX IF NOT EXISTS idx_files_id_workspace ON files (id, workspace_id) INCLUDE (content, yjs_state, author_map);
 
 CREATE TRIGGER set_timestamp_files
 BEFORE UPDATE ON files
@@ -156,6 +162,8 @@ CREATE TABLE file_updates (
 );
 
 CREATE INDEX idx_file_updates_file ON file_updates(file_id);
+-- Covering index for fast chronological CRDT delta streaming
+CREATE INDEX IF NOT EXISTS idx_file_updates_ordered ON file_updates(file_id, seq ASC) INCLUDE (update);
 
 -- 6. WORKSPACE SNAPSHOTS
 -- Purpose: Persists points-in-time workspace metadata milestones.
