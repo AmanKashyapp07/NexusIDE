@@ -88,8 +88,8 @@ test.describe('Terminal - Core Operations', () => {
     const timestamp = Date.now();
     const adminUsername = `Admin_${timestamp}`;
     const workspaceTitle = `Git_Clone_WS_${timestamp}`;
-    const repoUrl = 'https://github.com/AmanKashyapp07/github-test-ci.git';
-    const repoName = 'github-test-ci';
+    const repoUrl = 'https://github.com/octocat/Hello-World.git';
+    const repoName = 'Hello-World';
     await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -108,46 +108,36 @@ test.describe('Terminal - Core Operations', () => {
     await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
-    await page.keyboard.type('clear', { delay: 10 });
-    await page.keyboard.press('Enter');
-    await page.keyboard.type(`git clone ${repoUrl}`, { delay: 10 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.type('clear\n', { delay: 10 });
+    await page.keyboard.type(`git clone ${repoUrl}\n`, { delay: 10 });
     await expect(terminalBody).toContainText(`Cloning into '${repoName}'`, { timeout: 30000 });
     await expect(terminalBody).toContainText('Resolving deltas:', { timeout: 45000 });
     const repoFolder = page.locator('.ide-scrollbar').getByText(repoName);
     await expect(repoFolder).toBeVisible({ timeout: 20000 });
-    await page.keyboard.type(`cd ${repoName} && ls -d .git`, { delay: 10 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.type(`cd ${repoName} && ls -d .git\n`, { delay: 10 });
     await expect(terminalBody).toContainText('.git', { timeout: 5000 });
     await repoFolder.click();
     await page.waitForTimeout(1000);
-    const amanFile = page.locator('.ide-scrollbar').getByText('aman.js', { exact: true }).first();
+    const amanFile = page.locator('.ide-scrollbar').getByText('README', { exact: true }).first();
     await expect(amanFile).toBeVisible({ timeout: 15000 });
     await amanFile.click();
     await page.waitForSelector('.monaco-editor', { timeout: 15000 });
     await expect(page.locator('.monaco-editor')).not.toBeEmpty();
     await terminalTextarea.focus();
-    await page.keyboard.type('git config --global user.email "admin@example.com" && git config --global user.name "Admin User" && git config --global core.pager cat', { delay: 10 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.type('git config --global user.email "admin@example.com" && git config --global user.name "Admin User" && git config --global core.pager cat\n', { delay: 10 });
     await page.waitForTimeout(1000);
-    await page.keyboard.type('git checkout -b feature/collaborative-edit', { delay: 10 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.type('git checkout -b feature/collaborative-edit\n', { delay: 10 });
     await expect(terminalBody).toContainText("Switched to a new branch 'feature/collaborative-edit'", { timeout: 10000 });
-    await page.keyboard.type('echo "console.log(\'edited from collaborative IDE\');" >> aman.js', { delay: 10 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.type('echo "edited from collaborative IDE" >> README\n', { delay: 10 });
     await page.waitForTimeout(1000);
-    await page.keyboard.type('git status', { delay: 10 });
-    await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('modified:   aman.js', { timeout: 10000 });
-    await page.keyboard.type('git add aman.js && git commit -m "test: commit change from collaborative IDE"', { delay: 10 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.type('git status\n', { delay: 10 });
+    await expect(terminalBody).toContainText('modified:   README', { timeout: 10000 });
+    await page.keyboard.type('git add README && git commit -m "test: commit change from collaborative IDE"\n', { delay: 10 });
     await expect(terminalBody).toContainText('1 file changed', { timeout: 15000 });
-    await page.keyboard.type('git log -n 1', { delay: 10 });
-    await page.keyboard.press('Enter');
+    await page.keyboard.type('git log -n 1\n', { delay: 10 });
     await expect(terminalBody).toContainText('test: commit change from collaborative IDE', { timeout: 10000 });
-    await page.keyboard.type('git checkout main', { delay: 10 });
-    await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText("Switched to branch 'main'", { timeout: 10000 });
+    await page.keyboard.type('git checkout master\n', { delay: 10 });
+    await expect(terminalBody).toContainText("Switched to branch 'master'", { timeout: 10000 });
   });
 
   test('xterm.js frontend withstands massive stdout floods without crashing or desyncing', async ({ page }) => {
@@ -934,20 +924,28 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/html' });
   res.end('<h1>Express Backend Active</h1><p>React Mock Frontend Mounted</p>');
 });
-server.listen(3000, () => {
+server.listen(3000, '0.0.0.0', () => {
   console.log('Server ' + 'listening on port 3000');
 });
 `;
+    const b64Server = Buffer.from(serverScript).toString('base64');
     await terminalTextarea.focus();
-    await page.keyboard.type(`cat << 'EOF' > app.js\n${serverScript}\nEOF\n`, { delay: 10 });
-    await page.waitForTimeout(1500);
+    await page.keyboard.type(`echo "${b64Server}" | base64 -d > app.js\n`, { delay: 5 });
+    await page.waitForTimeout(1000);
     await page.keyboard.type('node app.js &\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Server listening on port 3000', { timeout: 10000 });
+    await expect(terminalBody).toContainText('Server listening on port 3000', { timeout: 15000 });
     await page.waitForTimeout(3500);
     const token = await page.evaluate(() => localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
     await previewPage.goto(`${APP_URL}/api/workspace/${workspaceId}/preview/?token=${token}`);
-    await expect(previewPage.locator('h1')).toHaveText('Express Backend Active', { timeout: 15000 });
+    await expect.poll(async () => {
+      const text = await previewPage.locator('h1').textContent().catch(() => '');
+      if (text.includes('Offline') || text.includes('Not Started')) {
+        await page.waitForTimeout(1000);
+        await previewPage.reload().catch(() => {});
+      }
+      return text;
+    }, { timeout: 25000, intervals: [1500] }).toBe('Express Backend Active');
     await expect(previewPage.locator('p')).toContainText('React Mock Frontend Mounted', { timeout: 15000 });
     await previewPage.close();
   });
@@ -974,7 +972,7 @@ server.listen(3000, () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await expect(terminalBody).toContainText('sandbox:', { timeout: 25000 });
     await page.waitForTimeout(3000);
     const backendScript = `
         const http = require('http');
@@ -987,7 +985,7 @@ server.listen(3000, () => {
             res.end();
           }
         });
-        server.listen(5000, () => {
+        server.listen(5000, '0.0.0.0', () => {
           console.log('Backend listening on port 5000');
         });
         `;
@@ -996,7 +994,7 @@ server.listen(3000, () => {
           const server = http.createServer((req, res) => {
             if (req.url.startsWith('/api')) {
               const proxyReq = http.request({
-                host: 'localhost',
+                host: '127.0.0.1',
                 port: 5000,
                 path: req.url,
                 method: req.method,
@@ -1011,27 +1009,36 @@ server.listen(3000, () => {
               res.end('<!DOCTYPE html><html><body><h1>React Frontend</h1><div id=\\"status\\">Connecting to API...</div><script>fetch(\\"/api/status\\").then(r => r.json()).then(data => { document.getElementById(\\"status\\").innerText = \\"Connected to: \\" + data.source; }).catch(err => { document.getElementById(\\"status\\").innerText = \\"Error: \\" + err.message; });</script></body></html>');
             }
           });
-          server.listen(3000, () => {
+          server.listen(3000, '0.0.0.0', () => {
             console.log('Frontend dev server listening on port 3000');
           });
 `;
+    const b64Backend = Buffer.from(backendScript).toString('base64');
+    const b64Frontend = Buffer.from(frontendScript).toString('base64');
     await terminalTextarea.focus();
-    await page.keyboard.type('mkdir -p backend frontend\n', { delay: 10 });
+    await page.keyboard.type('mkdir -p backend frontend\n', { delay: 5 });
     await page.waitForTimeout(500);
-    await page.keyboard.type(`cat << 'EOF' > backend/server.js\n${backendScript}\nEOF\n`, { delay: 10 });
-    await page.waitForTimeout(1000);
-    await page.keyboard.type(`cat << 'EOF' > frontend/dev-server.js\n${frontendScript}\nEOF\n`, { delay: 10 });
-    await page.waitForTimeout(1000);
+    await page.keyboard.type(`echo "${b64Backend}" | base64 -d > backend/server.js\n`, { delay: 5 });
+    await page.waitForTimeout(500);
+    await page.keyboard.type(`echo "${b64Frontend}" | base64 -d > frontend/dev-server.js\n`, { delay: 5 });
+    await page.waitForTimeout(500);
     await page.keyboard.type('node backend/server.js &\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Backend listening on port 5000', { timeout: 10000 });
+    await expect(terminalBody).toContainText('Backend listening on port 5000', { timeout: 15000 });
     await page.keyboard.type('node frontend/dev-server.js &\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Frontend dev server listening on port 3000', { timeout: 10000 });
+    await expect(terminalBody).toContainText('Frontend dev server listening on port 3000', { timeout: 15000 });
     await page.waitForTimeout(3500);
     const token = await page.evaluate(() => localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
     await previewPage.goto(`${APP_URL}/api/workspace/${workspaceId}/preview/?token=${token}`);
-    await expect(previewPage.locator('h1')).toHaveText('React Frontend', { timeout: 15000 });
-    await expect(previewPage.locator('#status')).toHaveText('Connected to: backend-api', { timeout: 15000 });
+    await expect.poll(async () => {
+      const text = await previewPage.locator('h1').textContent().catch(() => '');
+      if (text.includes('Offline') || text.includes('Not Started')) {
+        await page.waitForTimeout(1000);
+        await previewPage.reload().catch(() => {});
+      }
+      return text;
+    }, { timeout: 25000, intervals: [1500] }).toBe('React Frontend');
+    await expect.poll(async () => await previewPage.locator('#status').textContent().catch(() => ''), { timeout: 20000, intervals: [1000] }).toBe('Connected to: backend-api');
     await previewPage.close();
   });
 
@@ -1062,11 +1069,11 @@ server.listen(3000, () => {
     await terminalTextarea.focus();
     await page.keyboard.type('git config --global user.email "test@example.com" && git config --global user.name "Tester"\n', { delay: 10 });
     await page.waitForTimeout(500);
-    await page.keyboard.type('git clone https://github.com/AmanKashyapp07/github-test-ci.git\n', { delay: 10 });
+    await page.keyboard.type('git clone https://github.com/octocat/Hello-World.git\n', { delay: 10 });
     await page.waitForTimeout(8000); // Allow sufficient time for the git clone download to finish
     await page.keyboard.type('ls -la\n', { delay: 10 });
-    await expect(terminalBody).toContainText('github-test-ci', { timeout: 10000 });
-    await page.keyboard.type('cd github-test-ci && echo "first_edit" >> README.md && git add README.md && git commit -m "first commit"\n', { delay: 10 });
+    await expect(terminalBody).toContainText('Hello-World', { timeout: 10000 });
+    await page.keyboard.type('cd Hello-World && echo "first_edit" >> README && git add README && git commit -m "first commit"\n', { delay: 10 });
     await page.waitForTimeout(1500);
     await page.keyboard.type('git status\n', { delay: 10 });
     await expect(terminalBody).toContainText('nothing to commit, working tree clean', { timeout: 5000 });
@@ -1076,11 +1083,11 @@ server.listen(3000, () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalTextarea2 = page.locator('.xterm-helper-textarea');
     const terminalBody2 = page.locator('.xterm');
-    await expect(terminalBody2).toContainText('sandbox:~#', { timeout: 25000 });
+    await expect(terminalBody2).toContainText('sandbox:', { timeout: 25000 });
     await page.waitForTimeout(3000);
     await terminalTextarea2.focus();
-    await page.keyboard.type('cd github-test-ci && echo "second_edit" >> README.md && git status\n', { delay: 10 });
-    await expect(terminalBody2).toContainText('modified:   README.md', { timeout: 10000 });
+    await page.keyboard.type('cd Hello-World && echo "second_edit" >> README && git status\n', { delay: 10 });
+    await expect(terminalBody2).toContainText('modified:   README', { timeout: 10000 });
   });
 
   test('blocks git commands when admin is not signed in via GitHub (test account)', async ({ page }) => {

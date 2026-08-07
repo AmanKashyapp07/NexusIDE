@@ -171,7 +171,7 @@ router.post('/:id/snapshots/:snapshotId/restore', requireWorkspaceRole('admin'),
    const { id: workspaceId, snapshotId } = req.params as { id: string; snapshotId: string };
    try {
       const result = await restoreSnapshot(workspaceId, snapshotId);
-      res.json({ success: true, ...result });
+      res.json(result);
    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[Snapshot] Restore failed:', msg);
@@ -334,7 +334,8 @@ router.post('/:id/heartbeat', requireWorkspaceRole('viewer'), async (req: Worksp
 
 router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
    const url = new URL(req.originalUrl, `http://${req.headers.host || 'localhost'}`);
-   const prefix = (req.headers['x-forwarded-prefix'] as string) || (req.headers.referer?.includes('/ide/') ? '/ide' : '');
+   const hasIdePrefix = url.pathname.startsWith('/ide');
+   const prefix = hasIdePrefix ? '' : ((req.headers['x-forwarded-prefix'] as string) || (req.baseUrl?.startsWith('/ide') || req.headers.referer?.includes('/ide/') ? '/ide' : ''));
    if (req.query.token) { 
       res.cookie('preview_token', req.query.token, { path: '/', httpOnly: true, sameSite: 'lax' }); 
       url.searchParams.delete('token'); 
@@ -347,17 +348,21 @@ router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
 }, createProxyMiddleware({
    target: 'http://localhost', changeOrigin: true, ws: false,
    router: (req: unknown) => {
-      const wsReq = req as WorkspaceAuthRequest;
-      const wsId = wsReq.originalUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || (wsReq.params as Record<string, string>)?.id;
-      const ref = (wsReq.user?.id && wsId ? getRunningContainerRef(wsReq.user.id, wsId) : null) || (wsId ? getRunningContainerRefByWorkspaceId(wsId) : null);
+      const anyReq = req as any;
+      const reqUrl = anyReq.originalUrl || anyReq.url || '';
+      const wsId = reqUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || anyReq.params?.id;
+      const userId = anyReq.user?.id;
+      const ref = (userId && wsId ? getRunningContainerRef(userId, wsId) : null) || (wsId ? getRunningContainerRefByWorkspaceId(wsId) : null);
       const port = ref?.hostPort;
       return port ? `http://localhost:${port}` : 'http://localhost:1'; 
    },
    pathRewrite: (_p: string, req: unknown) => {
-      const wsReq = req as WorkspaceAuthRequest;
-      const wsId = wsReq.originalUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || (wsReq.params as Record<string, string>)?.id;
+      const anyReq = req as any;
+      const reqUrl = anyReq.originalUrl || anyReq.url || _p || '';
+      const wsId = reqUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || anyReq.params?.id;
       if (!wsId) return _p;
-      return _p.replace(new RegExp(`^.*\/api\/workspace\/${wsId}\/preview`), '');
+      const rewritten = _p.replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId}\\/preview`), '');
+      return rewritten === '' ? '/' : rewritten;
    },
    on: {
       error: (_err: unknown, _req: unknown, res: unknown) => {

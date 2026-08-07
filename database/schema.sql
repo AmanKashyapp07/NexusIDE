@@ -15,6 +15,10 @@ DROP TABLE IF EXISTS users CASCADE;
 DROP TYPE IF EXISTS node_type CASCADE;
 DROP TYPE IF EXISTS collaborator_role CASCADE;
 DROP TYPE IF EXISTS execution_status CASCADE;
+-- CAS Merkle DAG tables (dropped here for clean-slate schema re-runs)
+DROP TABLE IF EXISTS git_commits CASCADE;
+DROP TABLE IF EXISTS git_trees CASCADE;
+DROP TABLE IF EXISTS git_blobs CASCADE;
 
 -- Purpose: Updates the updated_at timestamp attribute before any row update query commits.
 -- Under the Hood: Intercepts the row payload update and sets NEW.updated_at to current timestamp.
@@ -212,3 +216,72 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER enforce_snapshot_limit
 AFTER INSERT ON workspace_snapshots
 FOR EACH ROW EXECUTE PROCEDURE evict_old_snapshots();
+
+-- =============================================================================
+-- 8. GIT-BASED CONTENT-ADDRESSABLE STORAGE (CAS) MERKLE DAG
+-- =============================================================================
+-- Purpose: Git-like snapshot deduplication engine. Replaces the flat
+--          workspace_snapshots + snapshot_files model with a three-layer
+--          Merkle DAG: blobs (raw files), trees (directory nodes), commits.
+-- Design Decision: Tables are ADDITIVE — legacy snapshot tables are
+--          retained during the Phase 1 dual-table migration window.
+
+-- 8a. GIT BLOBS
+-- Purpose: Content-addressable storage for raw file data, deduplicated
+--          globally across all workspaces and all snapshots.
+-- Under the Hood: The primary key is the SHA-256 hex digest of the file
+--          content. ON CONFLICT (hash) DO NOTHING ensures zero duplication
+--          when the same file content appears in multiple snapshots.
+-- Complexity: Insert O(1), lookup O(1) via primary key hash index.
+CREATE TABLE IF NOT EXISTS git_blobs (
+    hash       VARCHAR(64)  PRIMARY KEY,   -- SHA-256 hex digest of file content
+    content    TEXT         NOT NULL,
+    size_bytes BIGINT       NOT NULL,
+    created_at TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_git_blobs_size ON git_blobs(size_bytes);
+
+-- 8b. GIT TREES
+-- Purpose: Content-addressed directory nodes whose hash commits the entire
+--          sub-tree. Identical sub-trees across snapshots share one row.
+-- Under the Hood: `entries` is a canonical sorted JSONB array of
+--          { name, type: 'blob'|'tree', hash, path, language, sizeBytes }.
+--          The tree hash is computed over the deterministically sorted JSON,
+--          making hashes stable regardless of traversal order.
+-- Complexity: Insert O(1), O(1) unchanged sub-tree comparison.
+CREATE TABLE IF NOT EXISTS git_trees (
+    hash       VARCHAR(64)  PRIMARY KEY,   -- SHA-256 hex digest of sorted JSON entries
+    entries    JSONB        NOT NULL,       -- Array of { name, type, hash, path, language }
+    created_at TIMESTAMPTZ  DEFAULT NOW()
+);
+
+-- 8c. GIT COMMITS
+-- Purpose: Immutable snapshot milestone records forming a singly-linked
+--          parent chain per workspace (analogous to git commits).
+-- Under the Hood: `root_tree_hash` references the Merkle root of the
+--          workspace at the time of the snapshot. `parent_commit_id` links
+--          the previous checkpoint so history is traversable.
+-- Design Decision: ON DELETE SET NULL for parent_commit_id preserves the
+--          commit record if an ancestor is manually pruned.
+-- Complexity: Snapshot creation O(F) blobs + O(1) tree + O(1) commit.
+CREATE TABLE IF NOT EXISTS git_commits (
+    id               UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+    workspace_id     UUID         NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    parent_commit_id UUID         REFERENCES git_commits(id) ON DELETE SET NULL,
+    root_tree_hash   VARCHAR(64)  NOT NULL REFERENCES git_trees(hash),
+    label            VARCHAR(255) NOT NULL DEFAULT 'Checkpoint',
+    created_by       UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at       TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_git_commits_workspace ON git_commits(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_git_commits_parent    ON git_commits(parent_commit_id);
+CREATE INDEX IF NOT EXISTS idx_git_commits_created   ON git_commits(workspace_id, created_at DESC);
+
+-- 8d. DROP LEGACY SNAPSHOT LIMIT GUARD (no longer needed once CAS is active)
+-- Purpose: The eviction trigger was a stopgap to cap storage bloat under the
+--          flat-copy model. CAS deduplication makes it redundant.
+-- Note: Dropped conditionally — safe to run multiple times.
+DROP TRIGGER  IF EXISTS enforce_snapshot_limit ON workspace_snapshots;
+DROP FUNCTION IF EXISTS evict_old_snapshots();

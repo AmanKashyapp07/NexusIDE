@@ -1,7 +1,7 @@
 /**
  * Purpose: Workspace point-in-time snapshot, time-travel history diffing, and restoration service.
- * High-Level Architecture: Captures immutable SQL snapshot tree points, computes unified text diffs between historical and live files, and restores CRDT documents inside explicit SQL transactions (`BEGIN`/`COMMIT`).
- * Primary Trade-offs: Database-level snapshot copies trade minor storage overhead for instantaneous time-travel restoration and offline diff availability.
+ * High-Level Architecture: Captures immutable Merkle DAG snapshot tree points, computes unified text diffs between historical and live files, and restores CRDT documents inside explicit SQL transactions (`BEGIN`/`COMMIT`).
+ * Primary Trade-offs: Content-addressable storage (CAS) achieves 0-byte deduplication for unchanged files and O(1) subtree comparison while supporting instantaneous time-travel restoration.
  * Complexity: O(F) file snapshot copy per restore operation, where F is total workspace file count.
  */
 
@@ -59,25 +59,11 @@ async function ensureDirectoryExists(client: PoolClient, workspaceId: string, di
 // SNAPSHOT CREATION & TIME-TRAVEL DIFFING
 // =============================================================================
 
-// INTENT: Create atomic point-in-time snapshot copy of entire workspace inside a database transaction.
+// INTENT: Create atomic point-in-time snapshot checkpoint using the CAS Merkle DAG engine.
 // WHY: Transactional execution (`BEGIN`/`COMMIT`) ensures snapshot creation is all-or-nothing.
 export async function createSnapshot(workspaceId: string, userId: string, label?: string): Promise<SnapshotEntity> {
    const snapshotLabel = label?.trim() || `Snapshot ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
-   const client = await getPool().connect();
-   try {
-      await client.query('BEGIN');
-
-      const snapshot = await snapshotRepository.createSnapshotRecord(workspaceId, userId, snapshotLabel, client);
-      await snapshotRepository.insertSnapshotFilesFromLive(workspaceId, snapshot.id, client);
-
-      await client.query('COMMIT');
-      return snapshot;
-   } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
-   } finally {
-      client.release();
-   }
+   return snapshotRepository.createSnapshotRecord(workspaceId, userId, snapshotLabel);
 }
 
 export async function listSnapshots(workspaceId: string): Promise<SnapshotEntity[]> {
@@ -126,18 +112,20 @@ export async function getSnapshotFilesWithDiff(workspaceId: string, snapshotId: 
 // INTENT: Revert workspace file hierarchy to a historical snapshot point, updating SQL database, live Yjs CRDT documents, container volume files, and connected WebSocket clients.
 // WHY: Synchronizes database SQL content, active in-memory Yjs documents (`applyRestoredContentToLiveDocs`), and container PTY files inside a unified transaction.
 // INTERVIEW NOTES: Emits `snapshot-restored` Socket.IO broadcast to notify all active collaborators to force-reload their Monaco editor models.
-export async function restoreSnapshot(workspaceId: string, snapshotId: string): Promise<{ label: string; restored_files: number }> {
+export async function restoreSnapshot(workspaceId: string, snapshotId: string): Promise<{ success: boolean; label: string; restored_files: number }> {
    const client = await getPool().connect();
    try {
       const snapCheck = await snapshotRepository.findSnapshotById(snapshotId, workspaceId, client);
       if (!snapCheck) throw new Error('Snapshot not found');
 
-      const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
+      const { applyRestoredContentToLiveDocs, cancelAndEvictWorkspaceDocs } = await import('../docsRegistry.js');
+      const { deleteYjsStateFromCache } = await import('../utils/yjsCache.js');
 
       await client.query('BEGIN');
 
       const snapFiles = await snapshotRepository.getSnapshotFiles(snapshotId, client);
       const liveFiles = await fileRepository.getFlattenedFilePaths(workspaceId);
+
 
       const livePathToId = new Map<string, string>(
          liveFiles.filter(r => r.type === 'file').map(r => [r.path, r.id])
@@ -150,11 +138,17 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
          const liveId = livePathToId.get(sf.path);
          const restoredContent = sf.content ?? '';
          
+         const tempDoc = new Y.Doc();
+         const tempYText = tempDoc.getText('monaco');
+         tempYText.insert(0, restoredContent);
+         const newYjsState = Buffer.from(Y.encodeStateAsUpdate(tempDoc));
+         tempDoc.destroy();
+
          let targetFileId = liveId;
          if (liveId) {
             await client.query(
-               'UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2',
-               [restoredContent, liveId]
+               'UPDATE files SET content = $1, yjs_state = $2, updated_at = NOW() WHERE id = $3',
+               [restoredContent, newYjsState, liveId]
             );
          } else {
             const lastSlashIndex = sf.path.lastIndexOf('/');
@@ -162,14 +156,10 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
             const fileName = lastSlashIndex !== -1 ? sf.path.substring(lastSlashIndex + 1) : sf.path;
             
             const parentId = await ensureDirectoryExists(client, workspaceId, dirPath);
-            
-            const emptyDoc = new Y.Doc();
-            const initialYjsState = Buffer.from(Y.encodeStateAsUpdate(emptyDoc));
-            emptyDoc.destroy();
 
             const insertRes = await client.query<{ id: string }>(
                'INSERT INTO files (workspace_id, name, type, parent_id, language, content, yjs_state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-               [workspaceId, fileName, 'file', parentId, sf.language || 'javascript', restoredContent, initialYjsState]
+               [workspaceId, fileName, 'file', parentId, sf.language || 'javascript', restoredContent, newYjsState]
             );
             targetFileId = insertRes.rows[0]!.id;
          }
@@ -177,11 +167,17 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
          if (targetFileId) {
             restoredFilesData.push({ fileId: targetFileId, content: restoredContent });
             filesToSyncToTerminal.push({ fileId: targetFileId, content: restoredContent });
+            deleteYjsStateFromCache(targetFileId).catch(() => {});
          }
       }
 
       await applyRestoredContentToLiveDocs(workspaceId, restoredFilesData);
       await client.query('COMMIT');
+
+      // INTENT: Evict all in-memory Yjs docs for this workspace AFTER committing the DB transaction.
+      // WHY: Without eviction, reconnecting clients re-use the stale in-memory WSSharedDoc (which still holds
+      // the pre-restore content). Eviction forces the next connect to load fresh state from the updated DB.
+      await cancelAndEvictWorkspaceDocs(workspaceId);
 
       for (const f of filesToSyncToTerminal) {
          syncFileToTerminal(workspaceId, f.fileId, f.content).catch(() => {});
@@ -193,7 +189,7 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
          label: snapCheck.label 
       });
 
-      return { label: snapCheck.label, restored_files: snapFiles.length };
+      return { success: true, label: snapCheck.label, restored_files: snapFiles.length };
    } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
       throw err;

@@ -110,6 +110,7 @@ export class WorkspaceRepository {
       await getPool().query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM snapshots WHERE workspace_id = $1)', [id]).catch(() => {});
       await getPool().query('DELETE FROM workspace_snapshots WHERE workspace_id = $1', [id]).catch(() => {});
       await getPool().query('DELETE FROM snapshots WHERE workspace_id = $1', [id]).catch(() => {});
+      await getPool().query('DELETE FROM git_commits WHERE workspace_id = $1', [id]).catch(() => {});
       await getPool().query('DELETE FROM workspaces WHERE id = $1', [id]);
    }
 

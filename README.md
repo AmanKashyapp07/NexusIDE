@@ -42,9 +42,11 @@ Unlike traditional compilation widgets, it models real cloud-IDE infrastructure,
 
 | Feature | Engineering Description |
 | :--- | :--- |
-| **Real-time Collaboration** | Multi-user conflict-free editing utilizing Yjs CRDTs with presence indicators. |
+| **Content-Addressable Storage (CAS)** | Git-style Merkle DAG commit architecture with SHA-1 blob deduplication (`git_blobs`, `git_trees`, `git_commits`). |
+| **Real-time Collaboration** | Multi-user conflict-free editing utilizing Yjs CRDTs with presence indicators and live cursor awareness. |
 | **Persistent Workspaces** | Long-lived developer sandboxes; xterm.js terminals binding directly to Docker pseudo-terminals (PTY). |
-| **Workspace Snapshotting** | Flat tree snapshots (max 10 history points) stored in PostgreSQL with transactional live Yjs reload. |
+| **Workspace Snapshotting & Diffs** | Merkle tree snapshots (max 10 history points) with fast diff computation (`NEW`, `DEL`, `MOD`) and transactional Yjs reload. |
+| **Multi-Port Live Preview** | Reverse-proxied live app previews with cookie-based session persistence and subresource routing. |
 | **Git Conflict Resolver** | Interactive side-by-side collaborative resolve view supporting manual edits and auto-staging (`git add`). |
 | **AI Autocomplete** | Mistral AI-powered Fill-in-the-Middle (FIM) code suggestions using the Codestral API. |
 | **LSP Language Intelligence** | In-container Pyright and TypeScript Language Servers streamed via JSON-RPC over WebSockets. |
@@ -154,20 +156,17 @@ Encountering standard Git merge conflicts (e.g. after a `git pull`) can break re
 </details>
 
 <details>
-<summary><b>Workspace History Snapshotting</b></summary>
+<summary><b>Content-Addressable Storage (CAS) & Merkle DAG Snapshots</b></summary>
 <br/>
 
-Allows time-traveling history checkpoints without storing duplicate workspaces.
-* **Flattened DB Storage:** Rather than replicating the entire workspace DB rows, we use a recursive Common Table Expression (CTE) to flatten the active file tree structure into a path-to-content map inside the `snapshot_files` database table.
-* **Seamless State Restoring:** When an admin restores a snapshot, the backend modifies PostgreSQL files, runs Yjs transactions to push the restored content directly to active sessions (preserving WebSocket connections), and re-syncs the workspace container.
-* **Eviction Policies:** A PostgreSQL trigger automatically evicts the oldest snapshot once a workspace exceeds 10 snapshots, keeping database bloat bounded.
-* **Future Architecture: Git-Based Content-Addressable Snapshots (Theory):**
-  To scale snapshot storage for larger projects, we designed a Git-like object model for snapshots. Rather than storing flat files, this architecture uses:
-  - **Blobs:** Content-addressable storage where file versions are saved by their SHA-256 hashes (`git_blobs`).
-  - **Trees:** Directory-level JSON structures mapping paths to child blob/tree hashes (`git_trees`).
-  - **Commits:** Immutable log records linking a tree, metadata, and parent commit pointer (`git_commits`).
-  This Git-like approach achieves maximum deduplication (unmodified files across snapshots consume zero additional space) and enables efficient branch diffing.
-  *Note: While implemented and verified locally on the `v2` branch, this approach is kept in theory for future production integration to preserve stability on the currently deployed version.*
+NexusIDE uses a Git-like object model for immutable, deduplicated workspace snapshots:
+* **Deduplicated Merkle DAG:** Rather than copying whole file trees, snapshots are organized as a Content-Addressable Storage (CAS) graph:
+  - **`git_blobs`:** Unique file contents indexed by SHA-1 hash (`blob_hash`), ensuring unmodified files across snapshots consume zero additional storage.
+  - **`git_trees`:** Recursive directory tree nodes mapping filenames to blob hashes or child subtree hashes (`tree_hash`), with deterministic sorting and root tree computation.
+  - **`git_commits`:** Immutable snapshot commit points (`id`, `workspace_id`, `root_tree_hash`, `parent_commit_id`, `label`, `created_at`, `created_by`).
+* **Fast Diff Engine:** Generates instant snapshot diffs comparing root tree hashes down to individual leaves, classifying file changes into `NEW` (added), `MOD` (modified), and `DEL` (deleted) states with path preservation.
+* **Transactional State Restoration:** Restores entire workspace file hierarchies inside atomic SQL transactions, syncs files to container filesystems, updates Yjs state records, evicts stale in-memory documents (`cancelAndEvictWorkspaceDocs`), and broadcasts `snapshot-restored` events to connected Monaco editors.
+* **Snapshot Eviction Policy:** Enforces a maximum cap of 10 snapshots per workspace, automatically pruning the oldest commits upon new snapshot creation to keep storage bounded.
 </details>
 
 ---
