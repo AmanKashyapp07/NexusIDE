@@ -18,6 +18,7 @@ import { getDocsMap } from '../docsRegistry.js';
 import { log } from './logger.service.js';
 import { publishYjsUpdate, publishYjsAwareness } from './redisAdapter.service.js';
 import { withDistributedLock } from './distributedLock.service.js';
+import { AdaptivePersistenceDebouncer } from './adaptiveDebouncer.service.js';
 import type { AuthorInfo } from '../types/cache.types.js';
 
 // =============================================================================
@@ -34,7 +35,7 @@ export class WSSharedDoc extends Y.Doc {
    awareness: awarenessProtocol.Awareness;
    conns: Map<WebSocket, Set<number>>;
    dbLoaded: boolean;
-   saveTimeout: NodeJS.Timeout | null;
+   debouncer: AdaptivePersistenceDebouncer;
    isSaving: boolean;
    authorMap: Map<number, AuthorInfo>;
    private updateQueue: Array<Buffer> = [];
@@ -49,7 +50,7 @@ export class WSSharedDoc extends Y.Doc {
       this.awareness.setLocalState(null);
       this.conns = new Map();
       this.dbLoaded = false;
-      this.saveTimeout = null;
+      this.debouncer = new AdaptivePersistenceDebouncer(this.executeSave.bind(this));
       this.isSaving = false;
       this.authorMap = new Map();
 
@@ -150,57 +151,60 @@ export class WSSharedDoc extends Y.Doc {
       this.updateQueue.push(Buffer.from(update));
       this.processUpdateQueue();
 
-      if (this.saveTimeout) clearTimeout(this.saveTimeout);
-      this.saveTimeout = setTimeout(async () => {
-         if (this.isSaving) return;
-         this.isSaving = true;
-         try {
-            const state = Buffer.from(Y.encodeStateAsUpdate(this));
-            const content = this.getText('monaco').toString();
-            const authorMapJson = Object.fromEntries(
-               Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
+      this.debouncer.recordEdit();
+   }
+
+   // INTENT: Execute database write, update yjs_state / content, and invalidate caches.
+   // WHY: Called by AdaptivePersistenceDebouncer on idle pauses or coalesced burst intervals.
+   async executeSave(): Promise<void> {
+      if (this.isSaving) return;
+      this.isSaving = true;
+      try {
+         const state = Buffer.from(Y.encodeStateAsUpdate(this));
+         const content = this.getText('monaco').toString();
+         const authorMapJson = Object.fromEntries(
+            Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
+         );
+         log('💾 SAVE', `Adaptive save doc=${this.name} (${content.length} chars, ${this.authorMap.size} authors)`);
+         
+         await withDistributedLock(`lock:file:${this.fileId}:save`, 8000, async () => {
+            await getPool().query(
+               'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
+               [state, content, JSON.stringify(authorMapJson), this.fileId]
             );
-            log('💾 SAVE', `Debounced save doc=${this.name} (${content.length} chars, ${this.authorMap.size} authors)`);
             
-            await withDistributedLock(`lock:file:${this.fileId}:save`, 8000, async () => {
-               await getPool().query(
-                  'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
-                  [state, content, JSON.stringify(authorMapJson), this.fileId]
-               );
+            // INTENT: Invalidate Redis caches following successful database save.
+            try {
+               const [redisCache, yjsCache] = await Promise.all([
+                  import('../utils/redisCache.js'),
+                  import('../utils/yjsCache.js')
+               ]);
                
-               // INTENT: Invalidate Redis caches following successful database save.
-               try {
-                  const [redisCache, yjsCache] = await Promise.all([
-                     import('../utils/redisCache.js'),
-                     import('../utils/yjsCache.js')
-                  ]);
-                  
-                  await Promise.all([
-                     redisCache.fileContentCache.delete(`${this.fileId}`),
-                     redisCache.yjsStateCache.delete(`${this.fileId}:history`),
-                     yjsCache.deleteYjsStateFromCache(this.fileId)
-                  ]);
-               } catch (err: unknown) {
-                  const msg = err instanceof Error ? err.message : String(err);
-                  log('💾 SAVE', `⚠️  Cache invalidation failed: ${msg}`);
-               }
-               
-               syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
-               getIO()?.to(`presence-${this.workspaceId}`).emit('file-saved', { fileId: this.fileId });
-            });
-         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            log('💾 SAVE', `❌ DB save error: ${msg}`);
-         } finally {
-            this.isSaving = false;
-         }
-      }, 800);
+               await Promise.all([
+                  redisCache.fileContentCache.delete(`${this.fileId}`),
+                  redisCache.yjsStateCache.delete(`${this.fileId}:history`),
+                  yjsCache.deleteYjsStateFromCache(this.fileId)
+               ]);
+            } catch (err: unknown) {
+               const msg = err instanceof Error ? err.message : String(err);
+               log('💾 SAVE', `⚠️  Cache invalidation failed: ${msg}`);
+            }
+            
+            syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
+            getIO()?.to(`presence-${this.workspaceId}`).emit('file-saved', { fileId: this.fileId });
+         });
+      } catch (err: unknown) {
+         const msg = err instanceof Error ? err.message : String(err);
+         log('💾 SAVE', `❌ DB save error: ${msg}`);
+      } finally {
+         this.isSaving = false;
+      }
    }
 
    // INTENT: Perform synchronous/blocking final save on document eviction when all clients disconnect.
    // WHY: Guarantees zero data loss when rooms are reclaimed from node memory.
    async performFinalSave(): Promise<void> {
-      if (this.saveTimeout) clearTimeout(this.saveTimeout);
+      this.debouncer.cancel();
       try {
          const state = Buffer.from(Y.encodeStateAsUpdate(this));
          const content = this.getText('monaco').toString();

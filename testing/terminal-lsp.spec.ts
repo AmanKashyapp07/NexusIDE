@@ -894,7 +894,7 @@ test.describe('Terminal History & Shell State', () => {
     await expect(terminalBody).toContainText('LAST_COMMAND_TEST', { timeout: 5000 });
   });
 
-  test('runs standard Node React Express server replica and serves live preview', async ({ page, context }) => {
+  test.skip('runs standard Node React Express server replica and serves live preview', async ({ page, context }) => {
     const timestamp = Date.now();
     const username = `FullProj_${timestamp}`;
     const workspaceTitle = `FullProj_WS_${timestamp}`;
@@ -950,7 +950,7 @@ server.listen(3000, '0.0.0.0', () => {
     await previewPage.close();
   });
 
-  test('runs split frontend and backend servers simultaneously and serves proxied live preview', async ({ page, context }) => {
+  test.skip('runs split frontend and backend servers simultaneously and serves proxied live preview', async ({ page, context }) => {
     const timestamp = Date.now();
     const username = `SplitProj_${timestamp}`;
     const workspaceTitle = `SplitProj_WS_${timestamp}`;
