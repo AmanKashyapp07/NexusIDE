@@ -27,6 +27,7 @@ import { getDocsMap } from './docsRegistry.js';
 import { log } from './services/logger.service.js';
 import { setupSocketPresenceHandlers } from './services/socketPresence.service.js';
 import { setupWebSocketServer } from './services/websocketServer.service.js';
+import { initializeRedisCollaborationMesh } from './services/redisAdapter.service.js';
 
 // =============================================================================
 // EXPRESS APPLICATION INITIALIZATION & MIDDLEWARE SETUP
@@ -126,6 +127,7 @@ const PORT = process.env.PORT || 4000;
 if (process.env.NODE_ENV !== 'test') {
    server.listen(PORT, () => {
       log('🚀 BOOT', `Server listening on port ${PORT}`);
+      initializeRedisCollaborationMesh();
       warmPoolManager.initializePools().catch(() => {});
       getPool().query('SELECT NOW()', (err) => {
          log('🚀 BOOT', err ? '❌ DB Connection Failed' : '✅ DB Connected');

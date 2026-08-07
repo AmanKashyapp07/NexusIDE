@@ -28,7 +28,7 @@ export function getDocsMap(): Map<string, Promise<any>> {
 // WHY: Used during workspace deletion or snapshot restoration to prevent stale in-memory Yjs documents from overwriting new state.
 // EDGE CASE: Properly handles socket errors during disconnect and clears active connection Maps to prevent memory leaks.
 // INTERVIEW NOTES: Closing client sockets with 4100 closure code signals the client to clear local editor buffers and reload state.
-export async function cancelAndEvictWorkspaceDocs(workspaceId: string): Promise<void> {
+export async function cancelAndEvictWorkspaceDocs(workspaceId: string, skipBroadcast = false): Promise<void> {
    for (const [docName, docPromise] of docs.entries()) {
       if (!docName.startsWith(workspaceId)) continue;
       try {
@@ -56,6 +56,15 @@ export async function cancelAndEvictWorkspaceDocs(workspaceId: string): Promise<
       } catch (err) {
          docs.delete(docName);
          process.stderr.write(`[Error] Failed during eviction of doc ${docName}: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
+   }
+
+   if (!skipBroadcast) {
+      try {
+         const { publishWorkspaceEvict } = await import('./services/redisAdapter.service.js');
+         await publishWorkspaceEvict(workspaceId);
+      } catch {
+         // Silently handle if Redis is not configured or in unit test environment
       }
    }
 }

@@ -16,6 +16,8 @@ import { getIO } from '../socket.js';
 import { syncFileToTerminal } from '../terminal/terminalHandler.js';
 import { getDocsMap } from '../docsRegistry.js';
 import { log } from './logger.service.js';
+import { publishYjsUpdate, publishYjsAwareness } from './redisAdapter.service.js';
+import { withDistributedLock } from './distributedLock.service.js';
 import type { AuthorInfo } from '../types/cache.types.js';
 
 // =============================================================================
@@ -58,7 +60,7 @@ export class WSSharedDoc extends Y.Doc {
       // WHY: Propagates client cursor movement and selection vectors to active room subscribers.
       this.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, conn: WebSocket | null) => {
          const changedClients = added.concat(updated, removed);
-         if (conn !== null) {
+         if (conn !== null && typeof conn !== 'string') {
             const connControlledIDs = this.conns.get(conn);
             if (connControlledIDs !== undefined) {
                added.forEach((clientID: number) => { connControlledIDs.add(clientID); });
@@ -83,6 +85,11 @@ export class WSSharedDoc extends Y.Doc {
          encoding.writeVarUint8Array(encoder, awarenessUpdate);
          const buff = encoding.toUint8Array(encoder);
          this.conns.forEach((_, c) => this.send(c, buff));
+
+         // Fan-out cursor awareness updates across peer pods
+         if ((conn as unknown) !== 'redis') {
+            publishYjsAwareness(this.name, awarenessUpdate).catch(() => {});
+         }
       });
    }
 
@@ -126,12 +133,17 @@ export class WSSharedDoc extends Y.Doc {
    // WHY: Debouncing database writes (800ms threshold) coalesces rapid typing bursts into single SQL UPDATE queries.
    // EDGE CASE: If `dbLoaded` is false, skips persistence to prevent overwriting stored state with uninitialized local state.
    // INTERVIEW NOTES: Coalescing writes reduces database IOPS from 100+ writes/sec to ~1.2 writes/sec per active document.
-   handleDocumentUpdate(update: Uint8Array): void {
+   handleDocumentUpdate(update: Uint8Array, origin?: any): void {
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, 0);
       syncProtocol.writeUpdate(encoder, update);
       const message = encoding.toUint8Array(encoder);
       this.conns.forEach((_, conn) => this.send(conn, message));
+
+      // Fan-out to peer cluster pods (avoid re-publishing updates received from Redis)
+      if (origin !== 'redis') {
+         publishYjsUpdate(this.name, update).catch(() => {});
+      }
 
       if (!this.dbLoaded) return;
 
@@ -149,30 +161,33 @@ export class WSSharedDoc extends Y.Doc {
                Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
             );
             log('💾 SAVE', `Debounced save doc=${this.name} (${content.length} chars, ${this.authorMap.size} authors)`);
-            await getPool().query(
-               'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
-               [state, content, JSON.stringify(authorMapJson), this.fileId]
-            );
             
-            // INTENT: Invalidate Redis caches following successful database save.
-            try {
-               const [redisCache, yjsCache] = await Promise.all([
-                  import('../utils/redisCache.js'),
-                  import('../utils/yjsCache.js')
-               ]);
+            await withDistributedLock(`lock:file:${this.fileId}:save`, 8000, async () => {
+               await getPool().query(
+                  'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
+                  [state, content, JSON.stringify(authorMapJson), this.fileId]
+               );
                
-               await Promise.all([
-                  redisCache.fileContentCache.delete(`${this.fileId}`),
-                  redisCache.yjsStateCache.delete(`${this.fileId}:history`),
-                  yjsCache.deleteYjsStateFromCache(this.fileId)
-               ]);
-            } catch (err: unknown) {
-               const msg = err instanceof Error ? err.message : String(err);
-               log('💾 SAVE', `⚠️  Cache invalidation failed: ${msg}`);
-            }
-            
-            syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
-            getIO()?.to(`presence-${this.workspaceId}`).emit('file-saved', { fileId: this.fileId });
+               // INTENT: Invalidate Redis caches following successful database save.
+               try {
+                  const [redisCache, yjsCache] = await Promise.all([
+                     import('../utils/redisCache.js'),
+                     import('../utils/yjsCache.js')
+                  ]);
+                  
+                  await Promise.all([
+                     redisCache.fileContentCache.delete(`${this.fileId}`),
+                     redisCache.yjsStateCache.delete(`${this.fileId}:history`),
+                     yjsCache.deleteYjsStateFromCache(this.fileId)
+                  ]);
+               } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  log('💾 SAVE', `⚠️  Cache invalidation failed: ${msg}`);
+               }
+               
+               syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
+               getIO()?.to(`presence-${this.workspaceId}`).emit('file-saved', { fileId: this.fileId });
+            });
          } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             log('💾 SAVE', `❌ DB save error: ${msg}`);

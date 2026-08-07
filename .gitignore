@@ -18,3 +18,4 @@ id_rsa*
 *.pub
 deploy.env
 t.md
+s.md
