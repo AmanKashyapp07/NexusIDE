@@ -230,6 +230,13 @@ export class WSSharedDoc extends Y.Doc {
          }
          
          syncFileToTerminal(this.workspaceId, this.fileId, content).catch(() => {});
+
+         try {
+            const { compactFileCrdtDeltas } = await import('./crdtCompactor.service.js');
+            await compactFileCrdtDeltas(this.fileId);
+         } catch {
+            // Silently handle compaction fallback
+         }
       } catch (err: unknown) {
          const msg = err instanceof Error ? err.message : String(err);
          log('🔒 CLOSE', `❌ Final save error: ${msg}`);
