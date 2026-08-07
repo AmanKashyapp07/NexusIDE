@@ -11,10 +11,9 @@ export default defineConfig({
     // toHaveURL / toBeVisible retries at this interval — raise for real network
     timeout: process.env.CI ? 30000 : 25000,
   },
-  // Run sequentially (1 worker) to prevent concurrent browser contexts
-  // from saturating the CPU and causing timeout failures.
-  fullyParallel: false,
-  workers: process.env.PLAYWRIGHT_WORKERS ? parseInt(process.env.PLAYWRIGHT_WORKERS) : 3,
+  // Run fully parallel with maximum available CPU cores for fastest E2E execution
+  fullyParallel: true,
+  workers: process.env.PLAYWRIGHT_WORKERS ? parseInt(process.env.PLAYWRIGHT_WORKERS) : undefined,
   // Always allow 1 retry — flakiness from Yjs sync latency is real-world,
   // not a bug. A test that passes on retry is still a passing feature.
   retries: process.env.CI ? 2 : 1,

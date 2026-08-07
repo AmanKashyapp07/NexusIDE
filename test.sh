@@ -149,19 +149,20 @@ run_frontend() {
 }
 
 run_e2e() {
-  section "Playwright End-to-End Browser Specs (Parallel Execution)"
+  section "Playwright End-to-End Browser Specs (Maximum Parallel Execution)"
   verify_target_health
   local suite_start=$(date +%s)
-  log_info "Executing Playwright E2E browser categories in parallel (--workers=3) against: ${NEXUS_BASE_URL}"
+  local max_workers="${PLAYWRIGHT_WORKERS:-100%}"
+  log_info "Executing Playwright E2E browser categories in max parallel concurrency (--workers=${max_workers}) against: ${NEXUS_BASE_URL}"
   
   if [ -d "${LOCAL_BASE}/frontend/node_modules" ]; then
-    (cd "${LOCAL_BASE}/frontend" && npx playwright test --workers=3)
+    (cd "${LOCAL_BASE}/frontend" && npx playwright test --workers="${max_workers}")
   else
-    (cd "${LOCAL_BASE}/testing" && npx playwright test --workers=3)
+    (cd "${LOCAL_BASE}/testing" && npx playwright test --workers="${max_workers}")
   fi
   local suite_end=$(date +%s)
   log_success "Playwright E2E parallel tests completed successfully ✓"
-  record_suite "Playwright E2E Specs (Parallel)" "PASSED" "$((suite_end - suite_start))"
+  record_suite "Playwright E2E Specs (Max Parallel)" "PASSED" "$((suite_end - suite_start))"
 }
 
 # ─── Main Dispatch ────────────────────────────────────────────────────────────

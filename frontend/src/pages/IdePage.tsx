@@ -149,30 +149,54 @@ function IdePage() {
     }
   }, [activeFileId, navigate, urlWorkspaceId]);
 
-  /* ─── File operations ────────────────────────────────────────────────── */
+  /* ─── File operations with Optimistic UI updates ────────────────────── */
   const handleFileCreate = useCallback(async (name: string, type: 'file' | 'directory', language: string | null, parentId: string | null) => {
     if (!workspaceId) return;
+    const tempId = `temp_${Date.now()}`;
+    const optimisticFile: AppFile = {
+      id: tempId,
+      name,
+      type,
+      parent_id: parentId,
+      language: language || (type === 'file' ? 'plaintext' : null),
+    };
+
+    // 1. Optimistically apply to local tree state immediately (0ms UI latency)
+    setFiles(prev => [...prev, optimisticFile].sort((a, b) => a.name.localeCompare(b.name)));
+
     try {
       const token = getNexusToken();
       const newFile = await apiCreateFile(token, workspaceId, { name, type, parent_id: parentId, language });
-      setFiles(prev => [...prev, newFile].sort((a, b) => a.name.localeCompare(b.name)));
+      // 2. Reconcile temporary ID with permanent database ID
+      setFiles(prev => prev.map(f => f.id === tempId ? newFile : f));
       broadcastFileTreeUpdate();
       if (type === 'file') navigateRef.current(`/${urlWorkspaceId}/${newFile.id}`);
     } catch (err) {
+      // 3. Roll back on network or validation error
+      setFiles(prev => prev.filter(f => f.id !== tempId));
       addToast(err instanceof Error ? err.message : 'Failed to create file', 'error');
     }
   }, [workspaceId, urlWorkspaceId, broadcastFileTreeUpdate, addToast]);
 
   const handleFileDelete = useCallback(async (id: string) => {
     if (!workspaceId) return;
+    const targetFile = files.find(f => f.id === id);
+    // 1. Optimistically remove from tree
+    setFiles(prev => prev.filter(f => f.id !== id));
+    if (activeFile?.id === id) editorRef.current?.setValue('');
+
     try {
       const token = getNexusToken();
       await apiDeleteFile(token, workspaceId, id);
-      setFiles(prev => prev.filter(f => f.id !== id));
-      if (activeFile?.id === id) editorRef.current?.setValue('');
       broadcastFileTreeUpdate();
-    } catch (err) { console.error(err); }
-  }, [workspaceId, activeFile?.id, broadcastFileTreeUpdate]);
+    } catch (err) {
+      // 2. Roll back deletion on error
+      if (targetFile) {
+        setFiles(prev => [...prev, targetFile].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+      addToast('Failed to delete file', 'error');
+    }
+  }, [workspaceId, activeFile?.id, files, broadcastFileTreeUpdate, addToast]);
 
   const handleExportWorkspace = useCallback(async () => {
     try {
@@ -432,21 +456,6 @@ function IdePage() {
                       );
                     })}
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('[TimelapseDebug] Timelapse button clicked. Current state:', isViewingTimelapse, 'activeFile:', activeFile?.id);
-                      setIsViewingTimelapse(prev => !prev);
-                    }}
-                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                      isViewingTimelapse ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
-                    }`}
-                  >
-                    <History size={14} />
-                    Timelapse
-                  </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-xs font-medium text-zinc-600">
@@ -472,41 +481,28 @@ function IdePage() {
               </div>
             )}
 
-            {/* Editor / Timelapse */}
+            {/* Code Editor */}
             <div className="relative min-h-0 flex-1 bg-[#020202]/50 flex">
               {activeFile ? (
-                <>
-                  <div className={`relative min-h-0 ${isViewingTimelapse ? 'hidden' : 'flex-1'}`}>
-                    <CodeEditor
-                      workspaceId={workspaceId}
-                      fileId={activeFile.id}
-                      filename={activeFile.name}
-                      language={activeFile.language || 'javascript'}
-                      currentUser={user}
-                      authorMap={authorMap}
-                      isBlameOpen={isBlameOpen}
-                      onBlameToggle={setIsBlameOpen}
-                      readOnly={userRole === 'viewer'}
-                      onEditorReady={(editor) => { editorRef.current = editor; }}
-                      onConnectionStatusChange={handleConnectionStatusChange}
-                      onAwarenessChange={handleAwarenessChange}
-                      onCodeChange={handleTypingActivity}
-                      jumpToUserId={jumpToUserId}
-                      onJumpComplete={() => setJumpToUserId(null)}
-                    />
-                  </div>
-                  {isViewingTimelapse && (
-                    <div className="relative flex flex-col flex-1 min-h-0 min-w-0">
-                      <TimelapseReplayer
-                        workspaceId={workspaceId}
-                        fileId={activeFile.id}
-                        filename={activeFile.name}
-                        language={activeFile.language || 'javascript'}
-                        onClose={() => setIsViewingTimelapse(false)}
-                      />
-                    </div>
-                  )}
-                </>
+                <div className="relative min-h-0 flex-1">
+                  <CodeEditor
+                    workspaceId={workspaceId}
+                    fileId={activeFile.id}
+                    filename={activeFile.name}
+                    language={activeFile.language || 'javascript'}
+                    currentUser={user}
+                    authorMap={authorMap}
+                    isBlameOpen={isBlameOpen}
+                    onBlameToggle={setIsBlameOpen}
+                    readOnly={userRole === 'viewer'}
+                    onEditorReady={(editor) => { editorRef.current = editor; }}
+                    onConnectionStatusChange={handleConnectionStatusChange}
+                    onAwarenessChange={handleAwarenessChange}
+                    onCodeChange={handleTypingActivity}
+                    jumpToUserId={jumpToUserId}
+                    onJumpComplete={() => setJumpToUserId(null)}
+                  />
+                </div>
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-4 text-zinc-500 w-full">
                   <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/5 bg-white/[0.02]">

@@ -48,6 +48,8 @@ export function useCodeEditorSetup({
 
   const wsProviderRef = useRef<WebsocketProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
+  const decorationsRef = useRef<string[]>([]);
+  const modelCacheRef = useRef<Map<string, { ydoc: Y.Doc; wsProvider: WebsocketProvider; binding: MonacoBinding | null; lastUsed: number }>>(new Map());
 
   const [prevFileId, setPrevFileId] = useState(fileId);
   if (fileId !== prevFileId) {
@@ -59,7 +61,7 @@ export function useCodeEditorSetup({
   callbackRefs.current = { onAwarenessChange, onConnectionStatusChange, onCodeChange };
 
   // ===========================================================================
-  // Yjs CRDT & Websocket Synchronization Lifecycle
+  // Yjs CRDT & Websocket Synchronization Lifecycle with Multi-Model Tab Caching
   // ===========================================================================
   useEffect(() => {
     let isActive = true;
@@ -71,8 +73,47 @@ export function useCodeEditorSetup({
     const roomName = `${workspaceId}-${fileId}`;
     const token = getNexusToken();
 
-    const ydoc = new Y.Doc();
-    const wsProvider = new WebsocketProvider(wsUrl(''), roomName, ydoc, { params: { token } });
+    // Check Multi-Model Tab Cache for instant 0ms switching
+    let cached = modelCacheRef.current.get(roomName);
+    let ydoc: Y.Doc;
+    let wsProvider: WebsocketProvider;
+
+    if (cached) {
+      ydoc = cached.ydoc;
+      wsProvider = cached.wsProvider;
+      cached.lastUsed = Date.now();
+    } else {
+      ydoc = new Y.Doc();
+      wsProvider = new WebsocketProvider(wsUrl(''), roomName, ydoc, { params: { token } });
+      
+      // LRU Eviction: Keep max 10 warm tabs
+      if (modelCacheRef.current.size >= 10) {
+        let oldestKey: string | null = null;
+        let oldestTime = Infinity;
+        for (const [k, v] of modelCacheRef.current.entries()) {
+          if (v.lastUsed < oldestTime) {
+            oldestTime = v.lastUsed;
+            oldestKey = k;
+          }
+        }
+        if (oldestKey) {
+          const old = modelCacheRef.current.get(oldestKey);
+          if (old) {
+            old.binding?.destroy();
+            old.wsProvider.destroy();
+            old.ydoc.destroy();
+            modelCacheRef.current.delete(oldestKey);
+          }
+        }
+      }
+
+      modelCacheRef.current.set(roomName, {
+        ydoc,
+        wsProvider,
+        binding: null,
+        lastUsed: Date.now(),
+      });
+    }
 
     wsProviderRef.current = wsProvider;
     ydocRef.current = ydoc;
@@ -108,6 +149,8 @@ export function useCodeEditorSetup({
         wsProvider.awareness as any
       );
       boundModel = model;
+      const entry = modelCacheRef.current.get(roomName);
+      if (entry) entry.binding = binding;
     };
 
     const handleSync = (synced: boolean) => {
@@ -133,6 +176,7 @@ export function useCodeEditorSetup({
       }
     };
 
+    // Direct Monaco deltaDecorations for zero-React re-render cursor performance
     const handleAwareness = () => {
       if (!isActive) return;
       const states = Array.from(wsProvider.awareness.getStates().entries()) as [number, AwarenessState][];
@@ -144,6 +188,34 @@ export function useCodeEditorSetup({
       callbackRefs.current.onAwarenessChange?.(
         Array.from(new Map(users.map(u => [u.name, u])).values())
       );
+
+      // Direct native Monaco decoration update
+      if (editor && typeof editor.deltaDecorations === 'function' && monacoInstance) {
+        const newDecorations: Monaco.editor.IModelDeltaDecoration[] = [];
+        const model = editor.getModel();
+        if (model) {
+          states.forEach(([clientId, state]) => {
+            if (state.user && state.selection && state.selection.head) {
+              const headAbs = Y.createAbsolutePositionFromRelativePosition(
+                state.selection.head as Y.RelativePosition,
+                ydoc
+              );
+              if (headAbs && headAbs.type === ydoc.getText('monaco')) {
+                const pos = model.getPositionAt(headAbs.index);
+                newDecorations.push({
+                  range: new monacoInstance.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+                  options: {
+                    className: `remote-cursor-${clientId}`,
+                    hoverMessage: { value: `**${state.user.name}** is editing here` },
+                    zIndex: 100,
+                  }
+                });
+              }
+            }
+          });
+          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
+        }
+      }
     };
 
     const handleUpdate = (_update: Uint8Array, origin: any) => {
@@ -188,8 +260,13 @@ export function useCodeEditorSetup({
 
       wsProvider.destroy();
       ydoc.destroy();
+
+      // Clear Monaco native decorations on tab unmount
+      if (editor && typeof editor.deltaDecorations === 'function' && decorationsRef.current.length > 0) {
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+      }
     };
-  }, [editor, workspaceId, fileId, filename, currentUser.username, currentUser.id]);
+  }, [editor, workspaceId, fileId, filename, currentUser.username, currentUser.id, monacoInstance]);
 
   // ===========================================================================
   // Jump-to-member Cursor Effect

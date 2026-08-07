@@ -146,12 +146,11 @@ export class WSSharedDoc extends Y.Doc {
          publishYjsUpdate(this.name, update).catch(() => {});
       }
 
-      if (!this.dbLoaded) return;
-
       this.updateQueue.push(Buffer.from(update));
-      this.processUpdateQueue();
-
-      this.debouncer.recordEdit();
+      if (this.dbLoaded) {
+         this.processUpdateQueue();
+         this.debouncer.recordEdit();
+      }
    }
 
    // INTENT: Execute database write, update yjs_state / content, and invalidate caches.
@@ -326,6 +325,8 @@ export async function getOrCreateDoc(docName: string): Promise<WSSharedDoc> {
          }
          
          doc.dbLoaded = true;
+         (doc as any).processUpdateQueue();
+         doc.debouncer.recordEdit();
       } catch (err: unknown) {
          const msg = err instanceof Error ? err.message : String(err);
          log('📄 BIND', `❌ DB error loading file: ${msg}`);
