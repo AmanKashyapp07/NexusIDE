@@ -1,6 +1,6 @@
-# NexusIDE: Collaborative Cloud IDE
-
 <div align="center">
+
+# NexusIDE: Collaborative Cloud IDE
 
 ### A Production-Ready Collaborative Cloud IDE
 
@@ -48,7 +48,6 @@ Rather than a thin compilation widget, NexusIDE models real cloud-IDE infrastruc
 | **Stateless WebSocket Clustering** | Redis Pub/Sub mesh bridges independent, horizontally-scaled Node.js pods; Redlock atomic distributed locking (Lua `SET NX PX` + `EVALSHA`) prevents concurrent PostgreSQL write contention across instances. |
 | **Persistent Workspaces** | Long-lived, stateful developer sandboxes; xterm.js terminals binding directly to Docker pseudo-terminal (PTY) devices for native shell fidelity. |
 | **Workspace Snapshotting & Diffs** | Merkle tree snapshots (max 10 history points) with hash-based fast diff computation (`NEW`, `DEL`, `MOD`) and transactional Yjs document reload. |
-| **Multi-Port Live Preview** | Reverse-proxied live application previews with cookie-based session persistence and subresource routing across arbitrary container ports. |
 | **Git Conflict Resolver** | Interactive side-by-side collaborative resolve view supporting manual edits, three-way diff context, and auto-staging (`git add`) on resolution. |
 | **Predictive Pre-Warming & Hibernation** | Background container pre-warming (`prewarmWorkspaceContainer`) eliminates open-time cold starts, while cgroup-level state hibernation (`hibernateWorkspaceContainer` / Docker `pause`/`unpause`) freezes idle container RAM/CPU without losing bash processes or uncommitted shell state. |
 | **LSP Language Intelligence** | In-container Pyright and TypeScript Language Servers streamed via JSON-RPC 2.0 over WebSockets, delivering real-time diagnostics, hovers, and completions. |
@@ -419,3 +418,21 @@ Integrate peer-to-peer WebRTC mesh channels directly into the workspace gateway 
 
 ### 3. WebAssembly (WASM) Extension Engine
 Expose a lightweight WASM-based extension runtime enabling users to load custom linters, formatters, and language analyzers directly inside the browser client without server-side overhead or security risks.
+
+### 4. Multi-Port Live Preview Proxy Engine
+Extend the developer environment with reverse-proxied live application previews across arbitrary internal container ports (`3000`, `5000`, `8000`, `5173`, `8080`), incorporating session cookie tokens and path-rewriting subresource proxying.
+
+### 5. AI-Powered Code Autocompletion Engine
+Integrate low-latency, context-aware AI inline autocompletion powered by code LLM models (e.g. Codestral / Mistral AI), delivering inline ghost text suggestions, multi-token completions, and smart code fill directly within Monaco editor sessions.
+
+---
+
+<div align="center">
+
+> *"Until death, all defeat is psychological."* 
+
+<br/>
+
+Thanks for reading! Made with ❤️ and 🥤 **Diet Coke**.
+
+</div>

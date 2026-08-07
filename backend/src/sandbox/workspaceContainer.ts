@@ -78,7 +78,13 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
       console.error(`[WorkspaceContainer] Setup failed for ${key}:`, err);
    }
 
-   activeWorkspaceContainers.set(key, { container, id, refCount: 1, hostPort, cleanupTimeout: null, lastActivityMs: Date.now() });
+   let containerIP: string | undefined;
+   try {
+      const info = await container.inspect();
+      containerIP = (info.NetworkSettings as any)?.IPAddress || (info.NetworkSettings?.Networks as any)?.bridge?.IPAddress || undefined;
+   } catch {}
+
+   activeWorkspaceContainers.set(key, { container, id, refCount: 1, hostPort, containerIP, cleanupTimeout: null, lastActivityMs: Date.now() });
    return container;
 }
 
@@ -131,6 +137,17 @@ export const getRunningContainerRefByWorkspaceId = (workspaceId: string): Worksp
    }
    return null;
 };
+
+export async function getContainerIPByWorkspaceId(workspaceId: string): Promise<string | null> {
+   const ref = getRunningContainerRefByWorkspaceId(workspaceId);
+   if (!ref) return null;
+   try {
+      const info = await ref.container.inspect();
+      return (info.NetworkSettings as any)?.IPAddress || null;
+   } catch {
+      return null;
+   }
+}
 
 export function touchWorkspaceActivity(userId: string, workspaceId: string): void {
    const key = `${userId}-${workspaceId}`;

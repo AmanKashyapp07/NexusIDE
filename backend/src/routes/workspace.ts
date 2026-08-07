@@ -355,15 +355,28 @@ router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
       const wsId = reqUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || anyReq.params?.id;
       const userId = anyReq.user?.id;
       const ref = (userId && wsId ? getRunningContainerRef(userId, wsId) : null) || (wsId ? getRunningContainerRefByWorkspaceId(wsId) : null);
-      const port = ref?.hostPort;
-      return port ? `http://localhost:${port}` : 'http://localhost:1'; 
+      if (!ref) return 'http://localhost:1';
+
+      const portMatch = reqUrl.match(/\/preview[\/:\-](port[\/:\-])?(\d{2,5})/i) || reqUrl.match(/[\?&]port=(\d{2,5})/i);
+      const requestedPort = portMatch ? parseInt(portMatch[2] || portMatch[1], 10) : 3000;
+
+      if (requestedPort === 3000 && ref.hostPort) {
+         return `http://localhost:${ref.hostPort}`;
+      }
+
+      const containerIP = ref.containerIP;
+      if (containerIP) {
+         return `http://${containerIP}:${requestedPort}`;
+      }
+
+      return ref.hostPort ? `http://localhost:${ref.hostPort}` : 'http://localhost:1'; 
    },
    pathRewrite: (_p: string, req: unknown) => {
       const anyReq = req as any;
       const reqUrl = anyReq.originalUrl || anyReq.url || _p || '';
       const wsId = reqUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || anyReq.params?.id;
       if (!wsId) return _p;
-      const rewritten = _p.replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId}\\/preview`), '');
+      const rewritten = _p.replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId}\\/preview([\\/:-](port[\\/:-])?\\d{2,5})?`), '').replace(/[\?&]port=\d{2,5}/i, '');
       return rewritten === '' ? '/' : rewritten;
    },
    on: {
