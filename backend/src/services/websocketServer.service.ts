@@ -100,7 +100,8 @@ export function setupWebSocketServer(server: http.Server): WebSocketServer {
          // INTERVIEW NOTES: Dropping write packets at the server border preserves zero-trust security without needing client-side trust.
          const processMessage = (message: Buffer, targetDoc: WSSharedDoc): void => {
             try {
-               const decoder = decoding.createDecoder(new Uint8Array(message));
+               const uint8 = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+               const decoder = decoding.createDecoder(uint8);
                const messageType = decoding.readVarUint(decoder);
 
                if (role === 'viewer' && messageType === 0) {
@@ -108,7 +109,7 @@ export function setupWebSocketServer(server: http.Server): WebSocketServer {
                   if (syncMessageType === 1 || syncMessageType === 2) return; 
                }
 
-               const processDecoder = decoding.createDecoder(new Uint8Array(message));
+               const processDecoder = decoding.createDecoder(uint8);
                const type = decoding.readVarUint(processDecoder);
 
                if (type === 0) {

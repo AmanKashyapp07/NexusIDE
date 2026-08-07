@@ -58,7 +58,22 @@ function makeYjsState(text: string): Buffer {
 let mockQuery: any;
 
 vi.mock('../backend/src/db', () => ({
-  getPool: () => ({ query: (...args: any[]) => mockQuery(...args) }),
+  getPool: () => ({
+    query: (...args: any[]) => {
+      const sql = args[0] || '';
+      if (mockQuery) {
+        const res = mockQuery(...args);
+        if (res !== undefined) return res;
+      }
+      if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
+        return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
+      if (sql.includes('SELECT role FROM workspace_collaborators'))
+        return Promise.resolve({ rows: [{ role: 'editor' }] });
+      if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
+        return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
+      return Promise.resolve({ rows: [] });
+    }
+  }),
 }));
 
 vi.mock('../backend/src/sandbox/pool', () => ({

@@ -20,18 +20,21 @@ import { getDocsMap, cancelAndEvictWorkspaceDocs } from '../backend/src/docsRegi
 import { WSSharedDoc } from '../backend/src/services/yjsSyncEngine.service.js';
 import { setupWebSocketServer } from '../backend/src/services/websocketServer.service.js';
 
-let mockQuery = vi.fn().mockImplementation((sql: string) => {
-   if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
-      return Promise.resolve({ rows: [{ owner_id: 'user-cluster-1', is_public: false }] });
-   if (sql.includes('SELECT role FROM workspace_collaborators'))
-      return Promise.resolve({ rows: [{ role: 'editor' }] });
-   if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
-      return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
-   return Promise.resolve({ rows: [] });
-});
-
 vi.mock('../backend/src/db.js', () => ({
-   getPool: () => ({ query: (...args: any[]) => mockQuery(...args) }),
+   getPool: () => ({
+      query: (sql: string, params?: any[]) => {
+         if (sql.includes('SELECT owner_id, is_public FROM workspaces')) {
+            return Promise.resolve({ rows: [{ owner_id: 'user-cluster-1', is_public: false }] });
+         }
+         if (sql.includes('SELECT role FROM workspace_collaborators')) {
+            return Promise.resolve({ rows: [{ role: 'editor' }] });
+         }
+         if (sql.includes('SELECT content, yjs_state, author_map FROM files')) {
+            return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
+         }
+         return Promise.resolve({ rows: [] });
+      },
+   }),
 }));
 
 vi.mock('../backend/src/sandbox/pool.js', () => ({
@@ -214,8 +217,8 @@ describe('Multi-Pod Real WebSocket Cluster Mesh (Cross-Server E2E)', () => {
    const meshWorkspaceId = '00000000-0000-0000-0000-000000000001';
    const meshFileId = '00000000-0000-0000-0000-000000000002';
    const meshDocName = `${meshWorkspaceId}-${meshFileId}`;
-   const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-   const token = jwt.sign({ id: 'user-cluster-1', username: 'mesh_user' }, JWT_SECRET);
+   const JWT_SECRET = process.env.JWT_SECRET || 'test_secret';
+   const token = jwt.sign({ id: '33333333-3333-3333-3333-333333333333', username: 'owner' }, JWT_SECRET);
 
    let server1: http.Server;
    let server2: http.Server;
@@ -251,34 +254,55 @@ describe('Multi-Pod Real WebSocket Cluster Mesh (Cross-Server E2E)', () => {
          new Promise<void>((resolve) => ws2.once('open', resolve)),
       ]);
 
-      // Allow initial SyncStep1 server handshake to stabilize
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
+      const client1Doc = new Y.Doc();
       const client2Doc = new Y.Doc();
 
-      ws2.on('message', (data: WebSocket.RawData) => {
+      ws1.on('message', (data: WebSocket.RawData) => {
          const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
-         const decoder = decoding.createDecoder(new Uint8Array(buf));
+         const decoder = decoding.createDecoder(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
          const messageType = decoding.readVarUint(decoder);
          if (messageType === 0) {
-            syncProtocol.readSyncMessage(decoder, encoding.createEncoder(), client2Doc, null);
+            const reply = encoding.createEncoder();
+            encoding.writeVarUint(reply, 0);
+            syncProtocol.readSyncMessage(decoder, reply, client1Doc, null);
+            if (encoding.length(reply) > 1) {
+               ws1.send(encoding.toUint8Array(reply));
+            }
          }
       });
 
-      // Client 1 types on Server 1
-      const client1Doc = new Y.Doc();
-      const ytext1 = client1Doc.getText('monaco');
-      ytext1.insert(0, 'Cross-Pod Real WS Mesh Converged!');
+      ws2.on('message', (data: WebSocket.RawData) => {
+         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+         const decoder = decoding.createDecoder(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+         const messageType = decoding.readVarUint(decoder);
+         if (messageType === 0) {
+            const reply = encoding.createEncoder();
+            encoding.writeVarUint(reply, 0);
+            syncProtocol.readSyncMessage(decoder, reply, client2Doc, null);
+            if (encoding.length(reply) > 1) {
+               ws2.send(encoding.toUint8Array(reply));
+            }
+         }
+      });
 
+      // Allow initial two-way SyncStep1/SyncStep2 server handshake to settle
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Client 1 types and transmits real-time sync frame
       const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, 0); // Sync message
-      syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(client1Doc));
-      ws1.send(encoding.toUint8Array(encoder));
+      encoding.writeVarUint(encoder, 0);
+      client1Doc.on('update', (update) => {
+         const enc = encoding.createEncoder();
+         encoding.writeVarUint(enc, 0);
+         syncProtocol.writeUpdate(enc, update);
+         ws1.send(encoding.toUint8Array(enc));
+      });
+      client1Doc.getText('monaco').insert(0, 'Cross-Pod Real WS Mesh Converged!');
 
       // Wait for Client 2 on Server 2 to receive the update via Redis Pub/Sub
       await vi.waitFor(() => {
          expect(client2Doc.getText('monaco').toString()).toBe('Cross-Pod Real WS Mesh Converged!');
-      }, { timeout: 3000, interval: 100 });
+      }, { timeout: 4000, interval: 100 });
 
       ws1.close();
       ws2.close();

@@ -85,7 +85,8 @@ redisSubscriber.on('pmessageBuffer', async (_pattern: Buffer, channelBuffer: Buf
             const doc = await docPromise;
             if (doc) {
                // Apply update with 'redis' origin to prevent republishing back to Redis bus
-               Y.applyUpdate(doc, new Uint8Array(messageBuffer), 'redis');
+               const updateArray = new Uint8Array(messageBuffer.buffer, messageBuffer.byteOffset, messageBuffer.byteLength);
+               Y.applyUpdate(doc, updateArray, 'redis');
             }
          }
       } else if (channel.startsWith('yjs:awareness:')) {
@@ -95,9 +96,10 @@ redisSubscriber.on('pmessageBuffer', async (_pattern: Buffer, channelBuffer: Buf
          if (docPromise) {
             const doc = await docPromise;
             if (doc?.awareness) {
+               const awarenessArray = new Uint8Array(messageBuffer.buffer, messageBuffer.byteOffset, messageBuffer.byteLength);
                awarenessProtocol.applyAwarenessUpdate(
                   doc.awareness,
-                  new Uint8Array(messageBuffer),
+                  awarenessArray,
                   'redis'
                );
             }
