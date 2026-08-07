@@ -43,6 +43,12 @@ export async function getOrCreateWorkspaceContainer(userId: string, workspaceId:
          clearTimeout(existingRef.cleanupTimeout);
          existingRef.cleanupTimeout = null;
       }
+      if (existingRef.isPaused) {
+         try {
+            await existingRef.container.unpause();
+            existingRef.isPaused = false;
+         } catch {}
+      }
       existingRef.refCount++;
       return existingRef.container;
    }
@@ -132,6 +138,48 @@ export function touchWorkspaceActivity(userId: string, workspaceId: string): voi
    if (ref) {
       ref.lastActivityMs = Date.now();
    }
+}
+
+export async function hibernateWorkspaceContainer(userId: string, workspaceId: string): Promise<boolean> {
+   const key = `${userId}-${workspaceId}`;
+   const ref = activeWorkspaceContainers.get(key);
+   if (!ref || ref.isPaused) return false;
+
+   try {
+      await ref.container.pause();
+      ref.isPaused = true;
+      console.log(`[WorkspaceContainer] Hibernated container state for ${key}`);
+      return true;
+   } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[WorkspaceContainer] Hibernation failed for ${key}:`, msg);
+      return false;
+   }
+}
+
+export async function unhibernateWorkspaceContainer(userId: string, workspaceId: string): Promise<boolean> {
+   const key = `${userId}-${workspaceId}`;
+   const ref = activeWorkspaceContainers.get(key);
+   if (!ref || !ref.isPaused) return false;
+
+   try {
+      await ref.container.unpause();
+      ref.isPaused = false;
+      console.log(`[WorkspaceContainer] Un-hibernated container state for ${key}`);
+      return true;
+   } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[WorkspaceContainer] Un-hibernation failed for ${key}:`, msg);
+      return false;
+   }
+}
+
+export async function prewarmWorkspaceContainer(userId: string, workspaceId: string): Promise<Docker.Container> {
+   const key = `${userId}-${workspaceId}`;
+   const existingRef = activeWorkspaceContainers.get(key);
+   if (existingRef) return existingRef.container;
+
+   return getOrCreateWorkspaceContainer(userId, workspaceId);
 }
 
 // =============================================================================

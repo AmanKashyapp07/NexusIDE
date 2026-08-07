@@ -15,6 +15,7 @@ import * as Y from 'yjs';
 import { getIO } from '../socket.js';
 import { docs } from '../server.js';
 import { getOrCreateWorkspaceContainer, releaseWorkspaceContainer, getRunningContainer } from '../sandbox/workspaceContainer.js';
+import { TerminalStreamBuffer } from './terminalStreamBuffer.js';
 import type { TerminalRole, TerminalWatcherEntry, WorkspaceFileDetail, WorkspaceFilesMapResult } from '../types/terminal.types.js';
 
 interface DecodedUser {
@@ -175,19 +176,28 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
       const watcherTimeout = { current: null as NodeJS.Timeout | null };
       startTerminalWatcher(ws, container, workspaceId, watcherTimeout);
 
+      const streamBuffer = new TerminalStreamBuffer(ws);
+
       stream.on('data', (chunk: unknown) => {
          const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-         if (ws.readyState === WebSocket.OPEN) ws.send(data);
+         streamBuffer.push(data);
       });
       ws.on('message', (data: unknown) => {
          const bufferData = Buffer.isBuffer(data) ? data : Buffer.from(data as string | Uint8Array);
          if (stream && !stream.destroyed && stream.writable) stream.write(bufferData);
       });
 
-      stream.on('end', () => ws.readyState === WebSocket.OPEN && ws.close(1000, 'Shell ended'));
-      stream.on('error', () => ws.readyState === WebSocket.OPEN && ws.close(1011, 'Stream error'));
+      stream.on('end', () => {
+         streamBuffer.flush();
+         if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'Shell ended');
+      });
+      stream.on('error', () => {
+         streamBuffer.clear();
+         if (ws.readyState === WebSocket.OPEN) ws.close(1011, 'Stream error');
+      });
 
       ws.on('close', async () => {
+         streamBuffer.clear();
          if (watcherTimeout.current) clearTimeout(watcherTimeout.current);
          if (stream && !stream.destroyed) { 
             try { stream.end(); stream.destroy?.(); } catch {} 

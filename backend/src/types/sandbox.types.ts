@@ -13,4 +13,5 @@ export interface WorkspaceContainerRef {
    hostPort?: number | undefined;
    cleanupTimeout?: NodeJS.Timeout | null | undefined;
    lastActivityMs?: number | undefined;
+   isPaused?: boolean | undefined;
 }
