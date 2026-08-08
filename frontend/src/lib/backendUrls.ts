@@ -1,6 +1,6 @@
 const trimTrailingSlash = (value: string) => value.replace(/\/$/, '');
 
-const getFallbackApiUrl = () => {
+export const getFallbackApiUrl = () => {
   if (typeof window === 'undefined') return 'http://localhost:4000/api';
   const hostname = window.location.hostname;
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
@@ -9,7 +9,7 @@ const getFallbackApiUrl = () => {
   return `${window.location.protocol}//${hostname}/ide/api`;
 };
 
-const getFallbackWsUrl = () => {
+export const getFallbackWsUrl = () => {
   if (typeof window === 'undefined') return 'ws://localhost:4000';
   const hostname = window.location.hostname;
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -18,9 +18,6 @@ const getFallbackWsUrl = () => {
   }
   return `${protocol}//${hostname}/ide/ws`;
 };
-
-const apiBase = trimTrailingSlash(import.meta.env.VITE_API_URL || getFallbackApiUrl());
-const wsBase = trimTrailingSlash(import.meta.env.VITE_WS_URL || getFallbackWsUrl());
 
 export const getSocketIoOptions = () => {
   if (typeof window === 'undefined') return { url: 'http://localhost:4000', path: '/socket.io' };
@@ -31,5 +28,5 @@ export const getSocketIoOptions = () => {
   return { url: `${window.location.protocol}//${hostname}`, path: '/ide/socket.io' };
 };
 
-export const apiUrl = (path: string) => `${apiBase}${path.startsWith('/') ? path : `/${path}`}`;
-export const wsUrl = (path: string) => `${wsBase}${path.startsWith('/') ? path : `/${path}`}`;
+export const apiUrl = (path: string) => `${getFallbackApiUrl()}${path.startsWith('/') ? path : `/${path}`}`;
+export const wsUrl = (path: string) => `${getFallbackWsUrl()}${path.startsWith('/') ? path : `/${path}`}`;

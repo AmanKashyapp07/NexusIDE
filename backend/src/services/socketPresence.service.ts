@@ -1,4 +1,5 @@
 import type { Server as SocketIOServer, Socket } from 'socket.io';
+import { redisPresenceService } from './redisPresence.service.js';
 
 export interface PresenceMember {
    userId: string;
@@ -15,8 +16,12 @@ const getColor = (username: string): string => {
    return PRESENCE_COLORS[Math.abs(hash) % PRESENCE_COLORS.length]!;
 };
 
-export const broadcastPresence = (io: SocketIOServer, wsId: string): void => {
-   io.to(`presence-${wsId}`).emit('workspace-presence-update', Array.from(workspacePresence.get(wsId)?.values() || []));
+export const broadcastPresence = async (io: SocketIOServer, wsId: string): Promise<void> => {
+   // Blend local memory state with distributed Redis state
+   const redisMembers = await redisPresenceService.getWorkspacePresence(wsId);
+   const localMembers = Array.from(workspacePresence.get(wsId)?.values() || []);
+   const merged = redisMembers.length > 0 ? redisMembers : localMembers;
+   io.to(`presence-${wsId}`).emit('workspace-presence-update', merged);
 };
 
 export function setupSocketPresenceHandlers(io: SocketIOServer, socket: Socket): void {
@@ -26,13 +31,19 @@ export function setupSocketPresenceHandlers(io: SocketIOServer, socket: Socket):
       socket.data.presenceWorkspaceId = workspaceId;
       socket.join(`presence-${workspaceId}`);
       
-      if (!workspacePresence.has(workspaceId)) workspacePresence.set(workspaceId, new Map());
-      workspacePresence.get(workspaceId)!.set(socket.id, {
+      const member: PresenceMember = {
          userId: user.id,
          username: user.username || 'unknown',
          color: getColor(user.username || 'unknown'),
          activeFileId: null
-      });
+      };
+
+      if (!workspacePresence.has(workspaceId)) workspacePresence.set(workspaceId, new Map());
+      workspacePresence.get(workspaceId)!.set(socket.id, member);
+      
+      // Sync with distributed Redis presence mesh
+      redisPresenceService.setUserPresence(workspaceId, socket.id, member).catch(() => {});
+
       broadcastPresence(io, workspaceId);
       socket.emit('file-tree-update');
    });
@@ -43,6 +54,7 @@ export function setupSocketPresenceHandlers(io: SocketIOServer, socket: Socket):
       const member = workspacePresence.get(wsId)?.get(socket.id);
       if (member) { 
          member.activeFileId = activeFileId; 
+         redisPresenceService.updateActiveFile(wsId, socket.id, activeFileId).catch(() => {});
          broadcastPresence(io, wsId); 
       }
    });
@@ -65,6 +77,7 @@ export function setupSocketPresenceHandlers(io: SocketIOServer, socket: Socket):
          socket.leave(`presence-${wsId}`);
          workspacePresence.get(wsId)?.delete(socket.id);
          if (workspacePresence.get(wsId)?.size === 0) workspacePresence.delete(wsId);
+         redisPresenceService.removeUserPresence(wsId, socket.id).catch(() => {});
          broadcastPresence(io, wsId);
          socket.data.presenceWorkspaceId = undefined;
       }
@@ -75,6 +88,7 @@ export function setupSocketPresenceHandlers(io: SocketIOServer, socket: Socket):
       if (wsId) {
          workspacePresence.get(wsId)?.delete(socket.id);
          if (workspacePresence.get(wsId)?.size === 0) workspacePresence.delete(wsId);
+         redisPresenceService.removeUserPresence(wsId, socket.id).catch(() => {});
          broadcastPresence(io, wsId);
       }
    });

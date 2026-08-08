@@ -6,7 +6,7 @@ import {
    encodeCursorBatch,
    decodeCursorBatch,
    CURSOR_FRAME_BYTES
-} from '../backend/src/services/cursorCodec.service.js';
+} from '../../backend/src/services/cursorCodec.service.js';
 
 describe('Bit-Packed Binary Cursor Codec (Networking Bandwidth Optimization)', () => {
    it('hashes string user IDs into deterministic 16-bit integers', () => {

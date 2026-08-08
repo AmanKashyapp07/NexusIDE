@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AdaptivePersistenceDebouncer } from '../backend/src/services/adaptiveDebouncer.service.js';
+import { AdaptivePersistenceDebouncer } from '../../backend/src/services/adaptiveDebouncer.service.js';
 
 describe('Adaptive Velocity-Based Save Debouncer', () => {
    beforeEach(() => {

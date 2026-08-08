@@ -285,7 +285,7 @@ CREATE TABLE IF NOT EXISTS git_commits (
 
 CREATE INDEX IF NOT EXISTS idx_git_commits_workspace ON git_commits(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_git_commits_parent    ON git_commits(parent_commit_id);
-CREATE INDEX IF NOT EXISTS idx_git_commits_created   ON git_commits(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_git_commits_created   ON git_commits(workspace_id, created_at DESC) INCLUDE (id, root_tree_hash, label, created_by);
 
 -- 8d. DROP LEGACY SNAPSHOT LIMIT GUARD (no longer needed once CAS is active)
 -- Purpose: The eviction trigger was a stopgap to cap storage bloat under the

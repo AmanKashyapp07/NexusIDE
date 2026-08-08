@@ -559,9 +559,15 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
                   lastState.set(pathKey, current);
                   continue;
                }
-               const content = (!current.isDir && current.size > 0)
-                  ? await readContainerFileContent(container, workspaceId, pathKey)
-                  : '';
+               // INTENT: Small delay before reading newly-created file content.
+               // WHY: Shell write buffers may not have flushed when the watcher first detects
+               // the inode (e.g., during rapid `for` loop creation bursts). Without this,
+               // readContainerFileContent may return empty or partial content.
+               let content = '';
+               if (!current.isDir && current.size > 0) {
+                  await new Promise(r => setTimeout(r, 300));
+                  content = await readContainerFileContent(container, workspaceId, pathKey);
+               }
                const newId = await dbCreateFile(workspaceId, pathKey, current.isDir ? 'directory' : 'file', content);
                if (newId) {
                   logDebug(`[Watcher] Created new file/directory in DB with ID: ${newId} for path: ${pathKey}`);
@@ -597,8 +603,15 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
          }
 
          if (changed) {
+            try {
+               const { workspaceTreeCache } = await import('../utils/redisCache.js');
+               await workspaceTreeCache.delete(workspaceId);
+            } catch {}
             logDebug(`[Watcher] File tree changed, emitting file-tree-update event for room: presence-${workspaceId}`);
             getIO()?.to(`presence-${workspaceId}`).emit('file-tree-update');
+            getIO()?.to(workspaceId).emit('file-tree-update');
+            getIO()?.to(`presence-${workspaceId}`).emit('tree-updated');
+            getIO()?.to(workspaceId).emit('tree-updated');
          }
       } catch (err: unknown) {
          const msg = err instanceof Error ? err.message : String(err);

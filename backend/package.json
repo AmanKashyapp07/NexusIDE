@@ -5,7 +5,13 @@
   "scripts": {
     "dev": "tsx watch --ignore ./workspace_data src/server.ts",
     "start": "tsx src/server.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:db-perf": "vitest run ../testing/db/query_performance.test.ts ../testing/db/concurrency_locks.test.ts ../testing/db/brutal_stress.test.ts ../testing/db/redis_l2_cache.test.ts ../testing/db/crdt_write_behind.test.ts ../testing/db/redis_presence_session.test.ts",
+    "test:db-cache": "vitest run ../testing/db/redis_l2_cache.test.ts",
+    "test:db-buffer": "vitest run ../testing/db/crdt_write_behind.test.ts",
+    "test:db-presence": "vitest run ../testing/db/redis_presence_session.test.ts",
+    "test:db-brutal": "vitest run ../testing/db/brutal_stress.test.ts",
+    "seed:db": "tsx ../testing/db/seed_perf_data.ts"
   },
   "keywords": [],
   "author": "",

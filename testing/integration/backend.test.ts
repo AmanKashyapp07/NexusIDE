@@ -27,7 +27,7 @@ import {
   clearYjsCache,
   isYjsCacheAvailable,
   getYjsCacheStats
-} from '../backend/src/utils/yjsCache.js';
+} from '../../backend/src/utils/yjsCache.js';
 
 
 const JWT_SECRET = 'test_secret';
@@ -57,7 +57,7 @@ function makeYjsState(text: string): Buffer {
 
 let mockQuery: any;
 
-vi.mock('../backend/src/db', () => ({
+vi.mock('../../backend/src/db', () => ({
   getPool: () => ({
     query: (...args: any[]) => {
       const sql = args[0] || '';
@@ -76,11 +76,11 @@ vi.mock('../backend/src/db', () => ({
   }),
 }));
 
-vi.mock('../backend/src/sandbox/pool', () => ({
+vi.mock('../../backend/src/sandbox/pool', () => ({
   warmPoolManager: { initializePools: vi.fn(), cleanup: vi.fn() },
   WORKSPACE_DATA_DIR: '/tmp/test-workspace',
 }));
-vi.mock('../backend/src/sandbox/workspaceContainer', () => ({
+vi.mock('../../backend/src/sandbox/workspaceContainer', () => ({
   getOrCreateWorkspaceContainer: vi.fn(),
   releaseWorkspaceContainer: vi.fn(),
   getRunningContainer: vi.fn(() => null),
@@ -88,13 +88,13 @@ vi.mock('../backend/src/sandbox/workspaceContainer', () => ({
   cleanupAllWorkspaceContainers: vi.fn(),
   touchWorkspaceActivity: vi.fn(),
 }));
-vi.mock('../backend/src/terminal/terminalHandler', () => ({
+vi.mock('../../backend/src/terminal/terminalHandler', () => ({
   handleTerminalConnection: vi.fn(),
   syncFileToTerminal: vi.fn().mockResolvedValue(undefined),
   syncDeleteToTerminal: vi.fn().mockResolvedValue(undefined),
   syncFolderToTerminal: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../backend/src/terminal/lspHandler', () => ({
+vi.mock('../../backend/src/terminal/lspHandler', () => ({
   handleLspConnection: vi.fn(),
 }));
 
@@ -166,7 +166,7 @@ describe('POST /api/workspace/:id/files — initial Yjs state', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     app = mod.app;
   });
 
@@ -300,13 +300,13 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     app = mod.app;
     if (mod.docs) mod.docs.clear();
     try {
-      const cacheMod = await import('../backend/src/utils/yjsCache.js');
+      const cacheMod = await import('../../backend/src/utils/yjsCache.js');
       await cacheMod.clearYjsCache();
-      const { fileContentCache } = await import('../backend/src/utils/redisCache.js');
+      const { fileContentCache } = await import('../../backend/src/utils/redisCache.js');
       await fileContentCache.clear();
     } catch {}
   });
@@ -406,7 +406,7 @@ describe('RBAC — viewer cannot create or delete files', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     app = mod.app;
   });
 
@@ -463,7 +463,7 @@ describe('WebSocket Yjs auth layer', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -632,7 +632,7 @@ describe('POST /api/auth/test-login', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     app = mod.app;
   });
 
@@ -694,7 +694,7 @@ describe('Socket.IO presence channel', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -747,7 +747,7 @@ describe('Workspace Lifecycle & Operations', () => {
   let app: any;
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     app = mod.app;
   });
 
@@ -808,7 +808,7 @@ describe('Advanced RBAC & Collaborator Management', () => {
   let app: any;
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     app = mod.app;
   });
 
@@ -840,7 +840,7 @@ describe('File Tree & Deletion Rigor', () => {
   let app: any;
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     app = mod.app;
   });
 
@@ -883,7 +883,7 @@ describe('Multi-User Collaboration Engine (E2E Integration)', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1044,7 +1044,7 @@ describe("Chaos & Concurrency Load Testing", () => {
   
   beforeAll(async () => {
     process.setMaxListeners(100);
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     const port = (server.address() as any).port;
@@ -1137,7 +1137,7 @@ describe('IDE Awareness (Cursors, Selections, and Presence)', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1195,7 +1195,7 @@ describe('Network Resiliency & Offline Sync', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn().mockResolvedValue({ rows: [] });
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1488,7 +1488,7 @@ describe('Disconnect → Persist → Rejoin Lifecycle', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     await new Promise<void>(resolve => server.listen(0, resolve));
     port = (server.address() as any).port;
@@ -1613,7 +1613,7 @@ describe('Docs Map Lifecycle — registration and eviction', () => {
 
   beforeEach(async () => {
     mockQuery = vi.fn();
-    const mod = await import('../backend/src/server.js');
+    const mod = await import('../../backend/src/server.js');
     server = mod.server;
     docsMap = mod.docs;
     await new Promise<void>(resolve => server.listen(0, resolve));
@@ -1932,7 +1932,7 @@ describe('Yjs Cache - Error Handling', () => {
   it('should reject corrupt Yjs state', async () => {
     const testFileId = 'corrupt-test-file';
     
-    const { redis } = await import('../backend/src/utils/redisCache.js');
+    const { redis } = await import('../../backend/src/utils/redisCache.js');
     await redis.setex(`yjs:state:${testFileId}`, 60, Buffer.from('CORRUPT DATA'));
 
     const result = await getYjsStateFromCache(testFileId);

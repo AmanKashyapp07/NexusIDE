@@ -5,7 +5,7 @@ import {
   createTestWorkspace, deleteTestWorkspace, createTestFile, createFile, typeTextInMonaco,
   getEditorValue, waitForEditorModel, waitForEditorSync, setMonacoValue, setEditorValue, waitForSocketConnect,
   setupUserAndWorkspace, createFileAndOpen
-} from './test-utils';
+} from '../test-utils';
 
 test.describe('Collab - Core Engine', () => {
   test('1. Live typing & role sync', async ({ page, context, request }) => {

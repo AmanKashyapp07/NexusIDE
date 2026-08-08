@@ -5,7 +5,7 @@ import {
   createTestWorkspace, deleteTestWorkspace, createTestFile, createFile, typeTextInMonaco,
   getEditorValue, waitForEditorModel, waitForEditorSync, setMonacoValue, setEditorValue, waitForSocketConnect,
   setupUserAndWorkspace, createFileAndOpen, waitForLspStatus, getMarkers
-} from './test-utils';
+} from '../test-utils';
 
 test.describe('Terminal - Core Operations', () => {
   test.beforeEach(async ({ page }) => {

@@ -41,10 +41,10 @@ export default defineConfig({
     },
   },
   test: {
+    globals: true,
     environment: 'jsdom',
     setupFiles: [path.resolve(__dirname, '../testing/setup.ts')],
-    globals: true,
-    include: ['../testing/*.test.{ts,tsx}'],
-    exclude: ['**/node_modules/**', 'node_modules/**', 'dist/**'],
+    include: ['../testing/frontend/*.test.{ts,tsx}', '../testing/*.test.{ts,tsx}'],
+    exclude: ['**/node_modules/**', 'node_modules/**', 'dist/**', '../testing/services/**', '../testing/db/**', '../testing/integration/**'],
   },
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LspService } from '../frontend/src/services/LspService';
+import { LspService } from '../../frontend/src/services/LspService';
 
-vi.mock('../frontend/src/lib/backendUrls', () => ({
+vi.mock('../../frontend/src/lib/backendUrls', () => ({
   wsUrl: (path: string) => `ws://localhost:3000${path}`,
 }));
 

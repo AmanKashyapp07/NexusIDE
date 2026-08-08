@@ -28,6 +28,7 @@ import { log } from './services/logger.service.js';
 import { setupSocketPresenceHandlers } from './services/socketPresence.service.js';
 import { setupWebSocketServer } from './services/websocketServer.service.js';
 import { initializeRedisCollaborationMesh } from './services/redisAdapter.service.js';
+import { crdtWriteBehindService } from './services/crdtWriteBehind.service.js';
 
 // =============================================================================
 // EXPRESS APPLICATION INITIALIZATION & MIDDLEWARE SETUP
@@ -128,6 +129,7 @@ if (process.env.NODE_ENV !== 'test') {
    server.listen(PORT, () => {
       log('🚀 BOOT', `Server listening on port ${PORT}`);
       initializeRedisCollaborationMesh();
+      crdtWriteBehindService.startWriteBehindWorker(1000);
       warmPoolManager.initializePools().catch(() => {});
       getPool().query('SELECT NOW()', (err) => {
          log('🚀 BOOT', err ? '❌ DB Connection Failed' : '✅ DB Connected');
@@ -136,11 +138,12 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // INTENT: Execute graceful shutdown sequence upon process termination signals (SIGINT/SIGTERM).
-// WHY: Prevents container leaks, tears down active Docker containers, and flushes database pool handles cleanly.
-// EDGE CASE: Skips process exit during unit test runs to prevent premature teardown of Vitest process instances.
+// WHY: Prevents container leaks, tears down active Docker containers, flushes Redis write-behind buffers, and flushes database pool handles cleanly.
 const gracefulShutdown = async (): Promise<void> => {
    if (process.env.NODE_ENV !== 'test') {
+      crdtWriteBehindService.stopWriteBehindWorker();
       await Promise.all([
+         crdtWriteBehindService.flushAllDirtyBuffers().catch(() => {}),
          warmPoolManager.cleanup().catch(() => {}),
          cleanupAllWorkspaceContainers().catch(() => {})
       ]);

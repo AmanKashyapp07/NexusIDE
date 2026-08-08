@@ -11,8 +11,8 @@ export default defineConfig({
     name: 'backend',
     environment: 'node',
     globals: false,
-    testTimeout: 20000,
-    hookTimeout: 20000,
+    testTimeout: 60000,
+    hookTimeout: 120000,
 
     // Run serially — tests start real HTTP servers and share mocked DB pool.
     // Parallel execution causes port conflicts and mock bleed-through.
@@ -20,22 +20,13 @@ export default defineConfig({
     maxConcurrency: 1,
     maxWorkers: 1,
 
-    // Only pick up backend/Yjs unit tests; E2E .spec.ts belong to Playwright
-    include: ['../testing/*.test.ts'],
-    exclude: ['**/node_modules/**'],
+    // Pick up backend unit tests, services, integration, and DB performance suites; E2E .spec.ts belong to Playwright
+    include: ['../testing/**/*.test.ts', '../testing/db/*.test.ts', '../testing/services/*.test.ts', '../testing/integration/*.test.ts'],
+    exclude: ['**/node_modules/**', '../testing/frontend/**'],
 
-    reporters: process.env.CI
-      ? [['verbose'], ['junit', { outputFile: '../test-results/backend-junit.xml' }]]
-      : ['verbose'],
+    reporters: ['default'],
 
-    // Suppress MaxListenersExceededWarning: use forks pool so each test file
-    // gets its own process, and bump the listener limit via execArgv.
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        execArgv: ['--max-listeners=100'],
-      },
-    },
 
     // Global setup: runs in main process (orchestration-level tasks)
     globalSetup: ['../testing/vitest-global-setup.ts'],

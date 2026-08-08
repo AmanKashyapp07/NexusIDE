@@ -151,6 +151,61 @@ export const workspaceCache = new RedisCache<unknown>(
    15 * 60
 );
 
+// =============================================================================
+// L2 REDIS CACHE LAYERS (FILESYSTEM TREE, RBAC AUTHORIZATION, WORKSPACE AUTH)
+// =============================================================================
+
+export const workspaceTreeCache = new RedisCache<unknown[]>(
+   'ws:tree',
+   10 * 60 // 10 minutes TTL
+);
+
+export const rbacCache = new RedisCache<string | null>(
+   'rbac:role',
+   15 * 60 // 15 minutes TTL
+);
+
+export const workspaceAuthCache = new RedisCache<{ owner_id: string; is_public: boolean } | null>(
+   'ws:auth',
+   15 * 60 // 15 minutes TTL
+);
+
+export const userProfileCache = new RedisCache<unknown>(
+   'user:profile',
+   30 * 60 // 30 minutes TTL
+);
+
+export const sessionTokenCache = new RedisCache<unknown>(
+   'session:token',
+   30 * 60 // 30 minutes TTL
+);
+
+export async function invalidateWorkspaceTree(workspaceId: string): Promise<void> {
+   await workspaceTreeCache.delete(workspaceId);
+}
+
+export async function invalidateUserRbac(workspaceId: string, userId?: string): Promise<void> {
+   if (userId) {
+      await rbacCache.delete(`${workspaceId}:${userId}`);
+   } else {
+      await rbacCache.deletePattern(`${workspaceId}:*`);
+   }
+}
+
+export async function invalidateWorkspaceAuth(workspaceId: string): Promise<void> {
+   await workspaceAuthCache.delete(workspaceId);
+   await rbacCache.deletePattern(`${workspaceId}:*`);
+}
+
+export async function invalidateUserProfile(userId: string): Promise<void> {
+   await userProfileCache.delete(userId);
+   await userProfileCache.deletePattern(`username:*`);
+}
+
+export async function invalidateUserSession(tokenHash: string): Promise<void> {
+   await sessionTokenCache.delete(tokenHash);
+}
+
 export async function isRedisConnected(): Promise<boolean> {
    try {
       await redis.ping();

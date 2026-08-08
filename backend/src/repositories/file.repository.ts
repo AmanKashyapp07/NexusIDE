@@ -7,6 +7,7 @@
 
 import { getPool } from '../db.js';
 import type { QueryResultRow } from 'pg';
+import { workspaceTreeCache, invalidateWorkspaceTree } from '../utils/redisCache.js';
 
 export interface FileEntity extends QueryResultRow {
    id: string;
@@ -33,13 +34,16 @@ export interface FilePathEntity extends QueryResultRow {
 
 export class FileRepository {
    // INTENT: Retrieve top-level and nested file tree structures for a workspace ordered by directories first.
-   // WHY: Ordering directories first (`type DESC, name ASC`) optimizes UI file tree rendering in Monaco/React.
+   // L2 CACHE: Uses Redis workspaceTreeCache (TTL: 10m) with automatic mutation-driven eviction.
    async getWorkspaceFiles(workspaceId: string): Promise<FileEntity[]> {
-      const res = await getPool().query<FileEntity>(
-         'SELECT id, parent_id, name, type, language FROM files WHERE workspace_id = $1 ORDER BY type DESC, name ASC',
-         [workspaceId]
-      );
-      return res.rows;
+      const cached = await workspaceTreeCache.getOrFetch<FileEntity[]>(workspaceId, async () => {
+         const res = await getPool().query<FileEntity>(
+            'SELECT id, parent_id, name, type, language FROM files WHERE workspace_id = $1 ORDER BY type DESC, name ASC',
+            [workspaceId]
+         );
+         return res.rows;
+      });
+      return cached || [];
    }
 
    async findFileContent(fileId: string, workspaceId: string): Promise<string | null> {
@@ -118,6 +122,7 @@ export class FileRepository {
          'INSERT INTO files (workspace_id, name, type, parent_id, language, content, yjs_state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, parent_id, name, type, language',
          [workspaceId, name, type, parentId, language, content, yjsState]
       );
+      await invalidateWorkspaceTree(workspaceId);
       return res.rows[0]!;
    }
 
@@ -146,6 +151,7 @@ export class FileRepository {
           RETURNING id, parent_id, name, type, language`,
          [workspaceId, names, types, parentIds, languages, contents]
       );
+      await invalidateWorkspaceTree(workspaceId);
       return res.rows;
    }
 
@@ -167,16 +173,20 @@ export class FileRepository {
       );
    }
 
-   async updateFileMetadata(fileId: string, name: string, parentId: string | null, language: string | null): Promise<void> {
+   async updateFileMetadata(fileId: string, name: string, parentId: string | null, language: string | null, workspaceId?: string): Promise<void> {
       await getPool().query(
          'UPDATE files SET name = $1, parent_id = $2, language = $3 WHERE id = $4',
          [name, parentId, language, fileId]
       );
+      if (workspaceId) {
+         await invalidateWorkspaceTree(workspaceId);
+      }
    }
 
    async deleteFile(fileId: string, workspaceId?: string): Promise<void> {
       if (workspaceId) {
          await getPool().query('DELETE FROM files WHERE id = $1 AND workspace_id = $2', [fileId, workspaceId]);
+         await invalidateWorkspaceTree(workspaceId);
       } else {
          await getPool().query('DELETE FROM files WHERE id = $1', [fileId]);
       }

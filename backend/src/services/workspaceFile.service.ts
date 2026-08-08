@@ -62,7 +62,7 @@ export async function getFileContent(workspaceId: string, fileId: string): Promi
 export async function getFileHistory(
    workspaceId: string,
    fileId: string
-): Promise<{ authorMap: Record<string, { userId: string; username: string; color: string }>; updates?: string[]; yjsState?: string }> {
+): Promise<{ authorMap: Record<string, { userId: string; username: string; color: string }>; updates?: string[] | undefined; yjsState?: string | undefined }> {
    const { yjsStateCache } = await import('../utils/redisCache.js');
 
    const cached = await yjsStateCache.getOrFetch(
@@ -80,7 +80,14 @@ export async function getFileHistory(
    
    if (!cached || !cached.yjs_state) throw new Error('No history found for this file');
 
-   const authorMap: Record<string, { userId: string; username: string; color: string }> = cached.author_map || {};
+   const authorMap: Record<string, { userId: string; username: string; color: string }> = { ...(cached.author_map || {}) };
+
+   try {
+      const file = await fileRepository.findFileById(fileId, workspaceId);
+      if (file?.author_map) {
+         Object.assign(authorMap, file.author_map);
+      }
+   } catch {}
 
    try {
       const docName = `${workspaceId}-${fileId}`;
@@ -96,18 +103,53 @@ export async function getFileHistory(
    }
 
    try {
-      const updatesResult = await fileRepository.getFileUpdates(fileId);
-      if (updatesResult.length > 0) {
-         const updates = updatesResult.map(r => r.update.toString('base64'));
-         return { authorMap, updates };
-      }
-   } catch {
-   }
+      // INTENT: Flush pending Write-Behind Redis buffer into PostgreSQL before retrieving full history
+      const { crdtWriteBehindService } = await import('./crdtWriteBehind.service.js');
+      await crdtWriteBehindService.flushFileBuffer(fileId).catch(() => {});
 
-   return {
-      yjsState: cached.yjs_state.toString('base64'),
-      authorMap,
-   };
+      const updatesResult = await fileRepository.getFileUpdates(fileId);
+
+      // INTENT: Build a composite gc:false Y.Doc from base yjs_state + all incremental updates.
+      // WHY: The base yjs_state was saved by WSSharedDoc (gc:false) so it has tombstones.
+      //      Adding incremental file_updates on top ensures the StructStore has the COMPLETE
+      //      character-level edit history including deletions — giving buildLegacyTimeline the
+      //      granularity it needs (per-character insertClock/deleteClock events), not just batch-level.
+      const Y = await import('yjs');
+      const compositeDoc = new Y.Doc({ gc: false });
+      Y.applyUpdate(compositeDoc, cached.yjs_state);
+
+      if (updatesResult.length > 0) {
+         for (const row of updatesResult) {
+            try { Y.applyUpdate(compositeDoc, row.update); } catch {}
+         }
+      }
+
+      // Also apply from live in-memory WSSharedDoc if present (may have unsaved edits)
+      try {
+         const docName = `${workspaceId}-${fileId}`;
+         const { getDocsMap } = await import('../docsRegistry.js');
+         const docsMap = getDocsMap();
+         if (docsMap.has(docName)) {
+            const liveDoc = await docsMap.get(docName)!;
+            const liveState = Y.encodeStateAsUpdate(liveDoc);
+            try { Y.applyUpdate(compositeDoc, liveState); } catch {}
+         }
+      } catch {}
+
+      const compositeYjsState = Buffer.from(Y.encodeStateAsUpdate(compositeDoc)).toString('base64');
+      compositeDoc.destroy();
+
+      return {
+         yjsState: compositeYjsState,
+         authorMap,
+         updates: updatesResult.length > 0 ? updatesResult.map(r => r.update.toString('base64')) : undefined,
+      };
+   } catch {
+      return {
+         yjsState: cached.yjs_state.toString('base64'),
+         authorMap,
+      };
+   }
 }
 
 export async function updateFileContent(workspaceId: string, fileId: string, content: string): Promise<void> {

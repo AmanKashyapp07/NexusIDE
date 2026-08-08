@@ -7,13 +7,13 @@ import {
    archiveWorkspaceToLocalDisk,
    hydrateArchivedWorkspaceFromLocalDisk,
    ARCHIVE_DATA_DIR,
-} from '../backend/src/services/crdtCompactor.service.js';
+} from '../../backend/src/services/crdtCompactor.service.js';
 
 // In-memory mock database state
 const mockFiles: Record<string, { id: string; name: string; content: string | null; yjs_state: Buffer | null; workspace_id: string }> = {};
 const mockFileUpdates: Array<{ id: number; file_id: string; update: Buffer }> = [];
 
-vi.mock('../backend/src/db.js', () => ({
+vi.mock('../../backend/src/db.js', () => ({
    getPool: () => ({
       query: vi.fn(async (sql: string, params?: any[]) => {
          if (sql.includes('SELECT yjs_state, content FROM files WHERE id = $1')) {

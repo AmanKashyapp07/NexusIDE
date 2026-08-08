@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import { Pool } from 'pg';
 
 let pool: Pool | null = null;
@@ -18,7 +20,7 @@ export async function ensureDatabaseIndexes(targetPool: Pool): Promise<void> {
 export function getPool(): Pool {
    if (!pool) {
       pool = new Pool({
-         connectionString: process.env.DATABASE_URL,
+         connectionString: process.env.DATABASE_URL || 'postgresql://postgres:my_secure_db_password@localhost:5432/sandbox',
          max: 30,
          idleTimeoutMillis: 10000,
          connectionTimeoutMillis: 3000,

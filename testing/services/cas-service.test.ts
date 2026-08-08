@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CASService, TreeEntry } from '../backend/src/services/cas.service.js';
+import { CASService, TreeEntry } from '../../backend/src/services/cas.service.js';
 
 describe('CASService — Content-Addressable Storage Engine', () => {
   describe('Blob Hashing (SHA-256)', () => {

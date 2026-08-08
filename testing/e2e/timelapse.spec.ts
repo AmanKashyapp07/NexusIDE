@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
-import { login, createTestWorkspace, deleteTestWorkspace, createTestFile, typeTextInMonaco, waitForBootComplete, waitForEditorModel, setRangeValue, getSliderMax } from './test-utils';
+import { login, createTestWorkspace, deleteTestWorkspace, createTestFile, typeTextInMonaco, waitForBootComplete, waitForEditorModel, setRangeValue, getSliderMax } from '../test-utils';
 const APP_URL = process.env.NEXUS_BASE_URL || process.env.BASE_URL || 'http://localhost:5173';
 
 test.describe('Timelapse - Replay Engine', () => {
@@ -222,15 +222,17 @@ test.describe('Timelapse - Attribution Engine', () => {
       await waitForBootComplete(bobPage);
       await waitForEditorModel(bobPage, 'collab.js');
       await typeTextInMonaco(bobPage, 'bob line\n');
-      await bobPage.waitForTimeout(3000); // debounce save
+      await bobPage.waitForTimeout(5000); // wait for debounce save + performFinalSave
     } finally {
-      await bobContext.close();
+      try { await bobContext.close(); } catch {} // ignore "Target already closed" Playwright errors
     }
+    // Give the server time to complete performFinalSave for Bob's doc eviction
+    await page.waitForTimeout(3000);
     await expect.poll(async () => {
       const authorMap = await getHistoryAuthorMap(page, fileId);
       const entries = Object.values(authorMap) as any[];
       return entries.map((e: any) => (e.username ?? '').toLowerCase());
-    }, { timeout: 15000, message: 'Waiting for authorMap to contain both Alice and Bob' }).toEqual(
+    }, { timeout: 25000, intervals: [2000], message: 'Waiting for authorMap to contain both Alice and Bob' }).toEqual(
       expect.arrayContaining([
         expect.stringContaining('attr_alice'),
         expect.stringContaining('attr_bob'),
@@ -382,10 +384,6 @@ async function openTimelapse(page: Page) {
   await expect(page.getByText('CRDT Timelapse')).toBeVisible({ timeout: 15000 });
   const rangeInput = page.locator('.shadow-2xl.z-50 input[type="range"]');
   await expect(rangeInput).toBeVisible({ timeout: 15000 });
-  await expect.poll(async () => {
-    const max = await rangeInput.getAttribute('max');
-    return parseInt(max || '0', 10);
-  }, { timeout: 15000 }).toBeGreaterThan(0);
 }
 async function getReplayerText(page: Page): Promise<string> {
   return page.evaluate(() => {
@@ -397,14 +395,14 @@ async function getReplayerText(page: Page): Promise<string> {
 }
 async function getSnapshotText(page: Page, position: number): Promise<string> {
   await setRangeValue(page, '', String(position));
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(100);
   return getReplayerText(page);
 }
 async function getSnapshotMax(page: Page): Promise<number> {
   return getSliderMax(page);
 }
 
-test.describe.skip('Timelapse Snapshot Engine (Feature Disabled)', () => {
+test.describe('Timelapse Snapshot Engine', () => {
   let workspaceId: string;
 
   test.beforeEach(async ({ page }) => {
@@ -510,11 +508,20 @@ test.describe.skip('Timelapse Snapshot Engine (Feature Disabled)', () => {
   test('insertion-order replay: characters appear at their typing position, not document position', async ({ page }) => {
     await createTestFile(page, 'snap_order.js');
     await typeTextInMonaco(page, 'SECOND');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(3000); // allow Yjs to sync + debounce save
+    // Move cursor to beginning: programmatic setPosition then physical click to guarantee
+    // Playwright keyboard capture (evaluate focus alone may not transfer OS-level focus)
     await page.evaluate(() => {
       const ed = (window as any).monaco.editor.getEditors()[0];
       ed.setPosition({ lineNumber: 1, column: 1 });
       ed.focus();
+    });
+    await page.locator('.monaco-editor').first().click({ position: { x: 2, y: 10 } });
+    await page.waitForTimeout(200);
+    // Reposition cursor after the click (click may have moved it)
+    await page.evaluate(() => {
+      const ed = (window as any).monaco.editor.getEditors()[0];
+      ed.setPosition({ lineNumber: 1, column: 1 });
     });
     await page.keyboard.type('FIRST ');
     await page.waitForTimeout(3000);

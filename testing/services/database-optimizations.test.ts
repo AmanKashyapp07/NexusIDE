@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fileRepository } from '../backend/src/repositories/file.repository.js';
-import { workspaceRepository } from '../backend/src/repositories/workspace.repository.js';
-import { getPool, ensureDatabaseIndexes } from '../backend/src/db.js';
+import { fileRepository } from '../../backend/src/repositories/file.repository.js';
+import { workspaceRepository } from '../../backend/src/repositories/workspace.repository.js';
+import { getPool, ensureDatabaseIndexes } from '../../backend/src/db.js';
 
 describe('PostgreSQL Database & Query Optimizations', () => {
    const mockWorkspaceId = '00000000-0000-0000-0000-000000000001';

@@ -5,7 +5,7 @@ import {
   snapshotFromYText, 
   downsampleActivity,
   offsetToPosition
-} from '../frontend/src/hooks/useTimelapsePlayer';
+} from '../../frontend/src/hooks/useTimelapsePlayer';
 
 describe('Timelapse Logic', () => {
   it('snapshotFromYText correctly extracts text and author ranges', () => {

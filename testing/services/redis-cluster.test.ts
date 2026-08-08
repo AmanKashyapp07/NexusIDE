@@ -14,13 +14,13 @@ import {
    publishYjsAwareness,
    publishWorkspaceEvict,
    initializeRedisCollaborationMesh,
-} from '../backend/src/services/redisAdapter.service.js';
-import { withDistributedLock, POD_ID } from '../backend/src/services/distributedLock.service.js';
-import { getDocsMap, cancelAndEvictWorkspaceDocs } from '../backend/src/docsRegistry.js';
-import { WSSharedDoc } from '../backend/src/services/yjsSyncEngine.service.js';
-import { setupWebSocketServer } from '../backend/src/services/websocketServer.service.js';
+} from '../../backend/src/services/redisAdapter.service.js';
+import { withDistributedLock, POD_ID } from '../../backend/src/services/distributedLock.service.js';
+import { getDocsMap, cancelAndEvictWorkspaceDocs } from '../../backend/src/docsRegistry.js';
+import { WSSharedDoc } from '../../backend/src/services/yjsSyncEngine.service.js';
+import { setupWebSocketServer } from '../../backend/src/services/websocketServer.service.js';
 
-vi.mock('../backend/src/db.js', () => ({
+vi.mock('../../backend/src/db.js', () => ({
    getPool: () => ({
       query: (sql: string, params?: any[]) => {
          if (sql.includes('SELECT owner_id, is_public FROM workspaces')) {
@@ -37,12 +37,12 @@ vi.mock('../backend/src/db.js', () => ({
    }),
 }));
 
-vi.mock('../backend/src/sandbox/pool.js', () => ({
+vi.mock('../../backend/src/sandbox/pool.js', () => ({
    warmPoolManager: { initializePools: vi.fn(), cleanup: vi.fn() },
    WORKSPACE_DATA_DIR: '/tmp/test-workspace',
 }));
 
-vi.mock('../backend/src/sandbox/workspaceContainer.js', () => ({
+vi.mock('../../backend/src/sandbox/workspaceContainer.js', () => ({
    getOrCreateWorkspaceContainer: vi.fn(),
    releaseWorkspaceContainer: vi.fn(),
    getRunningContainer: vi.fn(() => null),
@@ -51,14 +51,14 @@ vi.mock('../backend/src/sandbox/workspaceContainer.js', () => ({
    touchWorkspaceActivity: vi.fn(),
 }));
 
-vi.mock('../backend/src/terminal/terminalHandler.js', () => ({
+vi.mock('../../backend/src/terminal/terminalHandler.js', () => ({
    handleTerminalConnection: vi.fn(),
    syncFileToTerminal: vi.fn().mockResolvedValue(undefined),
    syncDeleteToTerminal: vi.fn().mockResolvedValue(undefined),
    syncFolderToTerminal: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../backend/src/terminal/lspHandler.js', () => ({
+vi.mock('../../backend/src/terminal/lspHandler.js', () => ({
    handleLspConnection: vi.fn(),
 }));
 

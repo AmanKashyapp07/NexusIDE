@@ -6,7 +6,7 @@ const mockContainer = {
    remove: vi.fn(async () => {}),
 };
 
-vi.mock('../backend/src/sandbox/pool.js', () => ({
+vi.mock('../../backend/src/sandbox/pool.js', () => ({
    warmPoolManager: {
       popTerminalContainer: vi.fn(async () => ({
          container: mockContainer,
@@ -18,13 +18,13 @@ vi.mock('../backend/src/sandbox/pool.js', () => ({
    WORKSPACE_DATA_DIR: '/tmp/test-workspace-data',
 }));
 
-vi.mock('../backend/src/db.js', () => ({
+vi.mock('../../backend/src/db.js', () => ({
    getPool: () => ({
       query: vi.fn(async () => ({ rows: [] })),
    }),
 }));
 
-vi.mock('../backend/src/sandbox/containerLifecycle.service.js', () => ({
+vi.mock('../../backend/src/sandbox/containerLifecycle.service.js', () => ({
    populateContainerWorkspace: vi.fn(async () => {}),
    runContainerSetupScripts: vi.fn(async () => {}),
 }));
@@ -36,7 +36,7 @@ import {
    prewarmWorkspaceContainer,
    getRunningContainerRef,
    cleanupAllWorkspaceContainers,
-} from '../backend/src/sandbox/workspaceContainer.js';
+} from '../../backend/src/sandbox/workspaceContainer.js';
 
 describe('Workspace Container Pre-Warming & Hibernation Engine', () => {
    const userId = 'user-test-777';

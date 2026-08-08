@@ -456,6 +456,20 @@ function IdePage() {
                       );
                     })}
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsViewingTimelapse(prev => !prev);
+                    }}
+                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                      isViewingTimelapse ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
+                    }`}
+                  >
+                    <History size={14} />
+                    Timelapse
+                  </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-xs font-medium text-zinc-600">
@@ -481,28 +495,41 @@ function IdePage() {
               </div>
             )}
 
-            {/* Code Editor */}
+            {/* Code Editor / Timelapse */}
             <div className="relative min-h-0 flex-1 bg-[#020202]/50 flex">
               {activeFile ? (
-                <div className="relative min-h-0 flex-1">
-                  <CodeEditor
-                    workspaceId={workspaceId}
-                    fileId={activeFile.id}
-                    filename={activeFile.name}
-                    language={activeFile.language || 'javascript'}
-                    currentUser={user}
-                    authorMap={authorMap}
-                    isBlameOpen={isBlameOpen}
-                    onBlameToggle={setIsBlameOpen}
-                    readOnly={userRole === 'viewer'}
-                    onEditorReady={(editor) => { editorRef.current = editor; }}
-                    onConnectionStatusChange={handleConnectionStatusChange}
-                    onAwarenessChange={handleAwarenessChange}
-                    onCodeChange={handleTypingActivity}
-                    jumpToUserId={jumpToUserId}
-                    onJumpComplete={() => setJumpToUserId(null)}
-                  />
-                </div>
+                <>
+                  <div className={`relative min-h-0 ${isViewingTimelapse ? 'hidden' : 'flex-1'}`}>
+                    <CodeEditor
+                      workspaceId={workspaceId}
+                      fileId={activeFile.id}
+                      filename={activeFile.name}
+                      language={activeFile.language || 'javascript'}
+                      currentUser={user}
+                      authorMap={authorMap}
+                      isBlameOpen={isBlameOpen}
+                      onBlameToggle={setIsBlameOpen}
+                      readOnly={userRole === 'viewer'}
+                      onEditorReady={(editor) => { editorRef.current = editor; }}
+                      onConnectionStatusChange={handleConnectionStatusChange}
+                      onAwarenessChange={handleAwarenessChange}
+                      onCodeChange={handleTypingActivity}
+                      jumpToUserId={jumpToUserId}
+                      onJumpComplete={() => setJumpToUserId(null)}
+                    />
+                  </div>
+                  {isViewingTimelapse && (
+                    <div className="relative flex flex-col flex-1 min-h-0 min-w-0">
+                      <TimelapseReplayer
+                        workspaceId={workspaceId}
+                        fileId={activeFile.id}
+                        filename={activeFile.name}
+                        language={activeFile.language || 'javascript'}
+                        onClose={() => setIsViewingTimelapse(false)}
+                      />
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-4 text-zinc-500 w-full">
                   <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/5 bg-white/[0.02]">

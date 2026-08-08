@@ -62,6 +62,14 @@ async function ensureDirectoryExists(client: PoolClient, workspaceId: string, di
 // INTENT: Create atomic point-in-time snapshot checkpoint using the CAS Merkle DAG engine.
 // WHY: Transactional execution (`BEGIN`/`COMMIT`) ensures snapshot creation is all-or-nothing.
 export async function createSnapshot(workspaceId: string, userId: string, label?: string): Promise<SnapshotEntity> {
+   try {
+      const { crdtWriteBehindService } = await import('./crdtWriteBehind.service.js');
+      const filesRes = await getPool().query<{ id: string }>('SELECT id FROM files WHERE workspace_id = $1 AND type = $2', [workspaceId, 'file']);
+      for (const row of filesRes.rows) {
+         await crdtWriteBehindService.flushFileBuffer(row.id).catch(() => {});
+      }
+   } catch {}
+
    const snapshotLabel = label?.trim() || `Snapshot ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
    return snapshotRepository.createSnapshotRecord(workspaceId, userId, snapshotLabel);
 }
@@ -126,7 +134,6 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
       const snapFiles = await snapshotRepository.getSnapshotFiles(snapshotId, client);
       const liveFiles = await fileRepository.getFlattenedFilePaths(workspaceId);
 
-
       const livePathToId = new Map<string, string>(
          liveFiles.filter(r => r.type === 'file').map(r => [r.path, r.id])
       );
@@ -165,11 +172,21 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
          }
          
          if (targetFileId) {
+            await client.query('DELETE FROM file_updates WHERE file_id = $1', [targetFileId]);
             restoredFilesData.push({ fileId: targetFileId, content: restoredContent });
             filesToSyncToTerminal.push({ fileId: targetFileId, content: restoredContent });
             deleteYjsStateFromCache(targetFileId).catch(() => {});
+            try {
+               const { fileContentCache } = await import('../utils/redisCache.js');
+               await fileContentCache.delete(targetFileId);
+            } catch {}
          }
       }
+
+      try {
+         const { workspaceTreeCache } = await import('../utils/redisCache.js');
+         await workspaceTreeCache.delete(workspaceId);
+      } catch {}
 
       await applyRestoredContentToLiveDocs(workspaceId, restoredFilesData);
       await client.query('COMMIT');
@@ -187,6 +204,11 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
          workspaceId,
          snapshotId,
          label: snapCheck.label 
+      });
+      getIO()?.to(workspaceId).emit('snapshot-restored', {
+         workspaceId,
+         snapshotId,
+         label: snapCheck.label
       });
 
       return { success: true, label: snapCheck.label, restored_files: snapFiles.length };

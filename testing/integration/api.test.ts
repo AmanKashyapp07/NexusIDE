@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchWorkspaceFiles, createFile, deleteFile } from '../frontend/src/api/workspace';
-import { fetchFileHistory } from '../frontend/src/api/history';
-import { createSnapshot } from '../frontend/src/api/snapshots';
-import { fetchCurrentUser } from '../frontend/src/api/auth';
+import { fetchWorkspaceFiles, createFile, deleteFile } from '../../frontend/src/api/workspace';
+import { fetchFileHistory } from '../../frontend/src/api/history';
+import { createSnapshot } from '../../frontend/src/api/snapshots';
+import { fetchCurrentUser } from '../../frontend/src/api/auth';
 
 describe('API Services', () => {
   const mockFetch = vi.fn();

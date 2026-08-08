@@ -18,7 +18,7 @@ const { mockContainer } = vi.hoisted(() => {
    };
 });
 
-vi.mock('../backend/src/sandbox/pool.js', () => ({
+vi.mock('../../backend/src/sandbox/pool.js', () => ({
    warmPoolManager: {
       popTerminalContainer: vi.fn().mockResolvedValue({
          container: mockContainer,
@@ -30,13 +30,13 @@ vi.mock('../backend/src/sandbox/pool.js', () => ({
    WORKSPACE_DATA_DIR: '/tmp/nexus_test_shared_workspaces'
 }));
 
-vi.mock('../backend/src/db.js', () => ({
+vi.mock('../../backend/src/db.js', () => ({
    getPool: vi.fn().mockReturnValue({
       query: vi.fn().mockResolvedValue({ rows: [] })
    })
 }));
 
-vi.mock('../backend/src/sandbox/containerLifecycle.service.js', () => ({
+vi.mock('../../backend/src/sandbox/containerLifecycle.service.js', () => ({
    populateContainerWorkspace: vi.fn().mockResolvedValue(undefined),
    runContainerSetupScripts: vi.fn().mockResolvedValue(undefined)
 }));
@@ -49,7 +49,7 @@ import {
    hibernateWorkspaceContainer,
    unhibernateWorkspaceContainer,
    cleanupAllWorkspaceContainers
-} from '../backend/src/sandbox/workspaceContainer.js';
+} from '../../backend/src/sandbox/workspaceContainer.js';
 
 describe('Single Shared Container per Workspace Architecture', () => {
    const workspaceId = 'ws-shared-collaboration-001';

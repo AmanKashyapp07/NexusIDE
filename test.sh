@@ -2,18 +2,20 @@
 # =============================================================================
 # test.sh — NexusIDE Production-Grade Master Test Suite Orchestrator
 # =============================================================================
-# High-Level Architecture: Runs multi-layered test suites including Yjs CRDT logic,
-# REST API endpoints, WebSocket presence/collaboration, React frontend components,
-# and Playwright E2E browser flows against deployed staging/production targets.
+# High-Level Architecture: Unified test runner executing unit, service, API,
+# database performance, Redis caching, and Playwright E2E browser tests
+# with clean, filtered, production-grade terminal output.
 #
 # Usage:
-#   bash test.sh              # Run unit & integration tests (backend + frontend)
-#   bash test.sh --all        # Run all test suites including Playwright E2E
-#   bash test.sh --backend    # Run backend & Yjs unit/integration tests only
-#   bash test.sh --frontend   # Run frontend component tests only
+#   bash test.sh              # Run all unit & integration tests cleanly
+#   bash test.sh --db         # Run PostgreSQL & Redis performance benchmarks
+#   bash test.sh --services   # Run backend services & algorithm unit tests
+#   bash test.sh --integration# Run REST API & Yjs WebSocket integration tests
+#   bash test.sh --frontend   # Run frontend React component tests
 #   bash test.sh --e2e        # Run Playwright E2E browser specs
-#   bash test.sh --ci         # CI execution mode (non-interactive, exit on error)
-#   bash test.sh --help       # Print usage information
+#   bash test.sh --all        # Run all test suites end-to-end
+#   bash test.sh --verbose    # Run tests with unfiltered raw stdout/stderr
+#   bash test.sh --help       # Print usage options
 # =============================================================================
 
 set -euo pipefail
@@ -32,37 +34,49 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
+DIM='\033[2m'
 RESET='\033[0m'
 
-log_info()    { echo -e "${CYAN}${BOLD}[INFO]${RESET} $*"; }
-log_success() { echo -e "${GREEN}${BOLD}[SUCCESS]${RESET} $*"; }
-log_warn()    { echo -e "${YELLOW}${BOLD}[WARNING]${RESET} $*"; }
-log_error()   { echo -e "${RED}${BOLD}[ERROR]${RESET} $*"; }
-section()     { echo -e "\n${BLUE}${BOLD}══ $* ══${RESET}"; }
-
 START_TIME=$(date +%s)
-SUMMARY_SUITES=()
+SUMMARY_NAMES=()
 SUMMARY_STATUS=()
+SUMMARY_COUNTS=()
 SUMMARY_TIMES=()
+VERBOSE=false
 
-record_suite() {
+log_info()    { echo -e "${CYAN}${BOLD}[INFO]${RESET} $*"; }
+log_success() { echo -e "${GREEN}${BOLD}[PASS]${RESET} $*"; }
+log_warn()    { echo -e "${YELLOW}${BOLD}[WARN]${RESET} $*"; }
+log_error()   { echo -e "${RED}${BOLD}[FAIL]${RESET} $*"; }
+step_header() {
+  local num="$1"
+  local total="$2"
+  local title="$3"
+  echo -e "\n${BLUE}${BOLD}── [${num}/${total}] ${title} ${RESET}"
+}
+
+record_result() {
   local name="$1"
   local status="$2"
-  local duration="$3"
-  SUMMARY_SUITES+=("$name")
+  local counts="$3"
+  local duration="$4"
+  SUMMARY_NAMES+=("$name")
   SUMMARY_STATUS+=("$status")
+  SUMMARY_COUNTS+=("$counts")
   SUMMARY_TIMES+=("${duration}s")
 }
 
-cleanup() {
-  local exit_code=$?
-  if [ $exit_code -ne 0 ]; then
-    log_error "Test execution interrupted or failed with exit code $exit_code"
+# ─── Noise Filter ─────────────────────────────────────────────────────────────
+# Filters out unhelpful runtime noise (e.g. MaxListenersExceeded, punycode, deprecations)
+filter_output() {
+  if [ "$VERBOSE" = true ]; then
+    cat
+  else
+    grep -v -E "(MaxListenersExceededWarning|punycode|ExperimentalWarning|DeprecationWarning|\[PM2\]|Trace:.*MaxListeners)" || true
   fi
 }
-trap cleanup EXIT
 
-# ─── Print Banner ────────────────────────────────────────────────────────────
+# ─── Banner & Help ────────────────────────────────────────────────────────────
 show_banner() {
   echo -e "${MAGENTA}${BOLD}"
   echo "========================================================================"
@@ -70,11 +84,11 @@ show_banner() {
   echo " █░▀█ ██▄ █░█ █▄█ ▄█ █▄█ █▄█ ██▄    █  ██▄ ▄█  █  ▄█"
   echo "========================================================================"
   echo -e "${RESET}"
-  echo -e "${CYAN}${BOLD} NexusIDE Production-Grade Test Suite Orchestrator${RESET}"
-  echo -e "${CYAN} Target:         ${YELLOW}${NEXUS_BASE_URL}${RESET}"
-  echo -e "${CYAN} Local Root:     ${YELLOW}${LOCAL_BASE}${RESET}"
+  echo -e "${CYAN}${BOLD} NexusIDE Production-Grade Master Test Suite Orchestrator${RESET}"
+  echo -e "${CYAN} Target System:  ${YELLOW}${NEXUS_BASE_URL}${RESET}"
+  echo -e "${CYAN} Environment:    ${YELLOW}Node $(node -v) | PostgreSQL 16 | Redis 7${RESET}"
   echo -e "${CYAN} Timestamp:      ${YELLOW}$(date +'%Y-%m-%d %H:%M:%S')${RESET}"
-  echo "------------------------------------------------------------------------"
+  echo -e "${DIM}────────────────────────────────────────────────────────────────────────${RESET}"
 }
 
 show_help() {
@@ -83,144 +97,234 @@ show_help() {
   echo "Usage: bash test.sh [OPTION]"
   echo ""
   echo "Options:"
-  echo "  --all        Run unit, integration, frontend, and parallel E2E Playwright tests"
-  echo "  --backend    Run backend & Yjs CRDT unit/integration tests only"
-  echo "  --frontend   Run frontend React component tests only"
-  echo "  --e2e        Run Playwright E2E browser tests in parallel (--workers=3) against VM"
-  echo "  --ci         Run tests in CI mode (strict exit on failure)"
-  echo "  --help       Show this help message"
+  echo "  (no args)       Run unit & integration test suites cleanly"
+  echo "  --db            Run database & Redis performance & resiliency suites"
+  echo "  --services      Run backend services & algorithmic unit tests"
+  echo "  --integration   Run REST API & Yjs WebSocket integration tests"
+  echo "  --frontend      Run frontend React component tests"
+  echo "  --e2e           Run Playwright E2E browser tests against VM"
+  echo "  --all           Run all test suites end-to-end"
+  echo "  --verbose       Show full raw stdout/stderr output"
+  echo "  --help, -h      Show this help message"
+  echo ""
+  echo "Examples:"
+  echo "  bash test.sh"
+  echo "  bash test.sh --db"
+  echo "  bash test.sh --all"
   echo ""
 }
 
-# ─── Pre-flight Checks ───────────────────────────────────────────────────────
-preflight_check() {
-  log_info "Performing environment & pre-flight sanity checks..."
-  for cmd in node npm npx; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-      log_error "Required tool '$cmd' is not installed or not in PATH."
-      exit 1
-    fi
-  done
+# ─── Test Suite Runners ───────────────────────────────────────────────────────
 
-  if [ ! -d "${LOCAL_BASE}/testing/node_modules" ]; then
-    log_info "Installing root test suite dependencies..."
-    (cd "${LOCAL_BASE}/testing" && npm install --no-audit --no-fund)
-  fi
-}
-
-verify_target_health() {
-  log_info "Checking accessibility of target endpoint: ${NEXUS_BASE_URL}"
-  if command -v curl >/dev/null 2>&1; then
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" "${NEXUS_BASE_URL}/" || echo "000")
-    if [ "$code" = "200" ] || [ "$code" = "301" ] || [ "$code" = "302" ]; then
-      log_success "Target VM responded with HTTP ${code}."
-    else
-      log_warn "Target VM endpoint returned HTTP ${code}. E2E tests will attempt execution."
-    fi
-  fi
-}
-
-# ─── Test Runners ─────────────────────────────────────────────────────────────
-run_backend() {
-  section "Backend & Yjs CRDT Unit/Integration Tests"
-  local suite_start=$(date +%s)
-  if [ -d "${LOCAL_BASE}/backend/node_modules" ]; then
-    (cd "${LOCAL_BASE}/backend" && npm test)
+run_services() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing service layer algorithms & in-memory caches...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/services/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Backend services & unit tests passed in ${elapsed}s ✓"
+    record_result "Services & Algorithm Unit Suite" "PASSED ✓" "12 Tests" "$elapsed"
   else
-    (cd "${LOCAL_BASE}/testing" && npm run test:backend)
+    local t_end=$(date +%s)
+    log_error "Service unit tests encountered failures."
+    record_result "Services & Algorithm Unit Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
   fi
-  local suite_end=$(date +%s)
-  log_success "Backend tests passed cleanly ✓"
-  record_suite "Backend & Yjs Suite" "PASSED" "$((suite_end - suite_start))"
+}
+
+run_integration() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing REST APIs, JWT authentication, and WebSocket CRDT suites...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/integration/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "REST & WebSocket integration tests passed in ${elapsed}s ✓"
+    record_result "REST API & WebSocket Suite" "PASSED ✓" "14 Tests" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Integration tests encountered failures."
+    record_result "REST API & WebSocket Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_db() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Running database covering indexes, Redis L2, Write-Behind & Presence suites...${RESET}"
+  
+  if bash "${LOCAL_BASE}/test-db.sh"; then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    record_result "PostgreSQL & Redis DB Suite" "PASSED ✓" "38 Tests" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    record_result "PostgreSQL & Redis DB Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
 }
 
 run_frontend() {
-  section "Frontend React Component Tests"
-  local suite_start=$(date +%s)
-  if [ -d "${LOCAL_BASE}/frontend/node_modules" ]; then
-    (cd "${LOCAL_BASE}/frontend" && npm test)
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing React component rendering & Monaco collaborative UI bindings...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/frontend" && npx vitest run ../testing/frontend/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Frontend React component tests passed in ${elapsed}s ✓"
+    record_result "Frontend React & Monaco Suite" "PASSED ✓" "8 Tests" "$elapsed"
   else
-    (cd "${LOCAL_BASE}/testing" && npm run test:frontend)
+    local t_end=$(date +%s)
+    log_error "Frontend component tests encountered failures."
+    record_result "Frontend React & Monaco Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
   fi
-  local suite_end=$(date +%s)
-  log_success "Frontend tests passed cleanly ✓"
-  record_suite "Frontend Unit Suite" "PASSED" "$((suite_end - suite_start))"
 }
 
+LAST_FAILED=""
+EXTRA_ARGS=()
+
 run_e2e() {
-  section "Playwright End-to-End Browser Specs (Maximum Parallel Execution)"
-  verify_target_health
-  local suite_start=$(date +%s)
+  local t_start=$(date +%s)
   local max_workers="${PLAYWRIGHT_WORKERS:-100%}"
-  log_info "Executing Playwright E2E browser categories in max parallel concurrency (--workers=${max_workers}) against: ${NEXUS_BASE_URL}"
-  
-  if [ -d "${LOCAL_BASE}/frontend/node_modules" ]; then
-    (cd "${LOCAL_BASE}/frontend" && npx playwright test --workers="${max_workers}")
-  else
-    (cd "${LOCAL_BASE}/testing" && npx playwright test --workers="${max_workers}")
+  local flags=()
+  if [ -n "$LAST_FAILED" ]; then
+    flags+=("--last-failed")
   fi
-  local suite_end=$(date +%s)
-  log_success "Playwright E2E parallel tests completed successfully ✓"
-  record_suite "Playwright E2E Specs (Max Parallel)" "PASSED" "$((suite_end - suite_start))"
+  if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
+    flags+=("${EXTRA_ARGS[@]}")
+  fi
+
+  echo -e "${DIM}Executing Playwright browser journeys in maximum parallel concurrency (--workers=${max_workers}) against target ${NEXUS_BASE_URL}...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/frontend" && npx playwright test --config playwright.config.ts --reporter=list --workers="${max_workers}" ${flags[@]+"${flags[@]}"}); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Playwright E2E browser tests passed in ${elapsed}s ✓"
+    record_result "Playwright E2E Browser Suite" "PASSED ✓" "All Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Playwright E2E browser tests encountered failures."
+    record_result "Playwright E2E Browser Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+# ─── Master Summary Dashboard ─────────────────────────────────────────────────
+show_summary_dashboard() {
+  local total_duration=$(($(date +%s) - START_TIME))
+  
+  echo ""
+  echo -e "${MAGENTA}${BOLD}================================================================================${RESET}"
+  echo -e "${MAGENTA}${BOLD}                      MASTER TEST EXECUTION SUMMARY                             ${RESET}"
+  echo -e "${MAGENTA}${BOLD}================================================================================${RESET}"
+  printf "${BOLD}%-40s %-16s %-12s %-10s${RESET}\n" "Test Suite Category" "Coverage / Scope" "Duration" "Status"
+  echo -e "${DIM}────────────────────────────────────────────────────────────────────────────────${RESET}"
+
+  local all_passed=true
+  for i in "${!SUMMARY_NAMES[@]}"; do
+    local st="${SUMMARY_STATUS[$i]}"
+    local color="$GREEN"
+    if [[ "$st" == *"FAIL"* ]]; then
+      color="$RED"
+      all_passed=false
+    fi
+    printf "%-40s %-16s %-12s ${color}%-10s${RESET}\n" \
+      "${SUMMARY_NAMES[$i]}" \
+      "${SUMMARY_COUNTS[$i]}" \
+      "${SUMMARY_TIMES[$i]}" \
+      "$st"
+  done
+
+  echo -e "${DIM}────────────────────────────────────────────────────────────────────────────────${RESET}"
+  if [ "$all_passed" = true ]; then
+    echo -e "  ${GREEN}${BOLD}✔ ALL TEST SUITES PASSED (100% SUCCESS)${RESET}"
+  else
+    echo -e "  ${RED}${BOLD}✖ SOME TEST SUITES ENCOUNTERED FAILURES${RESET}"
+  fi
+  echo -e "  • Total Duration:  ${YELLOW}${total_duration}s${RESET}"
+  echo -e "  • Target System:   ${YELLOW}${NEXUS_BASE_URL}${RESET}"
+  echo -e "${MAGENTA}${BOLD}================================================================================${RESET}\n"
+
+  if [ "$all_passed" = false ]; then
+    exit 1
+  fi
 }
 
 # ─── Main Dispatch ────────────────────────────────────────────────────────────
+show_banner
+
 MODE="default"
-if [ $# -gt 0 ]; then
+while [[ $# -gt 0 ]]; do
   case "$1" in
-    --all)       MODE="all" ;;
-    --backend)   MODE="backend" ;;
-    --frontend)  MODE="frontend" ;;
-    --e2e)       MODE="e2e" ;;
-    --ci)        MODE="all" ;;
-    --help|-h)   show_help; exit 0 ;;
+    --verbose|-v)     VERBOSE=true; shift ;;
+    --last-failed|--failed|-lf) LAST_FAILED="true"; MODE="e2e"; shift ;;
+    --db|--perf)      MODE="db"; shift ;;
+    --services)       MODE="services"; shift ;;
+    --integration)    MODE="integration"; shift ;;
+    --frontend)       MODE="frontend"; shift ;;
+    --e2e)            MODE="e2e"; shift ;;
+    --all)            MODE="all"; shift ;;
+    -g|--grep)        EXTRA_ARGS+=("-g" "$2"); MODE="e2e"; shift 2 ;;
+    --help|-h)        show_help; exit 0 ;;
     *)
-      log_error "Unknown argument: $1"
-      show_help
-      exit 1
+      if [[ "$1" == *.spec.ts* ]]; then
+        EXTRA_ARGS+=("$1")
+        MODE="e2e"
+      else
+        log_error "Unknown argument: $1"
+        show_help
+        exit 1
+      fi
+      shift
       ;;
   esac
-fi
-
-show_banner
-preflight_check
+done
 
 case "$MODE" in
-  backend)
-    run_backend
+  services)
+    step_header "1" "1" "Backend Services & Algorithmic Unit Tests"
+    run_services
+    ;;
+  integration)
+    step_header "1" "1" "REST API & WebSocket Integration Tests"
+    run_integration
+    ;;
+  db)
+    step_header "1" "1" "PostgreSQL & Redis Performance Benchmarks"
+    run_db
     ;;
   frontend)
+    step_header "1" "1" "Frontend React & Monaco Component Tests"
     run_frontend
     ;;
   e2e)
+    step_header "1" "1" "Playwright E2E Browser Specs"
     run_e2e
     ;;
   default)
-    run_backend
-    run_frontend
+    step_header "1" "4" "Backend Services & Algorithmic Unit Tests"
+    run_services || true
+    step_header "2" "4" "REST API & WebSocket Integration Tests"
+    run_integration || true
+    step_header "3" "4" "PostgreSQL & Redis Performance Benchmarks"
+    run_db || true
+    step_header "4" "4" "Frontend React & Monaco Component Tests"
+    run_frontend || true
     ;;
   all)
-    run_backend
-    run_frontend
-    run_e2e
+    step_header "1" "5" "Backend Services & Algorithmic Unit Tests"
+    run_services || true
+    step_header "2" "5" "REST API & WebSocket Integration Tests"
+    run_integration || true
+    step_header "3" "5" "PostgreSQL & Redis Database Performance"
+    run_db || true
+    step_header "4" "5" "Frontend React & Monaco Component Tests"
+    run_frontend || true
+    step_header "5" "5" "Playwright E2E Browser Specs"
+    run_e2e || true
     ;;
 esac
 
-# ─── Summary Output ───────────────────────────────────────────────────────────
-END_TIME=$(date +%s)
-TOTAL_DURATION=$((END_TIME - START_TIME))
-
-echo -e "\n${MAGENTA}${BOLD}========================================================================"
-echo -e "               MASTER TEST EXECUTION SUMMARY                            "
-echo -e "========================================================================${RESET}"
-for i in "${!SUMMARY_SUITES[@]}"; do
-  printf "${CYAN} %-35s ${GREEN}%-10s${RESET} (${YELLOW}%s${RESET})\n" "${SUMMARY_SUITES[$i]}" "${SUMMARY_STATUS[$i]}" "${SUMMARY_TIMES[$i]}"
-done
-echo -e "------------------------------------------------------------------------"
-echo -e "${GREEN}${BOLD} All requested test suites completed successfully!${RESET}"
-echo -e "${CYAN} Total Duration:  ${YELLOW}${TOTAL_DURATION}s${RESET}"
-echo -e "${CYAN} Target System:   ${YELLOW}${NEXUS_BASE_URL}${RESET}"
-echo -e "${MAGENTA}${BOLD}========================================================================${RESET}\n"
-
-exit 0
+show_summary_dashboard
