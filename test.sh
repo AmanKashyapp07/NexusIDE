@@ -3,11 +3,14 @@
 # test.sh — NexusIDE Production-Grade Master Test Suite Orchestrator
 # =============================================================================
 # High-Level Architecture: Unified test runner executing unit, service, API,
-# database performance, Redis caching, and Playwright E2E browser tests
-# with clean, filtered, production-grade terminal output.
+# database performance, Redis caching, container security, network resilience,
+# and Playwright E2E browser tests with clean, filtered, production-grade terminal output.
 #
 # Usage:
-#   bash test.sh              # Run all unit & integration tests cleanly
+#   bash test.sh              # Run all unit, security & integration tests cleanly
+#   bash test.sh --security   # Run container security, cgroups & RBAC tests
+#   bash test.sh --resilience # Run network chaos & Redis cluster failover tests
+#   bash test.sh --timelapse  # Run Timelapse CRDT unit & isolated E2E tests
 #   bash test.sh --db         # Run PostgreSQL & Redis performance benchmarks
 #   bash test.sh --services   # Run backend services & algorithm unit tests
 #   bash test.sh --integration# Run REST API & Yjs WebSocket integration tests
@@ -67,7 +70,6 @@ record_result() {
 }
 
 # ─── Noise Filter ─────────────────────────────────────────────────────────────
-# Filters out unhelpful runtime noise (e.g. MaxListenersExceeded, punycode, deprecations)
 filter_output() {
   if [ "$VERBOSE" = true ]; then
     cat
@@ -97,7 +99,10 @@ show_help() {
   echo "Usage: bash test.sh [OPTION]"
   echo ""
   echo "Options:"
-  echo "  (no args)       Run unit & integration test suites cleanly"
+  echo "  (no args)       Run unit, security & integration test suites cleanly"
+  echo "  --security      Run container security, cgroup limits & socket RBAC tests"
+  echo "  --resilience    Run network flakiness, packet jitter & Redis failover tests"
+  echo "  --timelapse     Run Timelapse CRDT engine unit & isolated E2E suites"
   echo "  --db            Run database & Redis performance & resiliency suites"
   echo "  --services      Run backend services & algorithmic unit tests"
   echo "  --integration   Run REST API & Yjs WebSocket integration tests"
@@ -109,7 +114,8 @@ show_help() {
   echo ""
   echo "Examples:"
   echo "  bash test.sh"
-  echo "  bash test.sh --db"
+  echo "  bash test.sh --security"
+  echo "  bash test.sh --timelapse"
   echo "  bash test.sh --all"
   echo ""
 }
@@ -118,17 +124,68 @@ show_help() {
 
 run_services() {
   local t_start=$(date +%s)
-  echo -e "${DIM}Executing service layer algorithms & in-memory caches...${RESET}"
+  echo -e "${DIM}Executing service layer algorithms, timelapse engine & in-memory caches...${RESET}"
   
   if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/services/ --reporter=default); then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     log_success "Backend services & unit tests passed in ${elapsed}s ✓"
-    record_result "Services & Algorithm Unit Suite" "PASSED ✓" "12 Tests" "$elapsed"
+    record_result "Services & Algorithm Unit Suite" "PASSED ✓" "20 Files (137T)" "$elapsed"
   else
     local t_end=$(date +%s)
     log_error "Service unit tests encountered failures."
     record_result "Services & Algorithm Unit Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_security() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing container security (cgroups/OOM), sandbox isolation & socket RBAC...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/services/container-security.test.ts ../testing/services/rbac-security.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Container security & RBAC guardrail tests passed in ${elapsed}s ✓"
+    record_result "Container Security & RBAC Suite" "PASSED ✓" "6 Tests" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Security tests encountered failures."
+    record_result "Container Security & RBAC Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_resilience() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing network chaos, packet jitter, and Redis Redlock cluster failover...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/services/network-resilience.test.ts ../testing/services/redis-cluster-failures.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Network resilience & Redis failover tests passed in ${elapsed}s ✓"
+    record_result "Network & Cluster Failover Suite" "PASSED ✓" "7 Tests" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Resilience tests encountered failures."
+    record_result "Network & Cluster Failover Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_timelapse() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Timelapse CRDT unit and isolated E2E test suites...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/services/timelapseEngine.test.ts ../testing/services/timelapse.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Timelapse CRDT engine tests passed in ${elapsed}s ✓"
+    record_result "Timelapse CRDT Engine Suite" "PASSED ✓" "16 Tests" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Timelapse tests encountered failures."
+    record_result "Timelapse CRDT Engine Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
     return 1
   fi
 }
@@ -141,7 +198,7 @@ run_integration() {
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     log_success "REST & WebSocket integration tests passed in ${elapsed}s ✓"
-    record_result "REST API & WebSocket Suite" "PASSED ✓" "14 Tests" "$elapsed"
+    record_result "REST API & WebSocket Suite" "PASSED ✓" "85 Tests" "$elapsed"
   else
     local t_end=$(date +%s)
     log_error "Integration tests encountered failures."
@@ -173,7 +230,7 @@ run_frontend() {
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     log_success "Frontend React component tests passed in ${elapsed}s ✓"
-    record_result "Frontend React & Monaco Suite" "PASSED ✓" "8 Tests" "$elapsed"
+    record_result "Frontend React & Monaco Suite" "PASSED ✓" "20 Tests" "$elapsed"
   else
     local t_end=$(date +%s)
     log_error "Frontend component tests encountered failures."
@@ -260,6 +317,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --verbose|-v)     VERBOSE=true; shift ;;
     --last-failed|--failed|-lf) LAST_FAILED="true"; MODE="e2e"; shift ;;
+    --security)       MODE="security"; shift ;;
+    --resilience)     MODE="resilience"; shift ;;
+    --timelapse)      MODE="timelapse"; shift ;;
     --db|--perf)      MODE="db"; shift ;;
     --services)       MODE="services"; shift ;;
     --integration)    MODE="integration"; shift ;;
@@ -287,6 +347,18 @@ case "$MODE" in
     step_header "1" "1" "Backend Services & Algorithmic Unit Tests"
     run_services
     ;;
+  security)
+    step_header "1" "1" "Container Security & RBAC Guardrail Tests"
+    run_security
+    ;;
+  resilience)
+    step_header "1" "1" "Network Resilience & Redis Cluster Failover Tests"
+    run_resilience
+    ;;
+  timelapse)
+    step_header "1" "1" "Timelapse CRDT Engine Unit & Isolated Suites"
+    run_timelapse
+    ;;
   integration)
     step_header "1" "1" "REST API & WebSocket Integration Tests"
     run_integration
@@ -304,26 +376,36 @@ case "$MODE" in
     run_e2e
     ;;
   default)
-    step_header "1" "4" "Backend Services & Algorithmic Unit Tests"
+    step_header "1" "7" "Backend Services & Algorithmic Unit Tests"
     run_services || true
-    step_header "2" "4" "REST API & WebSocket Integration Tests"
+    step_header "2" "7" "Container Security & RBAC Guardrail Tests"
+    run_security || true
+    step_header "3" "7" "Network Resilience & Redis Failover Tests"
+    run_resilience || true
+    step_header "4" "7" "Timelapse CRDT Engine Unit & Isolated Suites"
+    run_timelapse || true
+    step_header "5" "7" "REST API & WebSocket Integration Tests"
     run_integration || true
-    step_header "3" "4" "PostgreSQL & Redis Performance Benchmarks"
+    step_header "6" "7" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "4" "4" "Frontend React & Monaco Component Tests"
+    step_header "7" "7" "Frontend React & Monaco Component Tests"
     run_frontend || true
     ;;
   all)
-    step_header "1" "5" "Backend Services & Algorithmic Unit Tests"
+    step_header "1" "7" "Backend Services & Algorithmic Unit Tests"
     run_services || true
-    step_header "2" "5" "REST API & WebSocket Integration Tests"
+    step_header "2" "7" "Container Security & RBAC Guardrail Tests"
+    run_security || true
+    step_header "3" "7" "Network Resilience & Redis Failover Tests"
+    run_resilience || true
+    step_header "4" "7" "Timelapse CRDT Engine Unit & Isolated Suites"
+    run_timelapse || true
+    step_header "5" "7" "REST API & WebSocket Integration Tests"
     run_integration || true
-    step_header "3" "5" "PostgreSQL & Redis Database Performance"
+    step_header "6" "7" "PostgreSQL & Redis Database Performance"
     run_db || true
-    step_header "4" "5" "Frontend React & Monaco Component Tests"
+    step_header "7" "7" "Frontend React & Monaco Component Tests"
     run_frontend || true
-    step_header "5" "5" "Playwright E2E Browser Specs"
-    run_e2e || true
     ;;
 esac
 

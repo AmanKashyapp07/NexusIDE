@@ -142,8 +142,7 @@ test.describe('Collab - Core Engine', () => {
     await waitForBootComplete(bobPage);
     await bobPage.locator('.ide-scrollbar').getByText('old-name.js').click();
     await waitForEditorModel(bobPage, 'old-name.js');
-    await focusEditor(bobPage);
-    await bobPage.keyboard.type('// before rename\n');
+    await typeTextInMonaco(bobPage, '// before rename\n');
     await expect(async () => {
       expect(await getEditorValue(alicePage)).toContain('before rename');
     }).toPass({ timeout: 20000, intervals: [1000] });
@@ -159,8 +158,7 @@ test.describe('Collab - Core Engine', () => {
     await bobPage.locator('.ide-scrollbar').getByText('new-name.js').click();
     await waitForEditorModel(bobPage, 'new-name.js');
     await bobPage.waitForTimeout(1500);
-    await focusEditor(bobPage);
-    await bobPage.keyboard.type('// AFTER rename');
+    await typeTextInMonaco(bobPage, '// AFTER rename');
     await expect(async () => {
       expect(await getEditorValue(alicePage)).toContain('AFTER rename');
     }).toPass({ timeout: 20000, intervals: [1000] });
