@@ -250,7 +250,10 @@ export function useCodeEditorSetup({
       wsProvider.awareness.off('change', handleAwareness);
       ydoc.off('update', handleUpdate);
 
-      if (binding) binding.destroy();
+      if (binding) {
+        binding.destroy();
+        binding = null;
+      }
 
       try {
         wsProvider.awareness.setLocalState(null);
@@ -260,13 +263,33 @@ export function useCodeEditorSetup({
 
       wsProvider.destroy();
       ydoc.destroy();
+      modelCacheRef.current.delete(roomName);
 
       // Clear Monaco native decorations on tab unmount
       if (editor && typeof editor.deltaDecorations === 'function' && decorationsRef.current.length > 0) {
         decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
       }
     };
-  }, [editor, workspaceId, fileId, filename, currentUser.username, currentUser.id, monacoInstance]);
+  }, [editor, workspaceId, fileId, currentUser.username, currentUser.id, monacoInstance]);
+
+  // Handle model rebinding if filename updates while fileId remains the same
+  useEffect(() => {
+    if (!editor || !fileId || !ydocRef.current || !wsProviderRef.current) return;
+    const model = editor.getModel();
+    const expectedName = filename || fileId;
+    if (model && model.uri && model.uri.path.endsWith(expectedName)) {
+      const ytext = ydocRef.current.getText('monaco');
+      const entry = modelCacheRef.current.get(`${workspaceId}-${fileId}`);
+      if (entry && !entry.binding) {
+        entry.binding = new MonacoBinding(
+          ytext,
+          model,
+          new Set([editor]),
+          wsProviderRef.current.awareness as any
+        );
+      }
+    }
+  }, [filename, editor, fileId, workspaceId]);
 
   // ===========================================================================
   // Jump-to-member Cursor Effect
