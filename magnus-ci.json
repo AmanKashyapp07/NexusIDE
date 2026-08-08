@@ -7,31 +7,31 @@
     },
     "services": {
       "needs": ["setup"],
-      "run": "cd backend && npx vitest run ../testing/services/ --reporter=default"
+      "run": "cd backend && CI=true npx vitest run ../testing/services/ --reporter=basic"
     },
     "security": {
       "needs": ["setup"],
-      "run": "cd backend && npx vitest run ../testing/services/container-security.test.ts ../testing/services/rbac-security.test.ts --reporter=default"
+      "run": "cd backend && CI=true npx vitest run ../testing/services/container-security.test.ts ../testing/services/rbac-security.test.ts --reporter=basic"
     },
     "resilience": {
       "needs": ["setup"],
-      "run": "cd backend && npx vitest run ../testing/services/network-resilience.test.ts ../testing/services/redis-cluster-failures.test.ts --reporter=default"
+      "run": "cd backend && CI=true npx vitest run ../testing/services/network-resilience.test.ts ../testing/services/redis-cluster-failures.test.ts --reporter=basic"
     },
     "timelapse": {
       "needs": ["setup"],
-      "run": "cd backend && npx vitest run ../testing/services/timelapseEngine.test.ts ../testing/services/timelapse.test.ts --reporter=default"
+      "run": "cd backend && CI=true npx vitest run ../testing/services/timelapseEngine.test.ts ../testing/services/timelapse.test.ts --reporter=basic"
     },
     "integration": {
       "needs": ["setup"],
-      "run": "cd backend && npx vitest run ../testing/integration/ --reporter=default"
+      "run": "cd backend && CI=true npx vitest run ../testing/integration/ --reporter=basic"
     },
     "db": {
       "needs": ["setup"],
-      "run": "bash test-db.sh"
+      "run": "cd backend && CI=true npx vitest run ../testing/db/ --reporter=basic"
     },
     "frontend": {
       "needs": ["setup"],
-      "run": "cd frontend && npx vitest run ../testing/frontend/ --reporter=default"
+      "run": "cd frontend && CI=true npx vitest run ../testing/frontend/ --reporter=basic"
     },
     "build": {
       "needs": ["services", "security", "resilience", "timelapse", "integration", "db", "frontend"],
