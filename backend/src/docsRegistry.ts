@@ -33,9 +33,12 @@ export async function cancelAndEvictWorkspaceDocs(workspaceId: string, skipBroad
       if (!docName.startsWith(workspaceId)) continue;
       try {
          const doc = await docPromise;
-         if (doc?.saveTimeout) {
-            clearTimeout(doc.saveTimeout);
-            doc.saveTimeout = null;
+         if (doc) {
+            doc.isEvicted = true;
+            if (doc.saveTimeout) {
+               clearTimeout(doc.saveTimeout);
+               doc.saveTimeout = null;
+            }
          }
          const connections = doc?.conns as Map<WebSocket, Set<number>> | undefined;
          if (connections) {

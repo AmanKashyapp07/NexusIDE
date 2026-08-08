@@ -47,11 +47,32 @@ export class FileRepository {
    }
 
    async findFileContent(fileId: string, workspaceId: string): Promise<string | null> {
-      const res = await getPool().query<{ content: string | null }>(
-         'SELECT content FROM files WHERE id = $1 AND workspace_id = $2',
+      const res = await getPool().query<{ content: string | null; yjs_state: Buffer | null }>(
+         'SELECT content, yjs_state FROM files WHERE id = $1 AND workspace_id = $2',
          [fileId, workspaceId]
       );
-      return res.rows.length ? (res.rows[0]!.content ?? '') : null;
+      if (!res.rows.length) return null;
+      let content = res.rows[0]!.content ?? '';
+      if (!content && res.rows[0]!.yjs_state && res.rows[0]!.yjs_state.length > 0) {
+         try {
+            const Y = await import('yjs');
+            const ydoc = new Y.Doc({ gc: false });
+            Y.applyUpdate(ydoc, res.rows[0]!.yjs_state);
+            const updatesRes = await getPool().query<{ update: Buffer }>(
+               'SELECT update FROM file_updates WHERE file_id = $1 ORDER BY seq ASC',
+               [fileId]
+            );
+            for (const row of updatesRes.rows) {
+               if (row.update) {
+                  try { Y.applyUpdate(ydoc, row.update); } catch {}
+               }
+            }
+            const ytext = ydoc.getText('monaco').toString();
+            if (ytext) content = ytext;
+            ydoc.destroy();
+         } catch {}
+      }
+      return content;
    }
 
    async findFileById(fileId: string, workspaceId: string): Promise<FileEntity | null> {

@@ -43,28 +43,42 @@ export class SnapshotRepository {
             content: string | null;
             language: string | null;
             type: string;
+            yjs_state: Buffer | null;
          }>(
             `WITH RECURSIVE file_path_cte AS (
-               SELECT id, parent_id, name, type, content, language, name::text AS path
+               SELECT id, parent_id, name, type, content, language, yjs_state, name::text AS path
                FROM files WHERE workspace_id = $1 AND parent_id IS NULL
                UNION ALL
-               SELECT f.id, f.parent_id, f.name, f.type, f.content, f.language,
+               SELECT f.id, f.parent_id, f.name, f.type, f.content, f.language, f.yjs_state,
                       (cte.path || '/' || f.name)::text AS path
                FROM files f
                INNER JOIN file_path_cte cte ON f.parent_id = cte.id
                WHERE f.workspace_id = $1
             )
-            SELECT id, path, content, language, type
+            SELECT id, path, content, language, type, yjs_state
             FROM file_path_cte
             WHERE type = 'file'`,
             [workspaceId]
          );
 
-         const files = filesRes.rows.map(r => ({
-            path: r.path,
-            content: r.content || '',
-            language: r.language || null,
-         }));
+         const Y = await import('yjs');
+         const files = filesRes.rows.map(r => {
+            let content = r.content || '';
+            if (r.yjs_state && r.yjs_state.length > 0) {
+               try {
+                  const ydoc = new Y.Doc({ gc: false });
+                  Y.applyUpdate(ydoc, r.yjs_state);
+                  const ytext = ydoc.getText('monaco').toString();
+                  if (ytext) content = ytext;
+                  ydoc.destroy();
+               } catch {}
+            }
+            return {
+               path: r.path,
+               content,
+               language: r.language || null,
+            };
+         });
 
          // 2. Build Merkle DAG & Compute Hashes
          const { rootTreeHash, blobsToInsert, treesToInsert } = await CASService.buildMerkleTree(files);

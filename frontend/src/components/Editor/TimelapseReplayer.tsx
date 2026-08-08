@@ -344,12 +344,29 @@ export function useTimelapsePlayer({ workspaceId, fileId }: { workspaceId: strin
 
         let built: BuiltTimeline;
         let resolvedMode: ReplayMode;
+        let builtFull: BuiltTimeline | null = null;
+        let builtLegacy: BuiltTimeline | null = null;
 
+        if (json.updates && json.updates.length > 0) {
+          try { builtFull = buildFullFidelityTimeline(json.updates); } catch {}
+        }
         if (json.yjsState) {
-          built = buildLegacyTimeline(json.yjsState);
+          try { builtLegacy = buildLegacyTimeline(json.yjsState); } catch {}
+        }
+
+        if (builtFull && builtLegacy) {
+          if (builtLegacy.snapshots.length > builtFull.snapshots.length) {
+            built = builtLegacy;
+            resolvedMode = 'legacy';
+          } else {
+            built = builtFull;
+            resolvedMode = 'full';
+          }
+        } else if (builtLegacy) {
+          built = builtLegacy;
           resolvedMode = 'legacy';
-        } else if (json.updates && json.updates.length > 0) {
-          built = buildFullFidelityTimeline(json.updates);
+        } else if (builtFull) {
+          built = builtFull;
           resolvedMode = 'full';
         } else {
           built = { snapshots: [{ text: '', authorRanges: [] }], activity: [0], allClientIds: [] };

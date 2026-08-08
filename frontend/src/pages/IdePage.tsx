@@ -330,9 +330,12 @@ function IdePage() {
   }, [urlFileId, files, urlWorkspaceId]);
 
   // Close timelapse on file switch
+  const prevUrlFileIdRef = useRef(urlFileId);
   useEffect(() => {
-    console.log('[TimelapseDebug] urlFileId changed. closing timelapse. urlFileId:', urlFileId);
-    setIsViewingTimelapse(false);
+    if (prevUrlFileIdRef.current && prevUrlFileIdRef.current !== urlFileId) {
+      setIsViewingTimelapse(false);
+    }
+    prevUrlFileIdRef.current = urlFileId;
   }, [urlFileId]);
 
   /* ─── Loading screen ─────────────────────────────────────────────────── */
@@ -456,20 +459,7 @@ function IdePage() {
                       );
                     })}
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsViewingTimelapse(prev => !prev);
-                    }}
-                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                      isViewingTimelapse ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
-                    }`}
-                  >
-                    <History size={14} />
-                    Timelapse
-                  </button>
+                  {/* Timelapse disabled temporarily */}
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-xs font-medium text-zinc-600">

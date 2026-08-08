@@ -38,6 +38,7 @@ export class WSSharedDoc extends Y.Doc {
    dbLoaded: boolean;
    debouncer: AdaptivePersistenceDebouncer;
    isSaving: boolean;
+   isEvicted: boolean = false;
    authorMap: Map<number, AuthorInfo>;
    private updateQueue: Array<Buffer> = [];
    private isProcessingQueue = false;
@@ -189,6 +190,7 @@ export class WSSharedDoc extends Y.Doc {
    // INTENT: Perform synchronous/blocking final save on document eviction when all clients disconnect.
    // WHY: Guarantees zero data loss when rooms are reclaimed from node memory.
    async performFinalSave(): Promise<void> {
+      if (this.isEvicted) return;
       this.debouncer.cancel();
       try {
          const state = Buffer.from(Y.encodeStateAsUpdate(this));
@@ -289,7 +291,8 @@ export async function getOrCreateDoc(docName: string): Promise<WSSharedDoc> {
             if (res.rows.length > 0) {
                if (res.rows[0]!.yjs_state) {
                   Y.applyUpdate(doc, res.rows[0]!.yjs_state);
-               } else if (res.rows[0]!.content) {
+               }
+               if (doc.getText('monaco').length === 0 && res.rows[0]!.content) {
                   doc.getText('monaco').insert(0, res.rows[0]!.content);
                }
 

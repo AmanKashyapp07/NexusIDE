@@ -470,6 +470,20 @@ The project is designed to be fully deployable on cloud VMs (e.g., Oracle VM) un
 
 ---
 
+## Recent Architecture & Stabilization Updates
+
+### System Fixes & Reliability Hardening
+
+| Component | Engineering Description | Architectural Impact |
+| :--- | :--- | :--- |
+| **Terminal File Watcher & Dual-Room Dispatch** | Invalidated `workspaceTreeCache` on filesystem mutations in `terminalHandler.ts` and expanded event broadcasting to dual room scopes (`presence-${workspaceId}` and `${workspaceId}`). Added directory pruning (`node_modules`, `.git`, `.next`, `dist`, etc.) and a write-buffer settling delay (`300ms`) before reading newly created files. | Eliminates sidebar cache staleness and prevents race conditions during rapid terminal creation bursts. |
+| **CAS Merkle DAG Snapshot Extraction** | Updated `snapshot.repository.ts` (`createCheckpoint`) to select and decode `yjs_state` using `Y.Doc` when constructing snapshot file records. Flushed active in-memory Yjs documents (`docsRegistry`) and Redis Write-Behind dirty buffers prior to generating Merkle commits. | Guarantees snapshots record 100% accurate file contents even if SQL `content` columns haven't been flushed yet. |
+| **Eviction Guard & Overwrite Protection** | Added `isEvicted` lifecycle flag on `WSSharedDoc` in `docsRegistry.ts` and `yjsSyncEngine.service.ts`. Guarded `performFinalSave()` against evicted documents during snapshot restoration. | Prevents asynchronous WebSocket disconnect handlers from overwriting newly restored database records with stale in-memory state. |
+| **Composite History & Yjs Sync Fallbacks** | Enhanced `getFileHistory` in `workspaceFile.service.ts` to construct composite `gc:false` state vectors by merging incremental `file_updates` onto base `yjs_state`, with dynamic synthesis fallback for missing `yjs_state`. Synchronized `content` and `yjs_state` writes in `updateFileContent`. | Provides full-granularity time-travel history and eliminates 500 errors on newly created files. |
+| **Yjs DB Load & Content Fallback** | Updated `yjsSyncEngine.service.ts` during PostgreSQL load: if `doc.getText('monaco')` is empty after applying `yjs_state`, populates text from the SQL `content` column. Enhanced `findFileContent` in `file.repository.ts` to fallback decode `yjs_state` and incremental deltas. | Prevents content wiping when binding Yjs docs to SQL records and guarantees content retrieval across all API routes. |
+
+---
+
 ## Engineering Learnings
 
 * **CRDTs vs OT:** Implementing Yjs demonstrated that CRDT state convergence is highly reliable at the algorithmic level, but debouncing persistence is critical for scaling database write throughput.

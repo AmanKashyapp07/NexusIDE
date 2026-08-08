@@ -78,9 +78,18 @@ export async function getFileHistory(
       10 * 60
    );
    
-   if (!cached || !cached.yjs_state) throw new Error('No history found for this file');
+   let baseState = cached?.yjs_state || null;
+   if (!baseState) {
+      const file = await fileRepository.findFileById(fileId, workspaceId);
+      const content = file?.content || '';
+      const Y = await import('yjs');
+      const doc = new Y.Doc({ gc: false });
+      if (content) doc.getText('monaco').insert(0, content);
+      baseState = Buffer.from(Y.encodeStateAsUpdate(doc));
+      doc.destroy();
+   }
 
-   const authorMap: Record<string, { userId: string; username: string; color: string }> = { ...(cached.author_map || {}) };
+   const authorMap: Record<string, { userId: string; username: string; color: string }> = { ...(cached?.author_map || {}) };
 
    try {
       const file = await fileRepository.findFileById(fileId, workspaceId);
@@ -116,7 +125,7 @@ export async function getFileHistory(
       //      granularity it needs (per-character insertClock/deleteClock events), not just batch-level.
       const Y = await import('yjs');
       const compositeDoc = new Y.Doc({ gc: false });
-      Y.applyUpdate(compositeDoc, cached.yjs_state);
+      if (baseState) Y.applyUpdate(compositeDoc, baseState);
 
       if (updatesResult.length > 0) {
          for (const row of updatesResult) {
@@ -146,14 +155,19 @@ export async function getFileHistory(
       };
    } catch {
       return {
-         yjsState: cached.yjs_state.toString('base64'),
+         yjsState: baseState ? baseState.toString('base64') : undefined,
          authorMap,
       };
    }
 }
 
 export async function updateFileContent(workspaceId: string, fileId: string, content: string): Promise<void> {
-   await fileRepository.updateFileContent(fileId, workspaceId, content);
+   const ydoc = new Y.Doc({ gc: false });
+   ydoc.getText('monaco').insert(0, content);
+   const yjsState = Buffer.from(Y.encodeStateAsUpdate(ydoc));
+   ydoc.destroy();
+
+   await fileRepository.updateFileAndYjsState(fileId, content, yjsState, '{}');
    const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
    await applyRestoredContentToLiveDocs(workspaceId, [{ fileId, content }]);
 }

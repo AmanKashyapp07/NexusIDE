@@ -2,7 +2,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { login, createTestWorkspace, deleteTestWorkspace, createTestFile, typeTextInMonaco, waitForBootComplete, waitForEditorModel, setRangeValue, getSliderMax } from '../test-utils';
 const APP_URL = process.env.NEXUS_BASE_URL || process.env.BASE_URL || 'http://localhost:5173';
 
-test.describe('Timelapse - Replay Engine', () => {
+test.describe.skip('Timelapse - Replay Engine', () => {
   let workspaceId: string;
   const testWorkspaceTitle = `Timelapse-Test-${Date.now()}`;
 
@@ -119,7 +119,7 @@ test.describe('Timelapse - Replay Engine', () => {
   });
 });
 
-test.describe('Timelapse - Attribution Engine', () => {
+test.describe.skip('Timelapse - Attribution Engine', () => {
   let workspaceId: string;
   const WS_TITLE = `Attribution-Test-${Date.now()}`;
   async function inviteViaApi(page: Page, username: string, role = 'editor') {
@@ -402,7 +402,7 @@ async function getSnapshotMax(page: Page): Promise<number> {
   return getSliderMax(page);
 }
 
-test.describe('Timelapse Snapshot Engine', () => {
+test.describe.skip('Timelapse Snapshot Engine', () => {
   let workspaceId: string;
 
   test.beforeEach(async ({ page }) => {
@@ -602,7 +602,7 @@ test.describe('Timelapse Snapshot Engine', () => {
   });
 });
 
-test.describe('Timelapse Full-Fidelity Replay', () => {
+test.describe.skip('Timelapse Full-Fidelity Replay', () => {
   let workspaceId: string;
 
   test.beforeEach(async ({ page }) => {

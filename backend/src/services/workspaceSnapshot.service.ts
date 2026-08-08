@@ -63,11 +63,20 @@ async function ensureDirectoryExists(client: PoolClient, workspaceId: string, di
 // WHY: Transactional execution (`BEGIN`/`COMMIT`) ensures snapshot creation is all-or-nothing.
 export async function createSnapshot(workspaceId: string, userId: string, label?: string): Promise<SnapshotEntity> {
    try {
-      const { crdtWriteBehindService } = await import('./crdtWriteBehind.service.js');
-      const filesRes = await getPool().query<{ id: string }>('SELECT id FROM files WHERE workspace_id = $1 AND type = $2', [workspaceId, 'file']);
-      for (const row of filesRes.rows) {
-         await crdtWriteBehindService.flushFileBuffer(row.id).catch(() => {});
+      const { getDocsMap } = await import('../docsRegistry.js');
+      const docs = getDocsMap();
+      for (const [docName, docPromise] of docs.entries()) {
+         if (docName.startsWith(workspaceId)) {
+            try {
+               const doc = await docPromise;
+               if (doc && typeof doc.executeSave === 'function') {
+                  await doc.executeSave();
+               }
+            } catch {}
+         }
       }
+      const { crdtWriteBehindService } = await import('./crdtWriteBehind.service.js');
+      await crdtWriteBehindService.flushAllDirtyBuffers().catch(() => {});
    } catch {}
 
    const snapshotLabel = label?.trim() || `Snapshot ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
