@@ -195,7 +195,7 @@ run_remote_all() {
   check_ssh
   local t_start=$(date +%s)
   section "Executing All DB Test Suites (Performance + Concurrency + Brutal + L2 Cache + Write-Behind + Presence) on VM"
-  ssh -t -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE_HOST}" \
+  ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE_HOST}" \
     "cd ${REMOTE_BASE}/backend && npm run test:db-perf"
   local t_end=$(date +%s)
   show_metrics_summary "$((t_end - t_start))"
@@ -205,7 +205,7 @@ run_remote_presence() {
   check_ssh
   local t_start=$(date +%s)
   section "Executing Phase 3 Distributed Session & Real-Time Presence Suite Remotely"
-  ssh -t -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE_HOST}" \
+  ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE_HOST}" \
     "cd ${REMOTE_BASE}/backend && npx vitest run ../testing/db/redis_presence_session.test.ts"
   local t_end=$(date +%s)
   log_success "Phase 3 Presence & Session suite completed in $((t_end - t_start))s ✓"
@@ -215,7 +215,7 @@ run_remote_buffer() {
   check_ssh
   local t_start=$(date +%s)
   section "Executing Phase 2 Redis Write-Behind CRDT Buffer Suite Remotely"
-  ssh -t -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE_HOST}" \
+  ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no "${REMOTE_HOST}" \
     "cd ${REMOTE_BASE}/backend && npx vitest run ../testing/db/crdt_write_behind.test.ts"
   local t_end=$(date +%s)
   log_success "Phase 2 Write-Behind buffer suite completed in $((t_end - t_start))s ✓"

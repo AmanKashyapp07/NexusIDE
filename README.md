@@ -417,44 +417,76 @@ cd ../frontend && npm run dev
 
 NexusIDE features a comprehensive test suite validating full, real-browser collaboration flows, REST APIs, JSON-RPC framing, and CRDT replay engines.
 
-* **Frontend Unit & Integration Tests (Vitest / JSDOM):**
-  - `frontend.test.tsx`: Monaco editor initialization, Socket.IO reconnect loops, UI error boundary stability, viewer-role blockages.
+* **Frontend Unit & Component Tests (Vitest / JSDOM):**
+  - `frontend.test.tsx`: Monaco editor initialization, Socket.IO reconnect loops, UI error boundary stability, viewer-role blockages, offline re-fetching.
   - `frontend-collaborative-optimizations.test.tsx`: Unit tests for Monaco native deltaDecorations, Multi-Model Tab LRU Caching, and optimistic file tree state mutations.
-  - `lsp-service.test.ts`: JSON-RPC protocol framing, buffer parsing, request timeouts, and LSP event handling.
-* **Backend Integration Tests (Vitest / Node):**
-  - `backend.test.ts`: REST API routes, PostgreSQL transactions, Redis caching, RBAC authorization, PTY lifecycle.
-  - `api.test.ts`: API service client headers, request formatting, and authorization payload validation.
-  - `timelapse.test.ts`: Pure unit tests for CRDT snapshot extraction, activity downsampling, and Monaco offset calculations.
+
+* **Backend Services, Algorithms & Security Tests (Vitest / Node):**
+  - `timelapseEngine.test.ts` (12 Tests): Comprehensive CRDT StructStore unit suite covering blank inputs, multi-line boundaries, deletion tombstones, concurrent multi-client typing, range overwrites, chaos sequences, 500+ char rapid bursts, Unicode surrogate pairs/emojis (`🚀`, `💡`, `日本語`), non-contiguous multi-location deletions, serialization invariants, and monotonic step numbering.
+  - `timelapse.test.ts` (4 Tests): Snapshot extraction from Y.Text, activity histogram downsampling, and Monaco 1-based coordinate conversions.
+  - `network-resilience.test.ts` (4 Tests): Sudden WebSocket drops mid-typing stream with state vector re-sync (`encodeStateVector` / `encodeStateAsUpdate`), out-of-order/delayed WebSocket frame delivery, high-jitter packet deduplication (5x duplicates), and stale ghost cursor cleanup (> 30s).
+  - `redis-cluster-failures.test.ts` (3 Tests): Redlock lock TTL expiration during CPU-bound stalls (split-brain prevention), cross-pod workspace eviction (`workspace:evict:<id>`) with WebSocket close code `4100`, and Redis Pub/Sub mesh partition catch-up.
+  - `container-security.test.ts` (3 Tests): Docker cgroup PID limit defense (`--pids-limit 500`) against process fork bombs (`:(){ :|:& };:`), container OOM-killer isolation (1GB cap, Exit Code `137`) protecting host Node.js services, and cross-workspace path traversal defense (`/workspaces/${otherWorkspaceId}` and `/var/run/docker.sock`).
+  - `rbac-security.test.ts` (3 Tests): Dropping unauthorized raw Yjs CRDT write updates from the `Viewer` role at the socket gateway before reaching the sync engine, mid-session JWT token revocation/expiration terminating active PTY streams, and null-byte / relative path traversal sanitization in socket file events.
   - `cas-service.test.ts`: SHA-256 blob hashing, Merkle tree determinism, and O(1) structural tree diff correctness.
-  - `database-optimizations.test.ts`: Unit tests for connection pool statement timeouts, covering B-Tree index creation, named prepared statements, and bulk UNNEST inserts.
-  - `crdt-compactor.test.ts`: Unit tests for CRDT delta merging, PostgreSQL storage purging, and local Gzip archive hydration.
-  - `adaptive-debouncer.test.ts`: Unit tests for velocity-based dynamic persistence scaling, burst coalescing, and maxDeferral hard ceiling flushes.
-  - `cursor-codec.test.ts`: Unit tests for bit-packed 8-byte binary cursor encoding, deterministic user hashing, and multi-cursor contiguous batch frames.
-  - `terminal-stream-buffer.test.ts`: Unit tests for PTY stream 10ms micro-coalescing, byte-threshold flushes, and socket backpressure control.
-  - `workspace-hibernation.test.ts`: Unit tests for asynchronous container pre-warming, Docker cgroup pausing/unpausing, and state recovery.
-  - `workspace-shared-container.test.ts`: Unit tests for single shared container allocation per workspaceId, multi-user reference counting, and container IP resolution.
-  - `redis-cluster.test.ts`: Redis Pub/Sub channel publishing, Redlock lock acquisition/contention (including 50-thread concurrency), cross-pod CRDT update relay, and cluster-wide workspace eviction with close code `4100`.
-* **E2E Integration Tests (Playwright):**
-  - `collaboration.spec.ts`: Multi-user live typing, cursor presence, snapshot time-travel, and Git merge conflict resolution.
-  - `terminal-lsp.spec.ts`: Interactive PTY bash streaming, background process execution, and Pyright / TS Language Server diagnostics.
-  - `timelapse.spec.ts`: Keystroke recording, timeline scrubbing, author attribution, and full-fidelity replay engine tests.
+  - `database-optimizations.test.ts`: Connection pool statement timeouts, covering B-Tree index creation, named prepared statements, and bulk UNNEST inserts.
+  - `crdt-compactor.test.ts`: CRDT delta merging, PostgreSQL storage purging, and local Gzip archive hydration.
+  - `adaptive-debouncer.test.ts`: Velocity-based dynamic persistence scaling, burst coalescing, and maxDeferral hard ceiling flushes.
+  - `cursor-codec.test.ts`: Bit-packed 8-byte binary cursor encoding, deterministic user hashing, and multi-cursor batch frames.
+  - `terminal-stream-buffer.test.ts`: PTY stream 10ms micro-coalescing, byte-threshold flushes, and socket backpressure control.
+  - `workspace-hibernation.test.ts`: Asynchronous container pre-warming, Docker cgroup pausing/unpausing, and state recovery.
+  - `workspace-shared-container.test.ts`: Single shared container allocation per workspaceId, multi-user reference counting, and container IP resolution.
+
+* **REST API & WebSocket Integration Suite (Vitest / Node):**
+  - `backend.test.ts` (85 Tests): REST API routes, PostgreSQL transactions, Redis caching, RBAC authorization, PTY lifecycle, live Yjs WebSocket sync, split-brain resolution, rapid socket reconnection loops, and multi-client concurrent typing.
+  - `api.test.ts`: API service client headers, request formatting, and authorization payload validation.
+
+* **Database Performance & Concurrency Suite (Bash / Vitest / PostgreSQL 16 / Redis 7):**
+  - `query_performance.test.ts` (13 Tests): Covering index latency checks (< 2ms) on 100K+ update datasets, sargable range scans, and anti-N+1 query plans.
+  - `concurrency_locks.test.ts`: 50 simultaneous writer sessions with 0 deadlocks and 50 concurrent read workers with 0 starvation.
+  - `redis_l2_cache.test.ts`: Filesystem tree and RBAC role caching (< 0.8ms / > 10,000 ops/sec) with instant mutation invalidation.
+  - `crdt_write_behind.test.ts`: 2,000 updates ingested in Redis RAM (> 40,000 updates/sec) with coalesced PostgreSQL bulk writes.
+  - `redis_presence_session.test.ts`: Distributed multi-pod presence mesh, user session caching, and active file focus tracking.
+  - `brutal_stress.test.ts`: 200-worker thundering herd spikes, 2,500 binary CRDT stream ingestions, and 30-level recursive CTE directory traversals.
+
+* **Playwright E2E Browser Suite (Playwright / Chromium / Monaco / Xterm):**
+  - `collaboration.spec.ts`: Multi-browser concurrent editing, ghost cursor awareness, Git merge conflict resolution, live file rename synchronization, and snapshot restoration.
+  - `terminal-lsp.spec.ts`: Interactive PTY bash streaming, background process execution, and Pyright / TypeScript Language Server diagnostics.
+  - `timelapse.spec.ts`: Real Monaco typing, interactive time-travel scrubber, rewind, step-by-step playback, multi-user author badges, and speed multipliers.
+
+---
 
 ### Running Test Suites
-You can run test suites using the project test runner script:
+
+The unified master orchestrator [`test.sh`](file:///Users/amankashyap/Documents/nexusIDE/test.sh) executes all test suites across the platform:
 
 ```bash
-# Run Frontend Unit & Component Tests (20 tests passing)
-bash test.sh --frontend
+# 1. Run all Unit, Security, Resilience, Integration, DB & Frontend tests cleanly (Default)
+bash test.sh
 
-# Run Backend API & Integration Tests (138 tests passing, 2 skipped)
-bash test.sh --backend
+# 2. Run Container Security, Docker cgroup PID limits & Socket RBAC tests
+bash test.sh --security
 
-# Run E2E Playwright Integration Tests against deployed VM
-NEXUS_BASE_URL="http://YOUR_SERVER_IP" bash test.sh --e2e
+# 3. Run Network Chaos, WebSocket disconnects & Redis Cluster failover tests
+bash test.sh --resilience
 
-# Run a specific E2E test in isolation
-(cd frontend && NEXUS_BASE_URL="http://YOUR_SERVER_IP" npx playwright test ../testing/collaboration.spec.ts -g "14. broadcasts snapshot-restored")
+# 4. Run Timelapse CRDT engine unit & isolated tests
+bash test.sh --timelapse
+
+# 5. Run PostgreSQL & Redis database performance benchmarks
+bash test.sh --db
+
+# 6. Run Playwright real browser E2E specs against deployed VM
+bash test.sh --e2e
+
+# 7. Run every single test suite end-to-end (including E2E browser tests)
+bash test.sh --all
+
+# 8. Run a specific E2E test in isolation
+bash test.sh -g "syncs file renames live"
 ```
+
+---
 
 ### 5. Deployment & Remote E2E Testing
 
@@ -476,11 +508,13 @@ The project is designed to be fully deployable on cloud VMs (e.g., Oracle VM) un
 
 | Component | Engineering Description | Architectural Impact |
 | :--- | :--- | :--- |
-| **Terminal File Watcher & Dual-Room Dispatch** | Invalidated `workspaceTreeCache` on filesystem mutations in `terminalHandler.ts` and expanded event broadcasting to dual room scopes (`presence-${workspaceId}` and `${workspaceId}`). Added directory pruning (`node_modules`, `.git`, `.next`, `dist`, etc.) and a write-buffer settling delay (`300ms`) before reading newly created files. | Eliminates sidebar cache staleness and prevents race conditions during rapid terminal creation bursts. |
+| **Timelapse CRDT Engine Rehaul** | Replaced dual heuristic engines with a single deterministic Yjs StructStore reader (`gc: false`) in `workspaceFile.service.ts`. Fixed Node.js `Buffer` pooled slicing by passing explicit `Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)` to `Y.applyUpdate`. Added cache invalidation and prevented double-applying base state. | Guarantees mathematically sound, non-destructive document reconstruction across deletes, edits, and re-typing without heuristic drift. |
+| **Multi-Model Tab Provider Lifecycle** | Fixed `useCodeEditorSetup.ts` so that active providers in `modelCacheRef` are retained across model renames and only disposed when evicted or on component unmount. Removed `filename` from provider instantiation effect dependencies while retaining reactive model rebinding. | Eliminates provider recreation thrashing and keeps WebSocket sync active during file renames. |
+| **Container Security & Resource Guardrails** | Implemented automated test suites enforcing Docker cgroup PID limits (`500 PIDs`), 1GB memory caps with container-level OOM kills, and directory breakout sanitization (`/workspaces/${otherWorkspaceId}`). | Hardens backend against process exhaustion, memory leaks, and multi-tenant container escapes. |
+| **Network Resilience & Cluster Failover** | Added chaos suites testing sudden WebSocket drops mid-typing with state vector re-sync, scrambled frame delivery, Redlock TTL stalls, and cross-pod document eviction (`4100`). | Proves zero data loss and deterministic convergence under adverse network and pod failover scenarios. |
+| **Terminal File Watcher & Dual-Room Dispatch** | Invalidated `workspaceTreeCache` on filesystem mutations in `terminalHandler.ts` and expanded event broadcasting to dual room scopes (`presence-${workspaceId}` and `${workspaceId}`). Added directory pruning and write-buffer settling delay (`300ms`). | Eliminates sidebar cache staleness and prevents race conditions during rapid terminal creation bursts. |
 | **CAS Merkle DAG Snapshot Extraction** | Updated `snapshot.repository.ts` (`createCheckpoint`) to select and decode `yjs_state` using `Y.Doc` when constructing snapshot file records. Flushed active in-memory Yjs documents (`docsRegistry`) and Redis Write-Behind dirty buffers prior to generating Merkle commits. | Guarantees snapshots record 100% accurate file contents even if SQL `content` columns haven't been flushed yet. |
 | **Eviction Guard & Overwrite Protection** | Added `isEvicted` lifecycle flag on `WSSharedDoc` in `docsRegistry.ts` and `yjsSyncEngine.service.ts`. Guarded `performFinalSave()` against evicted documents during snapshot restoration. | Prevents asynchronous WebSocket disconnect handlers from overwriting newly restored database records with stale in-memory state. |
-| **Composite History & Yjs Sync Fallbacks** | Enhanced `getFileHistory` in `workspaceFile.service.ts` to construct composite `gc:false` state vectors by merging incremental `file_updates` onto base `yjs_state`, with dynamic synthesis fallback for missing `yjs_state`. Synchronized `content` and `yjs_state` writes in `updateFileContent`. | Provides full-granularity time-travel history and eliminates 500 errors on newly created files. |
-| **Yjs DB Load & Content Fallback** | Updated `yjsSyncEngine.service.ts` during PostgreSQL load: if `doc.getText('monaco')` is empty after applying `yjs_state`, populates text from the SQL `content` column. Enhanced `findFileContent` in `file.repository.ts` to fallback decode `yjs_state` and incremental deltas. | Prevents content wiping when binding Yjs docs to SQL records and guarantees content retrieval across all API routes. |
 
 ---
 
