@@ -1,22 +1,41 @@
 {
   "language": "Node.js",
-  "image": "node:22-bookworm",
+  "image": "node:20-alpine",
   "stages": {
     "setup": {
-      "run": "npm install && npm --prefix backend install && npm --prefix frontend install"
+      "run": "npm --prefix backend install && npm --prefix frontend install"
     },
-    "test-backend": {
-      "run": "npm run test:backend",
-      "needs": ["setup"]
-    },
-    "test-frontend": {
-      "run": "npm run test:frontend",
-      "needs": ["setup"]
-    },
-    "test-e2e": {
-      "run": "bash scripts/run-e2e-ci.sh",
+    "services": {
       "needs": ["setup"],
-      "timeout": 1200
+      "run": "cd backend && npx vitest run ../testing/services/ --reporter=default"
+    },
+    "security": {
+      "needs": ["setup"],
+      "run": "cd backend && npx vitest run ../testing/services/container-security.test.ts ../testing/services/rbac-security.test.ts --reporter=default"
+    },
+    "resilience": {
+      "needs": ["setup"],
+      "run": "cd backend && npx vitest run ../testing/services/network-resilience.test.ts ../testing/services/redis-cluster-failures.test.ts --reporter=default"
+    },
+    "timelapse": {
+      "needs": ["setup"],
+      "run": "cd backend && npx vitest run ../testing/services/timelapseEngine.test.ts ../testing/services/timelapse.test.ts --reporter=default"
+    },
+    "integration": {
+      "needs": ["setup"],
+      "run": "cd backend && npx vitest run ../testing/integration/ --reporter=default"
+    },
+    "db": {
+      "needs": ["setup"],
+      "run": "bash test-db.sh"
+    },
+    "frontend": {
+      "needs": ["setup"],
+      "run": "cd frontend && npx vitest run ../testing/frontend/ --reporter=default"
+    },
+    "build": {
+      "needs": ["services", "security", "resilience", "timelapse", "integration", "db", "frontend"],
+      "run": "cd frontend && npm run build"
     }
   }
 }
