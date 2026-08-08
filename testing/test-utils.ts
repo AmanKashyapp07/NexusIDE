@@ -191,6 +191,7 @@ export async function typeTextInMonaco(page: Page, text: string) {
     return editors && editors.length > 0;
   }, { timeout: 15000 });
 
+  await page.locator('.monaco-editor').first().click();
   await page.evaluate(() => {
     const editor = (window as any).monaco.editor.getEditors()[0];
     const model = editor.getModel();
@@ -202,7 +203,7 @@ export async function typeTextInMonaco(page: Page, text: string) {
     editor.focus();
   });
 
-  await page.keyboard.type(text, { delay: 50 });
+  await page.keyboard.type(text, { delay: 60 });
 }
 
 export async function getEditorValue(page: Page): Promise<string> {

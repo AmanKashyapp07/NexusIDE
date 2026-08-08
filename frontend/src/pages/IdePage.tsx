@@ -459,7 +459,20 @@ function IdePage() {
                       );
                     })}
                   </div>
-                  {/* Timelapse disabled temporarily */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsViewingTimelapse(prev => !prev);
+                    }}
+                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                      isViewingTimelapse ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
+                    }`}
+                  >
+                    <History size={14} />
+                    Timelapse
+                  </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-xs font-medium text-zinc-600">

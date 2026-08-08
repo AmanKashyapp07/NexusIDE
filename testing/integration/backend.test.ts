@@ -319,7 +319,7 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
-      if (sql.includes('SELECT content FROM files'))
+      if (sql.includes('SELECT content'))
         return Promise.resolve({ rows: [{ content: 'console.log("hello")' }] });
       return Promise.resolve({ rows: [] });
     });
@@ -336,7 +336,7 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
-      if (sql.includes('SELECT content FROM files'))
+      if (sql.includes('SELECT content'))
         return Promise.resolve({ rows: [{ content: null }] });
       return Promise.resolve({ rows: [] });
     });
@@ -353,7 +353,7 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes('SELECT owner_id, is_public FROM workspaces'))
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
-      if (sql.includes('SELECT content FROM files'))
+      if (sql.includes('SELECT content'))
         return Promise.resolve({ rows: [] });
       return Promise.resolve({ rows: [] });
     });
@@ -371,7 +371,7 @@ describe('GET /api/workspace/:id/files/:fileId/content', () => {
         return Promise.resolve({ rows: [{ owner_id: OWNER_ID, is_public: false }] });
       if (sql.includes('SELECT role FROM workspace_collaborators'))
         return Promise.resolve({ rows: [{ role: 'viewer' }] });
-      if (sql.includes('SELECT content FROM files'))
+      if (sql.includes('SELECT content'))
         return Promise.resolve({ rows: [{ content: 'read only content' }] });
       return Promise.resolve({ rows: [] });
     });

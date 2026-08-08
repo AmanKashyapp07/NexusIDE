@@ -8,8 +8,22 @@ export interface AuthorInfo {
 
 export type AuthorMap = Record<string, AuthorInfo>;
 
+export interface AuthorRange {
+  start: number;
+  end: number;
+  clientId: number;
+}
+
+export interface TimelineStep {
+  stepIndex: number;
+  text: string;
+  authorRanges: AuthorRange[];
+}
+
 export interface HistoryResponse {
   authorMap: AuthorMap;
+  totalSteps?: number;
+  steps?: TimelineStep[];
   updates?: string[];
   yjsState?: string;
 }

@@ -59,10 +59,67 @@ export async function getFileContent(workspaceId: string, fileId: string): Promi
    );
 }
 
+export interface AuthorRange {
+   start: number;
+   end: number;
+   clientId: number;
+}
+
+export interface TimelineStep {
+   stepIndex: number;
+   text: string;
+   authorRanges: AuthorRange[];
+}
+
+export function extractSnapshotFromYText(ytext: Y.Text): { text: string; authorRanges: AuthorRange[] } {
+   let text = '';
+   const ranges: AuthorRange[] = [];
+   let runStart = 0;
+   let runClient = -1;
+
+   let node: any = (ytext as any)._start;
+   while (node !== null) {
+      if (!node.deleted) {
+         const content = node.content?.getContent?.();
+         const str = Array.isArray(content) ? content.join('') : (typeof content === 'string' ? content : '');
+         for (let i = 0; i < str.length; i++) {
+            const ch = str[i];
+            const offset = text.length;
+            if (ch === '\n') {
+               if (runClient !== -1) {
+                  ranges.push({ start: runStart, end: offset, clientId: runClient });
+                  runClient = -1;
+               }
+               text += ch;
+               runStart = text.length;
+            } else {
+               if (node.id.client !== runClient) {
+                  if (runClient !== -1) ranges.push({ start: runStart, end: offset, clientId: runClient });
+                  runStart = offset;
+                  runClient = node.id.client;
+               }
+               text += ch;
+            }
+         }
+      }
+      node = node.right;
+   }
+   if (runClient !== -1 && text.length > runStart) {
+      ranges.push({ start: runStart, end: text.length, clientId: runClient });
+   }
+   return { text, authorRanges: ranges };
+}
+
 export async function getFileHistory(
    workspaceId: string,
    fileId: string
-): Promise<{ authorMap: Record<string, { userId: string; username: string; color: string }>; updates?: string[] | undefined; yjsState?: string | undefined }> {
+): Promise<{
+   authorMap: Record<string, { userId: string; username: string; color: string }>;
+   updates?: string[] | undefined;
+   yjsState?: string | undefined;
+   totalSteps?: number;
+   steps?: TimelineStep[];
+}> {
    const { yjsStateCache } = await import('../utils/redisCache.js');
 
    const cached = await yjsStateCache.getOrFetch(
@@ -118,18 +175,31 @@ export async function getFileHistory(
 
       const updatesResult = await fileRepository.getFileUpdates(fileId);
 
-      // INTENT: Build a composite gc:false Y.Doc from base yjs_state + all incremental updates.
-      // WHY: The base yjs_state was saved by WSSharedDoc (gc:false) so it has tombstones.
-      //      Adding incremental file_updates on top ensures the StructStore has the COMPLETE
-      //      character-level edit history including deletions — giving buildLegacyTimeline the
-      //      granularity it needs (per-character insertClock/deleteClock events), not just batch-level.
       const Y = await import('yjs');
       const compositeDoc = new Y.Doc({ gc: false });
-      if (baseState) Y.applyUpdate(compositeDoc, baseState);
+      const steps: TimelineStep[] = [{ stepIndex: 0, text: '', authorRanges: [] }];
 
       if (updatesResult.length > 0) {
          for (const row of updatesResult) {
-            try { Y.applyUpdate(compositeDoc, row.update); } catch {}
+            try {
+               const uArr = new Uint8Array(row.update.buffer, row.update.byteOffset, row.update.byteLength);
+               Y.applyUpdate(compositeDoc, uArr);
+               const stepSnap = extractSnapshotFromYText(compositeDoc.getText('monaco'));
+               steps.push({ stepIndex: steps.length, text: stepSnap.text, authorRanges: stepSnap.authorRanges });
+            } catch (e) {
+               console.error('[getFileHistory] Error applying update row:', e);
+            }
+         }
+      } else if (baseState && baseState.length > 0) {
+         try {
+            const baseArr = new Uint8Array(baseState.buffer, baseState.byteOffset, baseState.byteLength);
+            Y.applyUpdate(compositeDoc, baseArr);
+            const baseSnap = extractSnapshotFromYText(compositeDoc.getText('monaco'));
+            if (baseSnap.text) {
+               steps.push({ stepIndex: steps.length, text: baseSnap.text, authorRanges: baseSnap.authorRanges });
+            }
+         } catch (e) {
+            console.error('[getFileHistory] Error applying baseState:', e);
          }
       }
 
@@ -141,7 +211,13 @@ export async function getFileHistory(
          if (docsMap.has(docName)) {
             const liveDoc = await docsMap.get(docName)!;
             const liveState = Y.encodeStateAsUpdate(liveDoc);
-            try { Y.applyUpdate(compositeDoc, liveState); } catch {}
+            try {
+               Y.applyUpdate(compositeDoc, liveState);
+               const finalLiveSnap = extractSnapshotFromYText(compositeDoc.getText('monaco'));
+               if (steps[steps.length - 1]?.text !== finalLiveSnap.text) {
+                  steps.push({ stepIndex: steps.length, text: finalLiveSnap.text, authorRanges: finalLiveSnap.authorRanges });
+               }
+            } catch {}
          }
       } catch {}
 
@@ -152,11 +228,16 @@ export async function getFileHistory(
          yjsState: compositeYjsState,
          authorMap,
          updates: updatesResult.length > 0 ? updatesResult.map(r => r.update.toString('base64')) : undefined,
+         totalSteps: steps.length,
+         steps,
       };
-   } catch {
+   } catch (err) {
+      console.error('[getFileHistory] Unexpected error:', err);
       return {
          yjsState: baseState ? baseState.toString('base64') : undefined,
          authorMap,
+         totalSteps: 1,
+         steps: [{ stepIndex: 0, text: '', authorRanges: [] }],
       };
    }
 }
@@ -168,6 +249,10 @@ export async function updateFileContent(workspaceId: string, fileId: string, con
    ydoc.destroy();
 
    await fileRepository.updateFileAndYjsState(fileId, content, yjsState, '{}');
+   try {
+      const { yjsStateCache } = await import('../utils/redisCache.js');
+      await yjsStateCache.delete(`${fileId}:history`).catch(() => {});
+   } catch {}
    const { applyRestoredContentToLiveDocs } = await import('../docsRegistry.js');
    await applyRestoredContentToLiveDocs(workspaceId, [{ fileId, content }]);
 }

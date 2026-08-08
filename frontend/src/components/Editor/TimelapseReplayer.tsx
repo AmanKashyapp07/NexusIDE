@@ -342,43 +342,44 @@ export function useTimelapsePlayer({ workspaceId, fileId }: { workspaceId: strin
         const json = await fetchFileHistory(token, workspaceId, fileId);
         if (cancelled) return;
 
-        let built: BuiltTimeline;
-        let resolvedMode: ReplayMode;
-        let builtFull: BuiltTimeline | null = null;
-        let builtLegacy: BuiltTimeline | null = null;
+        let finalSnapshots: Snapshot[] = [];
+        let allClients: number[] = [];
+        let resolvedMode: ReplayMode = 'full';
 
-        if (json.updates && json.updates.length > 0) {
-          try { builtFull = buildFullFidelityTimeline(json.updates); } catch {}
-        }
-        if (json.yjsState) {
-          try { builtLegacy = buildLegacyTimeline(json.yjsState); } catch {}
-        }
-
-        if (builtFull && builtLegacy) {
-          if (builtLegacy.snapshots.length > builtFull.snapshots.length) {
-            built = builtLegacy;
-            resolvedMode = 'legacy';
-          } else {
-            built = builtFull;
-            resolvedMode = 'full';
+        if (json.steps && json.steps.length > 0) {
+          finalSnapshots = json.steps.map(s => ({
+            text: s.text,
+            authorRanges: s.authorRanges || []
+          }));
+          const clientSet = new Set<number>();
+          for (const s of json.steps) {
+            for (const r of s.authorRanges || []) {
+              if (r.clientId) clientSet.add(r.clientId);
+            }
           }
-        } else if (builtLegacy) {
-          built = builtLegacy;
-          resolvedMode = 'legacy';
-        } else if (builtFull) {
-          built = builtFull;
+          allClients = Array.from(clientSet);
           resolvedMode = 'full';
+        } else if (json.yjsState) {
+          try {
+            const builtLegacy = buildLegacyTimeline(json.yjsState);
+            finalSnapshots = builtLegacy.snapshots;
+            allClients = builtLegacy.allClientIds;
+            resolvedMode = 'legacy';
+          } catch {
+            finalSnapshots = [{ text: '', authorRanges: [] }];
+          }
         } else {
-          built = { snapshots: [{ text: '', authorRanges: [] }], activity: [0], allClientIds: [] };
+          finalSnapshots = [{ text: '', authorRanges: [] }];
+          allClients = [];
           resolvedMode = 'full';
         }
 
-        const maxC = Math.max(0, built.snapshots.length - 1);
-        (window as any).__timelapseSnapshots = built.snapshots;
+        const maxC = Math.max(0, finalSnapshots.length - 1);
+        (window as any).__timelapseSnapshots = finalSnapshots;
 
-        setSnapshots(built.snapshots);
-        setActivityBars(downsampleActivity(built.activity));
-        setAllClientIds(built.allClientIds);
+        setSnapshots(finalSnapshots);
+        setActivityBars(downsampleActivity(new Array(finalSnapshots.length).fill(1)));
+        setAllClientIds(allClients);
         setMode(resolvedMode);
         setMaxClock(maxC);
         setCurrentClock(maxC);
