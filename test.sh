@@ -99,7 +99,8 @@ show_help() {
   echo "Usage: bash test.sh [OPTION]"
   echo ""
   echo "Options:"
-  echo "  (no args)       Run unit, security & integration test suites cleanly"
+  echo "  --property      Run property-based CRDT fuzzing suite (fast-check)"
+  echo "  --idempotency   Run Stripe-standard idempotency & replay attack suite"
   echo "  --security      Run container security, cgroup limits & socket RBAC tests"
   echo "  --resilience    Run network flakiness, packet jitter & Redis failover tests"
   echo "  --timelapse     Run Timelapse CRDT engine unit & isolated E2E suites"
@@ -121,6 +122,40 @@ show_help() {
 }
 
 # ─── Test Suite Runners ───────────────────────────────────────────────────────
+
+run_property() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing fast-check property-based CRDT fuzzing & invariant proofs...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/property/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Property-based CRDT fuzzing tests passed in ${elapsed}s ✓"
+    record_result "Property CRDT Fuzzing Suite" "PASSED ✓" "4 Invariants" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Property-based CRDT fuzzing tests encountered failures."
+    record_result "Property CRDT Fuzzing Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_idempotency() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing idempotency, update vector replay, and corrupt snapshot recovery...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/idempotency/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Idempotency & replay attack tests passed in ${elapsed}s ✓"
+    record_result "Idempotency & Replay Suite" "PASSED ✓" "4 Tests" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Idempotency & replay tests encountered failures."
+    record_result "Idempotency & Replay Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
 
 run_services() {
   local t_start=$(date +%s)
@@ -317,6 +352,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --verbose|-v)     VERBOSE=true; shift ;;
     --last-failed|--failed|-lf) LAST_FAILED="true"; MODE="e2e"; shift ;;
+    --property)       MODE="property"; shift ;;
+    --idempotency)    MODE="idempotency"; shift ;;
     --security)       MODE="security"; shift ;;
     --resilience)     MODE="resilience"; shift ;;
     --timelapse)      MODE="timelapse"; shift ;;
@@ -343,6 +380,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$MODE" in
+  property)
+    step_header "1" "1" "Property-Based CRDT Fuzzing & Invariant Proofs"
+    run_property
+    ;;
+  idempotency)
+    step_header "1" "1" "Idempotency & Replay Attack Suite"
+    run_idempotency
+    ;;
   services)
     step_header "1" "1" "Backend Services & Algorithmic Unit Tests"
     run_services
@@ -375,36 +420,24 @@ case "$MODE" in
     step_header "1" "1" "Playwright E2E Browser Specs"
     run_e2e
     ;;
-  default)
-    step_header "1" "7" "Backend Services & Algorithmic Unit Tests"
+  default|all)
+    step_header "1" "9" "Property-Based CRDT Fuzzing & Invariant Proofs"
+    run_property || true
+    step_header "2" "9" "Idempotency & Replay Attack Suite"
+    run_idempotency || true
+    step_header "3" "9" "Backend Services & Algorithmic Unit Tests"
     run_services || true
-    step_header "2" "7" "Container Security & RBAC Guardrail Tests"
+    step_header "4" "9" "Container Security & RBAC Guardrail Tests"
     run_security || true
-    step_header "3" "7" "Network Resilience & Redis Failover Tests"
+    step_header "5" "9" "Network Resilience & Redis Failover Tests"
     run_resilience || true
-    step_header "4" "7" "Timelapse CRDT Engine Unit & Isolated Suites"
+    step_header "6" "9" "Timelapse CRDT Engine Unit & Isolated Suites"
     run_timelapse || true
-    step_header "5" "7" "REST API & WebSocket Integration Tests"
+    step_header "7" "9" "REST API & WebSocket Integration Tests"
     run_integration || true
-    step_header "6" "7" "PostgreSQL & Redis Performance Benchmarks"
+    step_header "8" "9" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "7" "7" "Frontend React & Monaco Component Tests"
-    run_frontend || true
-    ;;
-  all)
-    step_header "1" "7" "Backend Services & Algorithmic Unit Tests"
-    run_services || true
-    step_header "2" "7" "Container Security & RBAC Guardrail Tests"
-    run_security || true
-    step_header "3" "7" "Network Resilience & Redis Failover Tests"
-    run_resilience || true
-    step_header "4" "7" "Timelapse CRDT Engine Unit & Isolated Suites"
-    run_timelapse || true
-    step_header "5" "7" "REST API & WebSocket Integration Tests"
-    run_integration || true
-    step_header "6" "7" "PostgreSQL & Redis Database Performance"
-    run_db || true
-    step_header "7" "7" "Frontend React & Monaco Component Tests"
+    step_header "9" "9" "Frontend React & Monaco Component Tests"
     run_frontend || true
     ;;
 esac
