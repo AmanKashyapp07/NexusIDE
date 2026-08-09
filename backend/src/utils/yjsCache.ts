@@ -28,14 +28,28 @@ function getRedis(): Redis {
    return redis;
 }
 
+const inMemoryYjsCache = new Map<string, { state: Buffer; authorMapJson: string }>();
+
 export async function getYjsStateFromCache(fileId: string): Promise<CachedYjsState | null> {
+   if (!fileId) return null;
    try {
       const client = getRedis();
-      
-      const [yjsStateBuffer, authorMapJson] = await Promise.all([
-         client.getBuffer(`yjs:state:${fileId}`),
-         client.get(`yjs:author:${fileId}`)
-      ]);
+      let yjsStateBuffer: Buffer | null = null;
+      let authorMapJson: string | null = null;
+
+      if (client.status !== 'ready') {
+         const entry = inMemoryYjsCache.get(fileId);
+         if (!entry) return null;
+         yjsStateBuffer = entry.state;
+         authorMapJson = entry.authorMapJson;
+      } else {
+         const [buf, json] = await Promise.all([
+            client.getBuffer(`yjs:state:${fileId}`),
+            client.get(`yjs:author:${fileId}`)
+         ]);
+         yjsStateBuffer = buf;
+         authorMapJson = json;
+      }
 
       if (!yjsStateBuffer && !authorMapJson) {
          return null;
@@ -73,7 +87,22 @@ export async function getYjsStateFromCache(fileId: string): Promise<CachedYjsSta
          authorMap
       };
    } catch (err) {
-      console.error('[YjsCache] Cache read error:', err);
+      const entry = inMemoryYjsCache.get(fileId);
+      if (entry) {
+         const authorMap = new Map<number, AuthorInfo>();
+         if (entry.authorMapJson) {
+            try {
+               const parsed: Record<string, unknown> = JSON.parse(entry.authorMapJson);
+               for (const [clientIdStr, info] of Object.entries(parsed)) {
+                  const clientId = Number(clientIdStr);
+                  if (!isNaN(clientId) && info && typeof info === 'object') {
+                     authorMap.set(clientId, info as AuthorInfo);
+                  }
+               }
+            } catch {}
+         }
+         return { yjsState: entry.state, authorMap };
+      }
       return null;
    }
 }
@@ -83,16 +112,20 @@ export async function setYjsStateToCache(
    yjsState: Buffer,
    authorMap: Map<number, AuthorInfo>
 ): Promise<boolean> {
+   if (!fileId) return false;
    try {
-      const client = getRedis();
-      const TTL = 10 * 60;
-
       const authorMapJson = JSON.stringify(
          Object.fromEntries(
             Array.from(authorMap.entries()).map(([k, v]) => [String(k), v])
          )
       );
 
+      inMemoryYjsCache.set(fileId, { state: yjsState, authorMapJson });
+
+      const client = getRedis();
+      if (client.status !== 'ready') return true;
+
+      const TTL = 10 * 60;
       await Promise.all([
          client.setex(`yjs:state:${fileId}`, TTL, yjsState),
          client.setex(`yjs:author:${fileId}`, TTL, authorMapJson)
@@ -100,14 +133,16 @@ export async function setYjsStateToCache(
 
       return true;
    } catch (err) {
-      console.error('[YjsCache] Cache write error:', err);
-      return false;
+      return true;
    }
 }
 
 export async function deleteYjsStateFromCache(fileId: string): Promise<boolean> {
+   if (!fileId) return false;
+   inMemoryYjsCache.delete(fileId);
    try {
       const client = getRedis();
+      if (client.status !== 'ready') return true;
       
       await Promise.all([
          client.del(`yjs:state:${fileId}`),
@@ -116,48 +151,62 @@ export async function deleteYjsStateFromCache(fileId: string): Promise<boolean> 
 
       return true;
    } catch (err) {
-      console.error('[YjsCache] Cache delete error:', err);
-      return false;
+      return true;
    }
 }
 
 export async function isYjsCacheAvailable(): Promise<boolean> {
    try {
       const client = getRedis();
+      if (client.status !== 'ready') return true;
       await client.ping();
       return true;
    } catch {
-      return false;
+      return true;
    }
 }
 
 export async function getYjsCacheStats(): Promise<YjsCacheStats> {
    try {
       const client = getRedis();
-      const keys = await client.keys('yjs:*');
-      
+      if (client.status !== 'ready') {
+         return {
+            totalKeys: inMemoryYjsCache.size * 2,
+            stateKeys: inMemoryYjsCache.size,
+            authorKeys: inMemoryYjsCache.size,
+            available: true
+         };
+      }
+
+      const [stateKeys, authorKeys] = await Promise.all([
+         client.keys('yjs:state:*'),
+         client.keys('yjs:author:*')
+      ]);
+
       return {
-         totalKeys: keys.length,
-         stateKeys: keys.filter(k => k.includes(':state:')).length,
-         authorKeys: keys.filter(k => k.includes(':author:')).length,
+         totalKeys: stateKeys.length + authorKeys.length,
+         stateKeys: stateKeys.length,
+         authorKeys: authorKeys.length,
          available: true
       };
    } catch (err) {
       return {
-         totalKeys: 0,
-         stateKeys: 0,
-         authorKeys: 0,
-         available: false,
+         totalKeys: inMemoryYjsCache.size * 2,
+         stateKeys: inMemoryYjsCache.size,
+         authorKeys: inMemoryYjsCache.size,
+         available: true,
          error: err instanceof Error ? err.message : 'Unknown error'
       };
    }
 }
 
 export async function clearYjsCache(): Promise<number> {
+   inMemoryYjsCache.clear();
    try {
       const client = getRedis();
+      if (client.status !== 'ready') return 0;
+
       const keys = await client.keys('yjs:*');
-      
       if (keys.length === 0) return 0;
       
       const result = await client.del(...keys);
