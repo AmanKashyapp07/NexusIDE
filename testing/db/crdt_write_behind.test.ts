@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Pool } from 'pg';
 import { crdtWriteBehindService } from '../../backend/src/services/crdtWriteBehind.service.js';
 import { redis } from '../../backend/src/utils/redisCache.js';
@@ -9,7 +9,7 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
   let pool: Pool;
   let testUserId: string;
   let testWorkspaceId: string;
-  let testFileId: string;
+  const createdFileIds: string[] = [];
 
   beforeAll(async () => {
     crdtWriteBehindService.stopWriteBehindWorker();
@@ -38,20 +38,19 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
       RETURNING id
     `, [testUserId]);
     testWorkspaceId = wsRes.rows[0].id;
-
-    const fileRes = await pool.query(`
-      INSERT INTO files (id, workspace_id, name, type, content)
-      VALUES (uuid_generate_v4(), $1, 'crdt_write_behind.ts', 'file'::node_type, '// Write-Behind Buffer Test')
-      RETURNING id
-    `, [testWorkspaceId]);
-    testFileId = fileRes.rows[0].id;
   }, 30000);
+
+  beforeEach(async () => {
+    crdtWriteBehindService.stopWriteBehindWorker();
+    await redis.del('crdt:dirty_files').catch(() => {});
+  });
 
   afterAll(async () => {
     crdtWriteBehindService.stopWriteBehindWorker();
-    if (testFileId) {
-      await redis.del(`crdt:buffer:${testFileId}`).catch(() => {});
-      await pool.query('DELETE FROM file_updates WHERE file_id = $1', [testFileId]).catch(() => {});
+    for (const fId of createdFileIds) {
+      await redis.del(`crdt:buffer:${fId}`).catch(() => {});
+      await pool.query('DELETE FROM file_updates WHERE file_id = $1', [fId]).catch(() => {});
+      await pool.query('DELETE FROM files WHERE id = $1', [fId]).catch(() => {});
     }
     if (testWorkspaceId) {
       await pool.query('DELETE FROM workspaces WHERE id = $1', [testWorkspaceId]).catch(() => {});
@@ -59,10 +58,22 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
     await pool.end();
   });
 
+  async function createTestFile(filename: string): Promise<string> {
+    const fileRes = await pool.query(`
+      INSERT INTO files (id, workspace_id, name, type, content)
+      VALUES (uuid_generate_v4(), $1, $2, 'file'::node_type, '// CRDT Test')
+      RETURNING id
+    `, [testWorkspaceId, filename]);
+    const fileId = fileRes.rows[0].id;
+    createdFileIds.push(fileId);
+    return fileId;
+  }
+
   // ===========================================================================
   // 1. HIGH-THROUGHPUT REDIS BUFFER INGESTION (> 40,000 UPDATES/SEC)
   // ===========================================================================
   it('Rapidly ingests 2,000 binary CRDT delta updates into Redis buffer in < 150ms', async () => {
+    const fileId = await createTestFile('ingest_test.ts');
     const UPDATE_COUNT = 2000;
     const updates = Array.from({ length: UPDATE_COUNT }, (_, i) =>
       Buffer.from(`\x01\x01\x01\x01\x01\x01${i.toString(16).padStart(8, '0')}`, 'binary')
@@ -72,14 +83,14 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
     const startTime = Date.now();
     for (let i = 0; i < UPDATE_COUNT; i += BATCH_SIZE) {
       const chunk = updates.slice(i, i + BATCH_SIZE);
-      await Promise.all(chunk.map(u => crdtWriteBehindService.bufferCrdtUpdate(testFileId, u)));
+      await Promise.all(chunk.map(u => crdtWriteBehindService.bufferCrdtUpdate(fileId, u)));
     }
     const elapsed = Date.now() - startTime;
     const throughput = Math.round((UPDATE_COUNT / (elapsed / 1000)));
 
     console.log(`[Redis Buffer Ingestion] Buffered ${UPDATE_COUNT} updates in ${elapsed}ms (${throughput.toLocaleString()} updates/sec).`);
 
-    const queueDepth = await crdtWriteBehindService.getPendingBufferSize(testFileId);
+    const queueDepth = await crdtWriteBehindService.getPendingBufferSize(fileId);
     expect(queueDepth).toBe(UPDATE_COUNT);
     expect(elapsed).toBeLessThan(350);
   });
@@ -88,35 +99,32 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
   // 2. BATCHED FLUSH & POSTGRESQL MULTI-ROW / MERGED PERSISTENCE
   // ===========================================================================
   it('Drains Redis buffer and persists updates to PostgreSQL under distributed lock', async () => {
-    let currentPending = await crdtWriteBehindService.getPendingBufferSize(testFileId);
-    if (currentPending < 2000) {
-      const UPDATE_COUNT = 2000;
-      const updates = Array.from({ length: UPDATE_COUNT }, (_, i) =>
-        Buffer.from(`\x01\x01\x01\x01\x01\x01${i.toString(16).padStart(8, '0')}`, 'binary')
-      );
-      for (let i = 0; i < UPDATE_COUNT; i += 50) {
-        await Promise.all(updates.slice(i, i + 50).map(u => crdtWriteBehindService.bufferCrdtUpdate(testFileId, u)));
-      }
-      currentPending = await crdtWriteBehindService.getPendingBufferSize(testFileId);
+    const fileId = await createTestFile('flush_test.ts');
+    const UPDATE_COUNT = 2000;
+    const updates = Array.from({ length: UPDATE_COUNT }, (_, i) =>
+      Buffer.from(`\x01\x01\x01\x01\x01\x01${i.toString(16).padStart(8, '0')}`, 'binary')
+    );
+    for (let i = 0; i < UPDATE_COUNT; i += 50) {
+      await Promise.all(updates.slice(i, i + 50).map(u => crdtWriteBehindService.bufferCrdtUpdate(fileId, u)));
     }
 
-    const initialDbCount = await pool.query('SELECT COUNT(*) FROM file_updates WHERE file_id = $1', [testFileId]);
+    const initialDbCount = await pool.query('SELECT COUNT(*) FROM file_updates WHERE file_id = $1', [fileId]);
     const prevCount = parseInt(initialDbCount.rows[0].count, 10);
 
     const startTime = Date.now();
-    const flushedCount = await crdtWriteBehindService.flushFileBuffer(testFileId);
+    const flushedCount = await crdtWriteBehindService.flushFileBuffer(fileId);
     const elapsed = Date.now() - startTime;
 
     console.log(`[Write-Behind Flush] Flushed ${flushedCount} updates to PostgreSQL in ${elapsed}ms.`);
 
-    expect(flushedCount).toBe(currentPending);
+    expect(flushedCount).toBe(UPDATE_COUNT);
 
     // Redis buffer should now be empty
-    const remainingBuffer = await crdtWriteBehindService.getPendingBufferSize(testFileId);
+    const remainingBuffer = await crdtWriteBehindService.getPendingBufferSize(fileId);
     expect(remainingBuffer).toBe(0);
 
     // PostgreSQL should have received the compound/batched update
-    const finalDbCount = await pool.query('SELECT COUNT(*) FROM file_updates WHERE file_id = $1', [testFileId]);
+    const finalDbCount = await pool.query('SELECT COUNT(*) FROM file_updates WHERE file_id = $1', [fileId]);
     const afterCount = parseInt(finalDbCount.rows[0].count, 10);
     expect(afterCount).toBeGreaterThan(prevCount);
   });
@@ -125,24 +133,23 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
   // 3. 95%+ DATABASE WRITE IOPS REDUCTION RATIO
   // ===========================================================================
   it('1,000 keystroke updates collapse into minimal database write transactions', async () => {
+    const kFileId = await createTestFile('keystrokes.ts');
     const KEYSTROKES = 1000;
-    const dummyFile = await pool.query(`
-      INSERT INTO files (id, workspace_id, name, type, content)
-      VALUES (uuid_generate_v4(), $1, 'keystrokes.ts', 'file'::node_type, '')
-      RETURNING id
-    `, [testWorkspaceId]);
-    const kFileId = dummyFile.rows[0].id;
 
-    // Buffer 1,000 continuous simulated keystrokes
     const updates = Array.from({ length: KEYSTROKES }, (_, i) =>
       Buffer.from(`\x01\x01\x01${i.toString(16).padStart(6, '0')}`, 'binary')
     );
 
     const bufferStart = Date.now();
-    for (let i = 0; i < KEYSTROKES; i++) {
-      await crdtWriteBehindService.bufferCrdtUpdate(kFileId, updates[i]);
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < KEYSTROKES; i += BATCH_SIZE) {
+      await Promise.all(updates.slice(i, i + BATCH_SIZE).map(u => crdtWriteBehindService.bufferCrdtUpdate(kFileId, u)));
     }
     const bufferTime = Date.now() - bufferStart;
+
+    // Verify all 1,000 updates are fully ingested in Redis list before triggering flush
+    const pendingCount = await crdtWriteBehindService.getPendingBufferSize(kFileId);
+    expect(pendingCount).toBe(KEYSTROKES);
 
     // Single atomic flush
     const flushStart = Date.now();
@@ -153,26 +160,22 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
 
     expect(flushed).toBe(KEYSTROKES);
     expect(await crdtWriteBehindService.getPendingBufferSize(kFileId)).toBe(0);
-
-    // Clean up
-    await pool.query('DELETE FROM file_updates WHERE file_id = $1', [kFileId]);
-    await pool.query('DELETE FROM files WHERE id = $1', [kFileId]);
   });
 
   // ===========================================================================
   // 4. DISTRIBUTED LOCK MUTEX PREVENTS CONCURRENT FLUSH DUPLICATION
   // ===========================================================================
   it('Concurrent flush calls serialize safely with zero race condition duplicates', async () => {
-    // Buffer 100 updates rapidly in parallel
+    const fileId = await createTestFile('mutex_test.ts');
     await Promise.all(
       Array.from({ length: 100 }, (_, i) =>
-        crdtWriteBehindService.bufferCrdtUpdate(testFileId, Buffer.from(`delta_batch_${i}`))
+        crdtWriteBehindService.bufferCrdtUpdate(fileId, Buffer.from(`delta_batch_${i}`))
       )
     );
 
     // Launch 10 simultaneous flush attempts in parallel
     const parallelFlushes = Array.from({ length: 10 }, () =>
-      crdtWriteBehindService.flushFileBuffer(testFileId)
+      crdtWriteBehindService.flushFileBuffer(fileId)
     );
 
     const results = await Promise.all(parallelFlushes);
@@ -180,11 +183,10 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
 
     console.log(`[Mutex Flush] 10 concurrent flush attempts result: ${totalFlushed} updates flushed (0 double-flush collisions).`);
 
-    expect(totalFlushed).toBeGreaterThanOrEqual(1);
-    expect(await crdtWriteBehindService.getPendingBufferSize(testFileId)).toBe(0);
+    expect(totalFlushed).toBe(100);
+    expect(await crdtWriteBehindService.getPendingBufferSize(fileId)).toBe(0);
 
-    // Verify compound update safely exists in PostgreSQL with zero data loss
-    const dbUpdates = await pool.query('SELECT count(*)::int AS count FROM file_updates WHERE file_id = $1', [testFileId]);
+    const dbUpdates = await pool.query('SELECT count(*)::int AS count FROM file_updates WHERE file_id = $1', [fileId]);
     expect(dbUpdates.rows[0].count).toBeGreaterThanOrEqual(1);
   });
 
@@ -192,12 +194,8 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
   // 5. GLOBAL PERIODIC FLUSHER BACKGROUND CYCLE
   // ===========================================================================
   it('Global flush cycle drains multiple dirty document buffers simultaneously', async () => {
-    const fileA = testFileId;
-    const fileB = (await pool.query(`
-      INSERT INTO files (id, workspace_id, name, type, content)
-      VALUES (uuid_generate_v4(), $1, 'doc_b.ts', 'file'::node_type, '')
-      RETURNING id
-    `, [testWorkspaceId])).rows[0].id;
+    const fileA = await createTestFile('global_a.ts');
+    const fileB = await createTestFile('global_b.ts');
 
     await crdtWriteBehindService.bufferCrdtUpdate(fileA, Buffer.from('update_a1'));
     await crdtWriteBehindService.bufferCrdtUpdate(fileA, Buffer.from('update_a2'));
@@ -208,13 +206,9 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
 
     console.log(`[Global Flush Cycle] Drained ${stats.totalUpdates} updates across ${stats.flushedFiles} files in ${stats.elapsedMs}ms.`);
 
-    expect(stats.totalUpdates).toBeGreaterThanOrEqual(4);
-    expect(stats.flushedFiles).toBeGreaterThanOrEqual(2);
+    expect(stats.totalUpdates).toBe(4);
+    expect(stats.flushedFiles).toBe(2);
     expect(await crdtWriteBehindService.getPendingBufferSize(fileA)).toBe(0);
     expect(await crdtWriteBehindService.getPendingBufferSize(fileB)).toBe(0);
-
-    // Clean up
-    await pool.query('DELETE FROM file_updates WHERE file_id = $1', [fileB]);
-    await pool.query('DELETE FROM files WHERE id = $1', [fileB]);
   });
 });
