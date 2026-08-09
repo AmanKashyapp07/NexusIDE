@@ -12,6 +12,8 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
   let testFileId: string;
 
   beforeAll(async () => {
+    crdtWriteBehindService.stopWriteBehindWorker();
+
     pool = new Pool({
       connectionString: DATABASE_URL,
       max: 20,
@@ -86,6 +88,18 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
   // 2. BATCHED FLUSH & POSTGRESQL MULTI-ROW / MERGED PERSISTENCE
   // ===========================================================================
   it('Drains Redis buffer and persists updates to PostgreSQL under distributed lock', async () => {
+    let currentPending = await crdtWriteBehindService.getPendingBufferSize(testFileId);
+    if (currentPending < 2000) {
+      const UPDATE_COUNT = 2000;
+      const updates = Array.from({ length: UPDATE_COUNT }, (_, i) =>
+        Buffer.from(`\x01\x01\x01\x01\x01\x01${i.toString(16).padStart(8, '0')}`, 'binary')
+      );
+      for (let i = 0; i < UPDATE_COUNT; i += 50) {
+        await Promise.all(updates.slice(i, i + 50).map(u => crdtWriteBehindService.bufferCrdtUpdate(testFileId, u)));
+      }
+      currentPending = await crdtWriteBehindService.getPendingBufferSize(testFileId);
+    }
+
     const initialDbCount = await pool.query('SELECT COUNT(*) FROM file_updates WHERE file_id = $1', [testFileId]);
     const prevCount = parseInt(initialDbCount.rows[0].count, 10);
 
@@ -95,7 +109,7 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
 
     console.log(`[Write-Behind Flush] Flushed ${flushedCount} updates to PostgreSQL in ${elapsed}ms.`);
 
-    expect(flushedCount).toBe(2000);
+    expect(flushedCount).toBe(currentPending);
 
     // Redis buffer should now be empty
     const remainingBuffer = await crdtWriteBehindService.getPendingBufferSize(testFileId);
