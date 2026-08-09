@@ -1,0 +1,21 @@
+**/node_modules/
+.DS_Store
+.env
+.env.*
+backend/workspace_data/
+terminal_history/
+interview/
+test-results/
+playwright-report/
+docs/
+Interview-Prep/
+
+# SSH keys and deployment secrets
+*.key
+*.pem
+*.id_rsa
+id_rsa*
+*.pub
+deploy.env
+t.md
+s.md
