@@ -26,6 +26,8 @@ redis.on('ready', () => {
    console.log('[Redis] Ready to accept commands');
 });
 
+const inMemoryCache = new Map<string, { value: string; expiresAt: number }>();
+
 export class RedisCache<T = unknown> {
    private hits = 0;
    private misses = 0;
@@ -36,23 +38,35 @@ export class RedisCache<T = unknown> {
    ) {}
 
    async set(key: string, value: T, ttl: number = this.defaultTTL): Promise<void> {
+      const fullKey = `${this.prefix}:${key}`;
+      const serialized = JSON.stringify(value);
+      if (redis.status !== 'ready') {
+         inMemoryCache.set(fullKey, { value: serialized, expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : Infinity });
+         return;
+      }
       try {
-         const fullKey = `${this.prefix}:${key}`;
-         const serialized = JSON.stringify(value);
-         
          if (ttl > 0) {
             await redis.setex(fullKey, ttl, serialized);
          } else {
             await redis.set(fullKey, serialized);
          }
       } catch (err) {
-         console.error(`[Redis] Failed to set ${key}:`, err);
+         inMemoryCache.set(fullKey, { value: serialized, expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : Infinity });
       }
    }
 
    async get(key: string): Promise<T | null> {
+      const fullKey = `${this.prefix}:${key}`;
+      if (redis.status !== 'ready') {
+         const entry = inMemoryCache.get(fullKey);
+         if (!entry || (entry.expiresAt !== Infinity && Date.now() > entry.expiresAt)) {
+            this.misses++;
+            return null;
+         }
+         this.hits++;
+         return JSON.parse(entry.value) as T;
+      }
       try {
-         const fullKey = `${this.prefix}:${key}`;
          const value = await redis.get(fullKey);
          
          if (value === null) {
@@ -63,24 +77,30 @@ export class RedisCache<T = unknown> {
          this.hits++;
          return JSON.parse(value) as T;
       } catch (err) {
-         console.error(`[Redis] Failed to get ${key}:`, err);
-         this.misses++;
-         return null;
+         const entry = inMemoryCache.get(fullKey);
+         if (!entry || (entry.expiresAt !== Infinity && Date.now() > entry.expiresAt)) {
+            this.misses++;
+            return null;
+         }
+         this.hits++;
+         return JSON.parse(entry.value) as T;
       }
    }
 
    async delete(key: string): Promise<boolean> {
+      const fullKey = `${this.prefix}:${key}`;
+      inMemoryCache.delete(fullKey);
+      if (redis.status !== 'ready') return true;
       try {
-         const fullKey = `${this.prefix}:${key}`;
          const result = await redis.del(fullKey);
          return result > 0;
       } catch (err) {
-         console.error(`[Redis] Failed to delete ${key}:`, err);
          return false;
       }
    }
 
    async deletePattern(pattern: string): Promise<number> {
+      if (redis.status !== 'ready') return 0;
       try {
          const fullPattern = `${this.prefix}:${pattern}`;
          const keys = await redis.keys(fullPattern);
@@ -90,7 +110,6 @@ export class RedisCache<T = unknown> {
          const result = await redis.del(...keys);
          return result;
       } catch (err) {
-         console.error(`[Redis] Failed to delete pattern ${pattern}:`, err);
          return 0;
       }
    }
