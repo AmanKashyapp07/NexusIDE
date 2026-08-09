@@ -43,6 +43,24 @@ export class CrdtWriteBehindService {
       }
    }
 
+   // INTENT: Batch ingest array of binary CRDT updates into Redis List in a single atomic pipeline roundtrip (< 1ms).
+   async bufferCrdtUpdatesBatch(fileId: string, updates: (Uint8Array | Buffer)[]): Promise<void> {
+      if (!updates || updates.length === 0) return;
+      try {
+         const bufferKey = `${BUFFER_KEY_PREFIX}${fileId}`;
+         const hexPayloads = updates.map(u => Buffer.from(u).toString('hex'));
+         
+         const pipeline = redis.pipeline();
+         pipeline.rpush(bufferKey, ...hexPayloads);
+         pipeline.sadd(DIRTY_FILES_KEY, fileId);
+         pipeline.expire(bufferKey, 3600);
+         await pipeline.exec();
+      } catch (err: unknown) {
+         const msg = err instanceof Error ? err.message : String(err);
+         console.error(`[CRDT Write-Behind] Error batch buffering updates for file ${fileId}: ${msg}`);
+      }
+   }
+
    // INTENT: Query current pending queue depth in Redis for a specific file.
    async getPendingBufferSize(fileId: string): Promise<number> {
       try {

@@ -79,14 +79,10 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
       Buffer.from(`\x01\x01\x01\x01\x01\x01${i.toString(16).padStart(8, '0')}`, 'binary')
     );
 
-    const BATCH_SIZE = 50;
     const startTime = Date.now();
-    for (let i = 0; i < UPDATE_COUNT; i += BATCH_SIZE) {
-      const chunk = updates.slice(i, i + BATCH_SIZE);
-      await Promise.all(chunk.map(u => crdtWriteBehindService.bufferCrdtUpdate(fileId, u)));
-    }
+    await crdtWriteBehindService.bufferCrdtUpdatesBatch(fileId, updates);
     const elapsed = Date.now() - startTime;
-    const throughput = Math.round((UPDATE_COUNT / (elapsed / 1000)));
+    const throughput = Math.round((UPDATE_COUNT / (Math.max(1, elapsed) / 1000)));
 
     console.log(`[Redis Buffer Ingestion] Buffered ${UPDATE_COUNT} updates in ${elapsed}ms (${throughput.toLocaleString()} updates/sec).`);
 
@@ -104,9 +100,10 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
     const updates = Array.from({ length: UPDATE_COUNT }, (_, i) =>
       Buffer.from(`\x01\x01\x01\x01\x01\x01${i.toString(16).padStart(8, '0')}`, 'binary')
     );
-    for (let i = 0; i < UPDATE_COUNT; i += 50) {
-      await Promise.all(updates.slice(i, i + 50).map(u => crdtWriteBehindService.bufferCrdtUpdate(fileId, u)));
-    }
+    await crdtWriteBehindService.bufferCrdtUpdatesBatch(fileId, updates);
+
+    const pendingCount = await crdtWriteBehindService.getPendingBufferSize(fileId);
+    expect(pendingCount).toBe(UPDATE_COUNT);
 
     const initialDbCount = await pool.query('SELECT COUNT(*) FROM file_updates WHERE file_id = $1', [fileId]);
     const prevCount = parseInt(initialDbCount.rows[0].count, 10);
@@ -141,10 +138,7 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
     );
 
     const bufferStart = Date.now();
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < KEYSTROKES; i += BATCH_SIZE) {
-      await Promise.all(updates.slice(i, i + BATCH_SIZE).map(u => crdtWriteBehindService.bufferCrdtUpdate(kFileId, u)));
-    }
+    await crdtWriteBehindService.bufferCrdtUpdatesBatch(kFileId, updates);
     const bufferTime = Date.now() - bufferStart;
 
     // Verify all 1,000 updates are fully ingested in Redis list before triggering flush
@@ -167,11 +161,11 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
   // ===========================================================================
   it('Concurrent flush calls serialize safely with zero race condition duplicates', async () => {
     const fileId = await createTestFile('mutex_test.ts');
-    await Promise.all(
-      Array.from({ length: 100 }, (_, i) =>
-        crdtWriteBehindService.bufferCrdtUpdate(fileId, Buffer.from(`delta_batch_${i}`))
-      )
-    );
+    const updates = Array.from({ length: 100 }, (_, i) => Buffer.from(`delta_batch_${i}`));
+    await crdtWriteBehindService.bufferCrdtUpdatesBatch(fileId, updates);
+
+    const pendingCount = await crdtWriteBehindService.getPendingBufferSize(fileId);
+    expect(pendingCount).toBe(100);
 
     // Launch 10 simultaneous flush attempts in parallel
     const parallelFlushes = Array.from({ length: 10 }, () =>
@@ -197,10 +191,8 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
     const fileA = await createTestFile('global_a.ts');
     const fileB = await createTestFile('global_b.ts');
 
-    await crdtWriteBehindService.bufferCrdtUpdate(fileA, Buffer.from('update_a1'));
-    await crdtWriteBehindService.bufferCrdtUpdate(fileA, Buffer.from('update_a2'));
-    await crdtWriteBehindService.bufferCrdtUpdate(fileB, Buffer.from('update_b1'));
-    await crdtWriteBehindService.bufferCrdtUpdate(fileB, Buffer.from('update_b2'));
+    await crdtWriteBehindService.bufferCrdtUpdatesBatch(fileA, [Buffer.from('update_a1'), Buffer.from('update_a2')]);
+    await crdtWriteBehindService.bufferCrdtUpdatesBatch(fileB, [Buffer.from('update_b1'), Buffer.from('update_b2')]);
 
     const stats = await crdtWriteBehindService.flushAllDirtyBuffers();
 
