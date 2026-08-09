@@ -19,6 +19,8 @@ const UNLOCK_SCRIPT = `
   end
 `;
 
+const inMemoryLocks = new Set<string>();
+
 /**
  * Executes an asynchronous task protected by a distributed Redis mutex.
  * If the lock is already held by another pod, returns null without executing the task.
@@ -34,8 +36,16 @@ export async function withDistributedLock<T>(
 ): Promise<T | null> {
    try {
       if (redisPublisher.status !== 'ready' && redisPublisher.status !== 'connecting') {
-         // Fallback if Redis is temporarily unreachable
-         return await task();
+         // Fallback in-memory mutex if Redis is unreachable
+         if (inMemoryLocks.has(lockKey)) {
+            return null;
+         }
+         inMemoryLocks.add(lockKey);
+         try {
+            return await task();
+         } finally {
+            inMemoryLocks.delete(lockKey);
+         }
       }
 
       const acquired = await redisPublisher.set(lockKey, POD_ID, 'PX', ttlMs, 'NX');
@@ -55,6 +65,14 @@ export async function withDistributedLock<T>(
    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       log('🔒 REDLOCK', `Error in distributed lock for ${lockKey}: ${msg}`);
-      return await task();
+      if (inMemoryLocks.has(lockKey)) {
+         return null;
+      }
+      inMemoryLocks.add(lockKey);
+      try {
+         return await task();
+      } finally {
+         inMemoryLocks.delete(lockKey);
+      }
    }
 }

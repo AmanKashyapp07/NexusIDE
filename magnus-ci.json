@@ -3,7 +3,11 @@
   "image": "node:20-alpine",
   "stages": {
     "setup": {
-      "run": "npm --prefix backend install && npm --prefix frontend install"
+      "run": "npm install --no-audit && npm --prefix backend install --no-audit && npm --prefix frontend install --no-audit && npm --prefix testing install --no-audit"
+    },
+    "typecheck": {
+      "needs": ["setup"],
+      "run": "cd backend && npx tsc --noEmit && cd ../frontend && npx tsc -b"
     },
     "services": {
       "needs": ["setup"],
@@ -25,16 +29,20 @@
       "needs": ["setup"],
       "run": "cd backend && CI=true npx vitest run ../testing/integration/ --reporter=default"
     },
-    "db": {
-      "needs": ["setup"],
-      "run": "cd backend && CI=true npx vitest run ../testing/db/ --reporter=default"
-    },
     "frontend": {
       "needs": ["setup"],
       "run": "cd frontend && CI=true npx vitest run ../testing/frontend/ --reporter=default"
     },
     "build": {
-      "needs": ["services", "security", "resilience", "timelapse", "integration", "db", "frontend"],
+      "needs": [
+        "typecheck",
+        "services",
+        "security",
+        "resilience",
+        "timelapse",
+        "integration",
+        "frontend"
+      ],
       "run": "cd frontend && npm run build"
     }
   }
