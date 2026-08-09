@@ -22,7 +22,9 @@ function getRedis(): Redis {
       });
 
       redis.on('error', (err: Error) => {
-         console.error('[YjsCache] Redis error:', err.message);
+         if (!process.env.CI) {
+            console.error('[YjsCache] Redis error:', err.message);
+         }
       });
    }
    return redis;

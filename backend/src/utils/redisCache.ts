@@ -19,7 +19,9 @@ redis.on('connect', () => {
 });
 
 redis.on('error', (err: Error) => {
-   console.error('[Redis] Connection error:', err.message);
+   if (!process.env.CI) {
+      console.error('[Redis] Connection error:', err.message);
+   }
 });
 
 redis.on('ready', () => {
