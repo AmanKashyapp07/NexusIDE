@@ -100,6 +100,12 @@ export class RedisCache<T = unknown> {
    }
 
    async deletePattern(pattern: string): Promise<number> {
+      const prefixPattern = `${this.prefix}:${pattern.replace('*', '')}`;
+      for (const k of Array.from(inMemoryCache.keys())) {
+         if (k.startsWith(prefixPattern)) {
+            inMemoryCache.delete(k);
+         }
+      }
       if (redis.status !== 'ready') return 0;
       try {
          const fullPattern = `${this.prefix}:${pattern}`;
@@ -115,6 +121,13 @@ export class RedisCache<T = unknown> {
    }
 
    async clear(): Promise<void> {
+      const prefix = `${this.prefix}:`;
+      for (const k of Array.from(inMemoryCache.keys())) {
+         if (k.startsWith(prefix)) {
+            inMemoryCache.delete(k);
+         }
+      }
+      if (redis.status !== 'ready') return;
       try {
          const keys = await redis.keys(`${this.prefix}:*`);
          if (keys.length > 0) {
