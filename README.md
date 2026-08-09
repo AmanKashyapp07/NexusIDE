@@ -1,6 +1,6 @@
 <div align="center">
 
-# NexusIDE: Collaborative Cloud IDE
+# NexusIDE
 
 ### A Production-Ready Collaborative Cloud IDE
 
