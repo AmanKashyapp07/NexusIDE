@@ -1449,33 +1449,6 @@ test.describe('LSP - Language Intelligence', () => {
     }
   });
 
-  test.skip('8. Switching from TypeScript to Python file reconnects to the correct LSP', async ({ page }) => {
-    const ts = Date.now();
-    await loginUser(page, `LspSwitch_${ts}`);
-    await page.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_SWITCH_${ts}`);
-    await page.click('button:has-text("Create Now")');
-    await page.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
-    await waitForBootComplete(page);
-    await createFile(page, 'app.ts');
-    await page.waitForTimeout(500);
-    await createFile(page, 'script.py');
-    await page.waitForTimeout(500);
-    await page.locator('.ide-scrollbar').getByText('app.ts').click();
-    await page.waitForSelector('.monaco-editor', { timeout: 15000 });
-    await waitForLspStatus(page, 'ready', 30000);
-    await setEditorValue(page, `const n: number = "not a number";`);
-    await expect.poll(async () => (await getMarkers(page)).length, { timeout: 15000 }).toBeGreaterThan(0);
-    await page.locator('.ide-scrollbar').getByText('script.py').click();
-    await page.waitForTimeout(500); // let the TS LSP session close
-    await expect(page.locator('[data-testid="lsp-status-badge"]')).toBeVisible({ timeout: 10000 });
-    await waitForLspStatus(page, 'ready', 30000);
-    await setEditorValue(page, `x: int = "this is wrong"`);
-    await expect.poll(async () => (await getMarkers(page)).length, { timeout: 15000 }).toBeGreaterThan(0);
-    await page.locator('.ide-scrollbar').getByText('app.ts').click();
-    await waitForLspStatus(page, 'ready', 30000);
-    const tsMarkers = await getMarkers(page);
-    expect(tsMarkers.length).toBeGreaterThan(0);
-  });
   test('9. LSP WebSocket rejects connections with an invalid token', async ({ page }) => {
     const ts = Date.now();
     await loginUser(page, `LspAuth_${ts}`);

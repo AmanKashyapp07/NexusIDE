@@ -1461,7 +1461,7 @@ test.describe('Collab - Security & RBAC', () => {
     console.log(16);
   });
 
-  test.skip('Edge Case: Handles concurrent editor typing during restore mutation', async ({ page, context, request }) => {
+  test('Edge Case: Handles concurrent editor typing during restore mutation', async ({ page, context, request }) => {
   const alicePage = page;
   const bobPage = await context.browser()!.newContext().then(c => c.newPage());
   const timestamp = Date.now();
@@ -1847,7 +1847,7 @@ test.describe('Collab - Security & RBAC', () => {
     expect(cacheContent.content).toContain('// button v1');
   });
 
-  test.skip('17. blame engine maps Yjs client IDs to persistent user profiles across reconnects', async ({ page, context, request }) => {
+  test('17. blame engine maps Yjs client IDs to persistent user profiles across reconnects', async ({ page, context, request }) => {
     const timestamp = Date.now();
     const aliceName = `Alice_Blame_${timestamp}`;
     await loginUser(page, request, aliceName);

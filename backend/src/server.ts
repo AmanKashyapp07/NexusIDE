@@ -56,15 +56,17 @@ app.use(express.json());
 
 // INTENT: Reverse-proxy asset redirection for sandbox preview URLs.
 // WHY: Allows relative asset fetches within embedded preview iFrames to route back to the sandbox host container port.
-// EDGE CASE: Preserves original URL query parameters while matching workspace preview path tokens.
+// EDGE CASE: Preserves target port tokens (e.g. /preview/5173/) and original query parameters.
 app.use((req, res, next) => {
    if (req.path.startsWith('/api/workspace')) return next();
    const referer = req.headers.referer;
    if (referer) {
-      const match = referer.match(/\/api\/workspace\/([^\/]+)\/preview/);
+      const match = referer.match(/\/api\/workspace\/([^\/]+)\/preview([\/:-](port[\/:-])?\d{2,5})?/i);
       if (match) {
+         const wsId = match[1];
+         const portToken = match[2] || '';
          const prefix = referer.includes('/ide/') ? '/ide' : '';
-         return res.redirect(`${prefix}/api/workspace/${match[1]}/preview${req.originalUrl}`);
+         return res.redirect(`${prefix}/api/workspace/${wsId}/preview${portToken}${req.originalUrl}`);
       }
    }
    next();

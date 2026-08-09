@@ -334,6 +334,23 @@ router.post('/:id/heartbeat', requireWorkspaceRole('viewer'), async (req: Worksp
    res.json({ success: true });
 });
 
+router.get('/:id/preview/ports', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+   const wsId = req.params.id as string;
+   const userId = req.user?.id;
+   const ref = (userId ? getRunningContainerRef(userId, wsId) : null) || getRunningContainerRefByWorkspaceId(wsId);
+   
+   if (!ref) {
+      return res.json({ ports: [3000, 5000, 8000, 5173, 8080], activePorts: [3000] });
+   }
+
+   return res.json({
+      workspaceId: wsId,
+      ports: [3000, 5000, 8000, 5173, 8080],
+      activePorts: ref.hostPort ? [3000, 5000, 8000, 5173, 8080] : [3000],
+      containerIP: ref.containerIP || 'localhost'
+   });
+});
+
 router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
    const url = new URL(req.originalUrl, `http://${req.headers.host || 'localhost'}`);
    const hasIdePrefix = url.pathname.startsWith('/ide');
@@ -357,8 +374,16 @@ router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
       const ref = (userId && wsId ? getRunningContainerRef(userId, wsId) : null) || (wsId ? getRunningContainerRefByWorkspaceId(wsId) : null);
       if (!ref) return 'http://localhost:1';
 
+      let requestedPort = 3000;
       const portMatch = reqUrl.match(/\/preview[\/:\-](port[\/:\-])?(\d{2,5})/i) || reqUrl.match(/[\?&]port=(\d{2,5})/i);
-      const requestedPort = portMatch ? parseInt(portMatch[2] || portMatch[1], 10) : 3000;
+      if (portMatch) {
+         requestedPort = parseInt(portMatch[2] || portMatch[1], 10);
+      } else if (anyReq.headers?.referer) {
+         const refPortMatch = anyReq.headers.referer.match(/\/preview[\/:\-](port[\/:\-])?(\d{2,5})/i) || anyReq.headers.referer.match(/[\?&]port=(\d{2,5})/i);
+         if (refPortMatch) {
+            requestedPort = parseInt(refPortMatch[2] || refPortMatch[1], 10);
+         }
+      }
 
       if (requestedPort === 3000 && ref.hostPort) {
          return `http://localhost:${ref.hostPort}`;
@@ -380,6 +405,13 @@ router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
       return rewritten === '' ? '/' : rewritten;
    },
    on: {
+      proxyReq: (proxyReq: any, req: any) => {
+         const portMatch = (req.originalUrl || req.url || '').match(/\/preview[\/:\-](port[\/:\-])?(\d{2,5})/i) || (req.originalUrl || '').match(/[\?&]port=(\d{2,5})/i);
+         const targetPort = portMatch ? (portMatch[2] || portMatch[1]) : '3000';
+         proxyReq.setHeader('X-Forwarded-Port', targetPort);
+         proxyReq.setHeader('X-Forwarded-Proto', req.protocol || 'http');
+         proxyReq.setHeader('X-Forwarded-Prefix', `/api/workspace/${req.params?.id || 'ws'}/preview`);
+      },
       error: (_err: unknown, _req: unknown, res: unknown) => {
          const httpRes = res as Response | undefined;
          if (httpRes && !httpRes.headersSent) {
