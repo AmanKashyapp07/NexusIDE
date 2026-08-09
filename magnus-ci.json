@@ -5,6 +5,26 @@
     "setup": {
       "run": "npm install --no-audit && npm --prefix backend install --no-audit && npm --prefix frontend install --no-audit && npm --prefix testing install --no-audit"
     },
+    "property": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/property/ --reporter=default"
+    },
+    "idempotency": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/idempotency/ --reporter=default"
+    },
+    "chaos": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/chaos/ --reporter=default"
+    },
+    "contracts": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/contracts/ --reporter=default"
+    },
+    "perf": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/perf/ --reporter=default"
+    },
     "typecheck": {
       "needs": ["setup"],
       "run": "cd backend && npx tsc --noEmit && cd ../frontend && npx tsc -b"
@@ -35,6 +55,11 @@
     },
     "build": {
       "needs": [
+        "property",
+        "idempotency",
+        "chaos",
+        "contracts",
+        "perf",
         "typecheck",
         "services",
         "security",

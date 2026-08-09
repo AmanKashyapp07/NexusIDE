@@ -97,11 +97,11 @@ show_help() {
   echo "NexusIDE Master Test Suite Runner"
   echo ""
   echo "Usage: bash test.sh [OPTION]"
-  echo ""
   echo "  --property      Run property-based CRDT fuzzing suite (fast-check)"
   echo "  --idempotency   Run Stripe-standard idempotency & replay attack suite"
   echo "  --chaos         Run Netflix-standard chaos fault injection suite"
   echo "  --contracts     Run Stripe-standard API schema contract suite"
+  echo "  --memory        Run Google/Netflix heap memory leak & GC allocation benchmarks"
   echo "  --security      Run container security, cgroup limits & socket RBAC tests"
   echo "  --resilience    Run network flakiness, packet jitter & Redis failover tests"
   echo "  --timelapse     Run Timelapse CRDT engine unit & isolated E2E suites"
@@ -188,6 +188,23 @@ run_contracts() {
     local t_end=$(date +%s)
     log_error "API schema contract tests encountered failures."
     record_result "API Schema Contract Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_memory() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Google & Netflix heap memory leak & GC allocation benchmarks...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Heap memory leak & allocation benchmarks passed in ${elapsed}s ✓"
+    record_result "Heap & Memory Leak Suite" "PASSED ✓" "3 Benchmarks" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Heap memory leak benchmarks encountered failures."
+    record_result "Heap & Memory Leak Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
     return 1
   fi
 }
@@ -398,10 +415,11 @@ while [[ $# -gt 0 ]]; do
     --idempotency)    MODE="idempotency"; shift ;;
     --chaos)          MODE="chaos"; shift ;;
     --contracts)      MODE="contracts"; shift ;;
+    --memory|--leak)  MODE="memory"; shift ;;
     --security)       MODE="security"; shift ;;
     --resilience)     MODE="resilience"; shift ;;
     --timelapse)      MODE="timelapse"; shift ;;
-    --db|--perf)      MODE="db"; shift ;;
+    --db)             MODE="db"; shift ;;
     --services)       MODE="services"; shift ;;
     --integration)    MODE="integration"; shift ;;
     --frontend)       MODE="frontend"; shift ;;
@@ -440,6 +458,10 @@ case "$MODE" in
     step_header "1" "1" "API Schema & Compatibility Contract Suite"
     run_contracts
     ;;
+  memory)
+    step_header "1" "1" "Heap Memory Leak & Allocation Benchmarks"
+    run_memory
+    ;;
   services)
     step_header "1" "1" "Backend Services & Algorithmic Unit Tests"
     run_services
@@ -473,27 +495,29 @@ case "$MODE" in
     run_e2e
     ;;
   default|all)
-    step_header "1" "11" "Property-Based CRDT Fuzzing & Invariant Proofs"
+    step_header "1" "12" "Property-Based CRDT Fuzzing & Invariant Proofs"
     run_property || true
-    step_header "2" "11" "Idempotency & Replay Attack Suite"
+    step_header "2" "12" "Idempotency & Replay Attack Suite"
     run_idempotency || true
-    step_header "3" "11" "Chaos Fault Injection & Infrastructure Recovery"
+    step_header "3" "12" "Chaos Fault Injection & Infrastructure Recovery"
     run_chaos || true
-    step_header "4" "11" "API Schema & Compatibility Contract Suite"
+    step_header "4" "12" "API Schema & Compatibility Contract Suite"
     run_contracts || true
-    step_header "5" "11" "Backend Services & Algorithmic Unit Tests"
+    step_header "5" "12" "Heap Memory Leak & Allocation Benchmarks"
+    run_memory || true
+    step_header "6" "12" "Backend Services & Algorithmic Unit Tests"
     run_services || true
-    step_header "6" "11" "Container Security & RBAC Guardrail Tests"
+    step_header "7" "12" "Container Security & RBAC Guardrail Tests"
     run_security || true
-    step_header "7" "11" "Network Resilience & Redis Failover Tests"
+    step_header "8" "12" "Network Resilience & Redis Failover Tests"
     run_resilience || true
-    step_header "8" "11" "Timelapse CRDT Engine Unit & Isolated Suites"
+    step_header "9" "12" "Timelapse CRDT Engine Unit & Isolated Suites"
     run_timelapse || true
-    step_header "9" "11" "REST API & WebSocket Integration Tests"
+    step_header "10" "12" "REST API & WebSocket Integration Tests"
     run_integration || true
-    step_header "10" "11" "PostgreSQL & Redis Performance Benchmarks"
+    step_header "11" "12" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "11" "11" "Frontend React & Monaco Component Tests"
+    step_header "12" "12" "Frontend React & Monaco Component Tests"
     run_frontend || true
     ;;
 esac
