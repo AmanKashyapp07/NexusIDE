@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { 
   Trash2,
@@ -23,6 +24,8 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const outputQueueRef = useRef<Uint8Array[]>([]);
+  const animationFrameIdRef = useRef<number | null>(null);
   const { addToast } = useToast();
   
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
@@ -97,7 +100,38 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     terminal.open(terminalRef.current);
     fitAddon.fit();
 
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose();
+      });
+      terminal.loadAddon(webglAddon);
+    } catch {
+      // Fallback cleanly to standard DOM/Canvas rendering
+    }
+
     xtermRef.current = terminal;
+
+    const flushOutputQueue = () => {
+      if (outputQueueRef.current.length > 0 && xtermRef.current) {
+        const chunks = outputQueueRef.current;
+        outputQueueRef.current = [];
+        for (const chunk of chunks) {
+          xtermRef.current.write(chunk);
+        }
+      }
+      animationFrameIdRef.current = null;
+    };
+
+    const scheduleFlush = () => {
+      if (animationFrameIdRef.current === null) {
+        if (typeof requestAnimationFrame !== 'undefined') {
+          animationFrameIdRef.current = requestAnimationFrame(flushOutputQueue);
+        } else {
+          flushOutputQueue();
+        }
+      }
+    };
 
     const initFitTimeout = setTimeout(() => {
       if (xtermRef.current && fitAddonRef.current) {
@@ -115,14 +149,12 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     const token = getNexusToken();
     
     const terminalWsUrl = wsUrl(`/terminal/${workspaceId}?token=${token}`);
-    console.log('[TerminalPanel] Initiating WS:', terminalWsUrl, 'Token present:', Boolean(token), 'Length:', token.length);
     const ws = new WebSocket(terminalWsUrl);
     wsRef.current = ws;
 
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
-      console.log('[TerminalPanel] WS ONOPEN successful');
       setConnectionStatus('connected');
       setError(null);
       addToast('Terminal session connected', 'success');
@@ -130,9 +162,8 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
 
     ws.onmessage = (event) => {
       const data = new Uint8Array(event.data);
-      const text = new TextDecoder().decode(data);
-      console.log('[TerminalPanel] WS ONMESSAGE bytes:', data.length, 'text:', JSON.stringify(text.slice(0, 80)));
-      terminal.write(data);
+      outputQueueRef.current.push(data);
+      scheduleFlush();
     };
 
     ws.onerror = (err) => {
