@@ -98,9 +98,10 @@ show_help() {
   echo ""
   echo "Usage: bash test.sh [OPTION]"
   echo ""
-  echo "Options:"
   echo "  --property      Run property-based CRDT fuzzing suite (fast-check)"
   echo "  --idempotency   Run Stripe-standard idempotency & replay attack suite"
+  echo "  --chaos         Run Netflix-standard chaos fault injection suite"
+  echo "  --contracts     Run Stripe-standard API schema contract suite"
   echo "  --security      Run container security, cgroup limits & socket RBAC tests"
   echo "  --resilience    Run network flakiness, packet jitter & Redis failover tests"
   echo "  --timelapse     Run Timelapse CRDT engine unit & isolated E2E suites"
@@ -153,6 +154,40 @@ run_idempotency() {
     local t_end=$(date +%s)
     log_error "Idempotency & replay tests encountered failures."
     record_result "Idempotency & Replay Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_chaos() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Netflix-standard fault injection, Redis disconnects & PTY crash recovery...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/chaos/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Chaos engineering & fault injection tests passed in ${elapsed}s ✓"
+    record_result "Chaos Fault Injection Suite" "PASSED ✓" "4 Tests" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Chaos engineering tests encountered failures."
+    record_result "Chaos Fault Injection Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_contracts() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Stripe-standard REST & WebSocket API schema contract verification...${RESET}"
+  
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/contracts/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "API schema & backward compatibility contract tests passed in ${elapsed}s ✓"
+    record_result "API Schema Contract Suite" "PASSED ✓" "4 Contracts" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "API schema contract tests encountered failures."
+    record_result "API Schema Contract Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
     return 1
   fi
 }
@@ -354,6 +389,8 @@ while [[ $# -gt 0 ]]; do
     --last-failed|--failed|-lf) LAST_FAILED="true"; MODE="e2e"; shift ;;
     --property)       MODE="property"; shift ;;
     --idempotency)    MODE="idempotency"; shift ;;
+    --chaos)          MODE="chaos"; shift ;;
+    --contracts)      MODE="contracts"; shift ;;
     --security)       MODE="security"; shift ;;
     --resilience)     MODE="resilience"; shift ;;
     --timelapse)      MODE="timelapse"; shift ;;
@@ -388,6 +425,14 @@ case "$MODE" in
     step_header "1" "1" "Idempotency & Replay Attack Suite"
     run_idempotency
     ;;
+  chaos)
+    step_header "1" "1" "Chaos Fault Injection & Infrastructure Recovery"
+    run_chaos
+    ;;
+  contracts)
+    step_header "1" "1" "API Schema & Compatibility Contract Suite"
+    run_contracts
+    ;;
   services)
     step_header "1" "1" "Backend Services & Algorithmic Unit Tests"
     run_services
@@ -421,23 +466,27 @@ case "$MODE" in
     run_e2e
     ;;
   default|all)
-    step_header "1" "9" "Property-Based CRDT Fuzzing & Invariant Proofs"
+    step_header "1" "11" "Property-Based CRDT Fuzzing & Invariant Proofs"
     run_property || true
-    step_header "2" "9" "Idempotency & Replay Attack Suite"
+    step_header "2" "11" "Idempotency & Replay Attack Suite"
     run_idempotency || true
-    step_header "3" "9" "Backend Services & Algorithmic Unit Tests"
+    step_header "3" "11" "Chaos Fault Injection & Infrastructure Recovery"
+    run_chaos || true
+    step_header "4" "11" "API Schema & Compatibility Contract Suite"
+    run_contracts || true
+    step_header "5" "11" "Backend Services & Algorithmic Unit Tests"
     run_services || true
-    step_header "4" "9" "Container Security & RBAC Guardrail Tests"
+    step_header "6" "11" "Container Security & RBAC Guardrail Tests"
     run_security || true
-    step_header "5" "9" "Network Resilience & Redis Failover Tests"
+    step_header "7" "11" "Network Resilience & Redis Failover Tests"
     run_resilience || true
-    step_header "6" "9" "Timelapse CRDT Engine Unit & Isolated Suites"
+    step_header "8" "11" "Timelapse CRDT Engine Unit & Isolated Suites"
     run_timelapse || true
-    step_header "7" "9" "REST API & WebSocket Integration Tests"
+    step_header "9" "11" "REST API & WebSocket Integration Tests"
     run_integration || true
-    step_header "8" "9" "PostgreSQL & Redis Performance Benchmarks"
+    step_header "10" "11" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "9" "9" "Frontend React & Monaco Component Tests"
+    step_header "11" "11" "Frontend React & Monaco Component Tests"
     run_frontend || true
     ;;
 esac
