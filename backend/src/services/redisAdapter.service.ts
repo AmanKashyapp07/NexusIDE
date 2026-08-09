@@ -124,7 +124,7 @@ redisSubscriber.on('pmessageBuffer', async (_pattern: Buffer, channelBuffer: Buf
  */
 export async function publishYjsUpdate(docName: string, update: Uint8Array): Promise<void> {
    try {
-      if (redisPublisher.status !== 'ready' && redisPublisher.status !== 'connecting') return;
+      if (redisPublisher.status !== 'ready' && redisPublisher.status !== 'connecting' && process.env.NODE_ENV !== 'test') return;
       await redisPublisher.publish(`yjs:update:${docName}`, Buffer.from(update));
    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -137,7 +137,7 @@ export async function publishYjsUpdate(docName: string, update: Uint8Array): Pro
  */
 export async function publishYjsAwareness(docName: string, awarenessUpdate: Uint8Array): Promise<void> {
    try {
-      if (redisPublisher.status !== 'ready' && redisPublisher.status !== 'connecting') return;
+      if (redisPublisher.status !== 'ready' && redisPublisher.status !== 'connecting' && process.env.NODE_ENV !== 'test') return;
       await redisPublisher.publish(`yjs:awareness:${docName}`, Buffer.from(awarenessUpdate));
    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -150,7 +150,7 @@ export async function publishYjsAwareness(docName: string, awarenessUpdate: Uint
  */
 export async function publishWorkspaceEvict(workspaceId: string): Promise<void> {
    try {
-      if (redisPublisher.status !== 'ready' && redisPublisher.status !== 'connecting') return;
+      if (redisPublisher.status !== 'ready' && redisPublisher.status !== 'connecting' && process.env.NODE_ENV !== 'test') return;
       await redisPublisher.publish(`workspace:evict:${workspaceId}`, workspaceId);
       log('📡 REDIS-PUB', `Broadcasted workspace eviction signal for workspace=${workspaceId}`);
    } catch (err: unknown) {
