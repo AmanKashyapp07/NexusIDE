@@ -71,6 +71,14 @@ export function setupSocketPresenceHandlers(io: SocketIOServer, socket: Socket):
       socket.to(`presence-${workspaceId}`).emit('user-typing', { userId: user.id });
    });
 
+   socket.on('workspace-heartbeat', ({ workspaceId }: { workspaceId: string }) => {
+      const user = socket.data.user as { id: string } | undefined;
+      if (!user || !workspaceId) return;
+      import('../sandbox/workspaceContainer.js').then(({ touchWorkspaceActivity }) => {
+         try { touchWorkspaceActivity(user.id, workspaceId); } catch {}
+      }).catch(() => {});
+   });
+
    socket.on('leave-workspace', () => {
       const wsId = socket.data.presenceWorkspaceId as string | undefined;
       if (wsId) {

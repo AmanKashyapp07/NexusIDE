@@ -20,12 +20,13 @@ export const getFallbackWsUrl = () => {
 };
 
 export const getSocketIoOptions = () => {
-  if (typeof window === 'undefined') return { url: 'http://localhost:4000', path: '/socket.io' };
+  const options = { transports: ['websocket'], upgrade: false };
+  if (typeof window === 'undefined') return { url: 'http://localhost:4000', path: '/socket.io', ...options };
   const hostname = window.location.hostname;
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return { url: `${window.location.protocol}//${hostname}:4000`, path: '/socket.io' };
+    return { url: `${window.location.protocol}//${hostname}:4000`, path: '/socket.io', ...options };
   }
-  return { url: `${window.location.protocol}//${hostname}`, path: '/ide/socket.io' };
+  return { url: `${window.location.protocol}//${hostname}`, path: '/ide/socket.io', ...options };
 };
 
 export const apiUrl = (path: string) => `${getFallbackApiUrl()}${path.startsWith('/') ? path : `/${path}`}`;

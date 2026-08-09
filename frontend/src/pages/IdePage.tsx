@@ -230,24 +230,27 @@ function IdePage() {
   }, [workspaceId, isSnapshotting, addToast]);
 
   /* ─── Effects ────────────────────────────────────────────────────────── */
-  // Initialize workspace from URL param
+  // Initialize workspace from URL param using parallelized Promise.all batching
   useEffect(() => {
     const initWorkspace = async () => {
       const token = getNexusToken();
       if (!token) return navigateRef.current('/login');
       try {
-        const userData = await fetchCurrentUser(token);
-        setUser(userData);
+        const [userData, wsData, filesData] = await Promise.all([
+          fetchCurrentUser(token),
+          fetchWorkspace(token, urlWorkspaceId!),
+          fetchWorkspaceFiles(token, urlWorkspaceId!),
+        ]);
 
-        const wsData = await fetchWorkspace(token, urlWorkspaceId!);
+        setUser(userData);
         setWorkspaceId(wsData.id);
         setWorkspaceTitle(wsData.title);
         setUserRole((wsData.userRole || wsData.user_role || 'viewer') as UserRole);
-        await fetchFiles(wsData.id);
+        setFiles(filesData);
       } catch { navigateRef.current('/login'); }
     };
     if (urlWorkspaceId) initWorkspace(); else navigateRef.current('/dashboard');
-  }, [urlWorkspaceId, fetchFiles]);
+  }, [urlWorkspaceId]);
 
   // Presence socket
   useEffect(() => {
@@ -264,10 +267,21 @@ function IdePage() {
     });
     socket.on('disconnect', () => setConnectionStatus('disconnected'));
     socket.on('workspace-presence-update', (users: CollaboratorPresence[]) => setActiveCollaborators(users));
+    socket.on('file-created', ({ file }: { file: AppFile }) => {
+      if (file) {
+        setFiles(prev => prev.some(f => f.id === file.id) ? prev : [...prev, file]);
+      }
+    });
+    socket.on('file-deleted', ({ fileId }: { fileId: string }) => {
+      if (fileId) {
+        setFiles(prev => prev.filter(f => f.id !== fileId));
+      }
+    });
     socket.on('file-tree-update', () => fetchFiles(urlWorkspaceId));
     socket.on('snapshot-restored', ({ label }: { label: string }) => {
       addToast(`Workspace restored to snapshot: "${label}"`, 'success');
-      setTimeout(() => window.location.reload(), 1000);
+      // Phase 3: Soft state resync — refreshes file tree without destroying WebSockets or terminal PTY sessions
+      fetchFiles(urlWorkspaceId!);
     });
     socket.on('conflict-resolved', ({ fileId }: { fileId: string }) => {
       if (activeFileId === fileId) { setHasConflicts(false); addToast('Merge conflict resolved.', 'success'); }

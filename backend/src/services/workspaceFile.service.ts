@@ -42,6 +42,7 @@ export async function createWorkspaceFile(
    }).catch(() => {});
 
    getIO()?.to(`presence-${workspaceId}`).emit('file-tree-update');
+   getIO()?.to(`presence-${workspaceId}`).emit('file-created', { file: newFile });
    return newFile;
 }
 
@@ -262,6 +263,7 @@ export async function deleteWorkspaceFile(workspaceId: string, fileId: string): 
    await fileRepository.deleteFile(fileId, workspaceId);
    if (filePath) syncDeleteToTerminal(workspaceId, filePath).catch(() => {});
    getIO()?.to(`presence-${workspaceId}`).emit('file-tree-update');
+   getIO()?.to(`presence-${workspaceId}`).emit('file-deleted', { fileId, workspaceId });
 }
 
 export async function getFileConflicts(workspaceId: string, fileId: string) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { GitBranch, Clock, RotateCcw, FileText, Loader2, X, AlertTriangle, Plus, Minus, Equal, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiUrl } from '../../lib/backendUrls';
 import { getNexusToken } from '../../lib/tokenStorage';
@@ -32,6 +32,7 @@ interface SnapshotPanelProps {
   onClose: () => void;
   onCreateSnapshot: (label: string) => Promise<void>;
   isCreating: boolean;
+  onRestored?: () => void;
 }
 
 const styles = {
@@ -228,7 +229,7 @@ function DiffLineRow({ line }: { line: DiffLine }) {
 // MAIN COMPONENT
 // =============================================================================
 
-export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreateSnapshot, isCreating }: SnapshotPanelProps) {
+export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreateSnapshot, isCreating, onRestored }: SnapshotPanelProps) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
@@ -255,24 +256,50 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
 
   useEffect(() => { fetchSnapshots(); }, [fetchSnapshots]);
 
+  // Phase 2: Immutable SWR cache — snapshot file diffs are immutable once created
+  const snapshotFilesCacheRef = useRef<Map<string, SnapshotFile[]>>(new Map());
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const selectSnapshot = useCallback(async (snap: Snapshot) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setSelectedSnapshot(snap);
     setSelectedFile(null);
     setSnapshotFiles([]);
     setRestoreConfirm(false);
     setLoadingFiles(true);
     try {
+      // Phase 2: Serve from SWR cache on repeated views (0ms, 0 network requests)
+      if (snapshotFilesCacheRef.current.has(snap.id)) {
+        const cached = snapshotFilesCacheRef.current.get(snap.id)!;
+        setSnapshotFiles(cached);
+        if (cached.length > 0) setSelectedFile(cached[0]);
+        setLoadingFiles(false);
+        return;
+      }
+
       const token = getNexusToken();
       const res = await fetch(apiUrl(`/workspace/${workspaceId}/snapshots/${snap.id}/files`), {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
       if (res.ok) {
         const files: SnapshotFile[] = await res.json();
+        snapshotFilesCacheRef.current.set(snap.id, files); // Cache immutable result
         setSnapshotFiles(files);
         if (files.length > 0) setSelectedFile(files[0]);
       }
+    } catch (err: unknown) {
+      if ((err as Error).name === 'AbortError') return;
     } finally {
-      setLoadingFiles(false);
+      if (abortControllerRef.current === controller) {
+        setLoadingFiles(false);
+      }
     }
   }, [workspaceId]);
 
@@ -288,7 +315,12 @@ export default function SnapshotPanel({ workspaceId, userRole, onClose, onCreate
       if (res.ok) {
         setRestoreConfirm(false);
         onClose();
-        window.location.reload();
+        // Phase 3: Soft state resync — no hard page reload, preserves WebSockets & PTY
+        if (onRestored) {
+          onRestored();
+        } else {
+          window.location.reload();
+        }
       }
     } finally {
       setRestoring(false);

@@ -237,7 +237,17 @@ router.delete('/:id/collaborators/:userId', requireWorkspaceRole('admin'), async
 router.get('/:id/files', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
    try {
       const files = await getWorkspaceFiles(req.params.id as string);
-      res.json(files);
+      const jsonStr = JSON.stringify(files);
+      const { createHash } = await import('crypto');
+      const etag = `"${createHash('md5').update(jsonStr).digest('hex')}"`;
+      res.setHeader('ETag', etag);
+
+      if (req.headers['if-none-match'] === etag) {
+         return res.status(304).end();
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.send(jsonStr);
    } catch (err: unknown) { 
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg }); 

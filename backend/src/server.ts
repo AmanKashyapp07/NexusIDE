@@ -45,7 +45,7 @@ app.use(cors());
 // EDGE CASE: If a connection header contains 'upgrade', bypass compression entirely to prevent socket upgrade failure.
 app.use(compression({
    level: 6,
-   threshold: 1024,
+   threshold: 256,
    filter: (req: unknown, res: unknown) => {
       const expressReq = req as { headers?: Record<string, string> };
       if (expressReq.headers?.['upgrade']) return false;

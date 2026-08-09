@@ -241,14 +241,11 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     const interval = setInterval(() => {
       if (isActive) {
         isActive = false; // reset for next cycle
-        const token = getNexusToken();
-        fetch(apiUrl(`/workspace/${workspaceId}/heartbeat`), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        }).catch(() => {}); // Fire and forget
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          try {
+            wsRef.current.send(JSON.stringify({ type: 'heartbeat', workspaceId }));
+          } catch {}
+        }
       }
     }, 2 * 60 * 1000); // 2 minutes
 
