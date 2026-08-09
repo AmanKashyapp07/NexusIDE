@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# =============================================================================
+# .githooks/pre-push — Auto-deploy on git push
+# =============================================================================
+# Runs `bash deploy.sh` automatically before every `git push`.
+# Aborts the push if the deploy fails (non-zero exit).
+#
+# To enable:   git config core.hooksPath .githooks
+# To disable:  git push --no-verify
+# =============================================================================
+
+set -euo pipefail
+
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+RESET='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEPLOY_SCRIPT="$SCRIPT_DIR/deploy.sh"
+
+# Read push arguments: remote name and URL are passed by git as env/stdin
+# Only deploy on pushes to main or master
+while read local_ref local_sha remote_ref remote_sha; do
+  branch="${remote_ref##refs/heads/}"
+  if [[ "$branch" != "main" && "$branch" != "master" ]]; then
+    echo -e "${YELLOW}[pre-push]${RESET} Branch '${branch}' is not main/master — skipping auto-deploy."
+    exit 0
+  fi
+done
+
+echo ""
+echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════════╗${RESET}"
+echo -e "${CYAN}${BOLD}║   🚀 Auto-Deploy triggered by git push           ║${RESET}"
+echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
+echo ""
+
+if [ ! -f "$DEPLOY_SCRIPT" ]; then
+  echo -e "${RED}[pre-push] ERROR: deploy.sh not found at $DEPLOY_SCRIPT${RESET}"
+  exit 1
+fi
+
+cd "$SCRIPT_DIR"
+bash "$DEPLOY_SCRIPT"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+  echo ""
+  echo -e "${RED}${BOLD}[pre-push] Deploy failed (exit $EXIT_CODE) — push aborted.${RESET}"
+  echo -e "${YELLOW}Fix the deploy error and try again, or run:${RESET}"
+  echo -e "  ${BOLD}git push --no-verify${RESET}  (to push without deploying)"
+  exit $EXIT_CODE
+fi
+
+echo ""
+echo -e "${GREEN}${BOLD}[pre-push] Deploy succeeded ✓ — push proceeding.${RESET}"
+exit 0
