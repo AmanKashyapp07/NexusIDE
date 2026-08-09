@@ -281,24 +281,21 @@ run_db() {
   local t_start=$(date +%s)
   echo -e "${DIM}Running database covering indexes, Redis L2, Write-Behind & Presence suites...${RESET}"
   
+  if [ "$MODE" != "db" ] && [ "$MODE" != "all" ]; then
+    log_info "Skipping live PostgreSQL DB tests (use bash test.sh --db to run DB tests)."
+    record_result "PostgreSQL & Redis DB Suite" "SKIPPED" "38 Tests" "0"
+    return 0
+  fi
+
   local output=""
   if output=$(bash "${LOCAL_BASE}/test-db.sh" 2>&1); then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
-    if [[ "$output" == *"Skipping live PostgreSQL DB tests"* ]]; then
-      log_info "Skipping live PostgreSQL DB tests (use bash test.sh --db to run DB tests)."
-      record_result "PostgreSQL & Redis DB Suite" "SKIPPED" "38 Tests" "$elapsed"
-    else
-      record_result "PostgreSQL & Redis DB Suite" "PASSED ✓" "38 Tests" "$elapsed"
-    fi
+    record_result "PostgreSQL & Redis DB Suite" "PASSED ✓" "38 Tests" "$elapsed"
   else
     local t_end=$(date +%s)
-    if [[ "$output" == *"Skipping"* ]]; then
-      record_result "PostgreSQL & Redis DB Suite" "SKIPPED" "38 Tests" "$((t_end - t_start))"
-    else
-      record_result "PostgreSQL & Redis DB Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
-      return 1
-    fi
+    record_result "PostgreSQL & Redis DB Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
   fi
 }
 
