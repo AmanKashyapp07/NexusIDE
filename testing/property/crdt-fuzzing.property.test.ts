@@ -190,7 +190,7 @@ describe('Google Standard Property-Based CRDT Fuzzing Suite', () => {
                   clientId: fc.integer({ min: 1000, max: 9999 }),
                   cursorPos: fc.integer({ min: 0, max: 500 }),
                   username: fc.string({ minLength: 3, maxLength: 12 }),
-                  color: fc.hexaString({ minLength: 6, maxLength: 6 })
+                  color: fc.string({ minLength: 6, maxLength: 6 })
                }),
                { minLength: 3, maxLength: 15 }
             ),

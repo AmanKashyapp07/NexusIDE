@@ -569,7 +569,7 @@ run_e2e() {
   fi
 
   echo -e "${DIM}Executing Playwright browser journeys in maximum parallel concurrency (--workers=${max_workers}) against target ${NEXUS_BASE_URL}...${RESET}"
-  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/ --config ../frontend/playwright.config.ts --reporter=list --workers="${max_workers}" ${flags[@]+"${flags[@]}"}); then
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/ --config playwright.config.ts --reporter=list --workers="${max_workers}" ${flags[@]+"${flags[@]}"}); then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     log_success "Playwright E2E browser tests passed in ${elapsed}s ✓"
