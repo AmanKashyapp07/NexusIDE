@@ -298,14 +298,7 @@ run_db() {
   local t_start=$(date +%s)
   echo -e "${DIM}Running database covering indexes, Redis L2, Write-Behind & Presence suites...${RESET}"
   
-  if [ "$MODE" != "db" ] && [ "$MODE" != "all" ]; then
-    log_info "Skipping live PostgreSQL DB tests (use bash test.sh --db to run DB tests)."
-    record_result "PostgreSQL & Redis DB Suite" "SKIPPED" "38 Tests" "0"
-    return 0
-  fi
-
-  local output=""
-  if output=$(bash "${LOCAL_BASE}/test-db.sh" 2>&1); then
+  if bash "${LOCAL_BASE}/test-db.sh"; then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     record_result "PostgreSQL & Redis DB Suite" "PASSED ✓" "38 Tests" "$elapsed"

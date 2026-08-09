@@ -125,10 +125,8 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
     );
 
     const bufferStart = Date.now();
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < KEYSTROKES; i += BATCH_SIZE) {
-      const chunk = updates.slice(i, i + BATCH_SIZE);
-      await Promise.all(chunk.map(u => crdtWriteBehindService.bufferCrdtUpdate(kFileId, u)));
+    for (let i = 0; i < KEYSTROKES; i++) {
+      await crdtWriteBehindService.bufferCrdtUpdate(kFileId, updates[i]);
     }
     const bufferTime = Date.now() - bufferStart;
 
