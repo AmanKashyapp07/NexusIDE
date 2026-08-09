@@ -57,8 +57,8 @@ function makeYjsState(text: string): Buffer {
 
 let mockQuery: any;
 
-vi.mock('../../backend/src/db', () => ({
-  getPool: () => ({
+vi.mock('../../backend/src/db', () => {
+  const mockClient = {
     query: (...args: any[]) => {
       const sql = args[0] || '';
       if (mockQuery) {
@@ -72,9 +72,17 @@ vi.mock('../../backend/src/db', () => ({
       if (sql.includes('SELECT content, yjs_state, author_map FROM files'))
         return Promise.resolve({ rows: [{ content: '', yjs_state: null, author_map: {} }] });
       return Promise.resolve({ rows: [] });
-    }
-  }),
-}));
+    },
+    release: () => {},
+  };
+
+  return {
+    getPool: () => ({
+      ...mockClient,
+      connect: () => Promise.resolve(mockClient),
+    }),
+  };
+});
 
 vi.mock('../../backend/src/sandbox/pool', () => ({
   warmPoolManager: { initializePools: vi.fn(), cleanup: vi.fn() },

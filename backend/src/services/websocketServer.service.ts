@@ -38,6 +38,26 @@ const pendingConns = new Map<string, number>();
 export function setupWebSocketServer(server: http.Server): WebSocketServer {
    const wss = new WebSocketServer({ noServer: true });
 
+   // 30s TCP Ping/Pong Heartbeat to detect unhandled/silent network drops
+   const heartbeatInterval = setInterval(() => {
+      wss.clients.forEach((ws: WebSocket & { isAlive?: boolean }) => {
+         if (ws.isAlive === false) {
+            log('💔 HEARTBEAT', 'Terminating unresponsive WebSocket client (ping timeout)');
+            return ws.terminate();
+         }
+         ws.isAlive = false;
+         try {
+            ws.ping();
+         } catch {
+            ws.terminate();
+         }
+      });
+   }, 30000);
+
+   wss.on('close', () => {
+      clearInterval(heartbeatInterval);
+   });
+
    // INTENT: Multiplex incoming HTTP upgrade requests by pathname pattern.
    // WHY: Socket.IO handles its own upgrade protocol. Non-Socket.IO requests are handed over to this WebSocketServer instance.
    // EDGE CASE: Avoid intercepting `/socket.io/` paths to prevent breaking Socket.IO handshakes.
@@ -53,7 +73,9 @@ export function setupWebSocketServer(server: http.Server): WebSocketServer {
 
    // INTENT: Authenticate, authorize, and connect a WebSocket client to the target room document.
    // WHY: Ensures strict RBAC (Viewer, Editor, Admin) before granting document read/write access.
-   wss.on('connection', async (ws: WebSocket, req: http.IncomingMessage) => {
+   wss.on('connection', async (ws: WebSocket & { isAlive?: boolean }, req: http.IncomingMessage) => {
+      ws.isAlive = true;
+      ws.on('pong', () => { ws.isAlive = true; });
       try {
          const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
          

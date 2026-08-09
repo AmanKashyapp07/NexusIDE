@@ -64,54 +64,94 @@ export async function compactFileCrdtDeltas(fileId: string): Promise<CompactionR
       return { fileId, updatesCompacted: 0, compactedSizeBytes: currentSize };
    }
 
-   const doc = new Y.Doc({ gc: false });
+   // Extract delta updates array
+   const updatesList = updatesRes.rows
+      .filter((r) => r.update && r.update.length > 0)
+      .map((r) => new Uint8Array(r.update));
 
-   try {
-      // 1. Load base state
-      if (fileRes.rows[0]?.yjs_state) {
-         Y.applyUpdate(doc, new Uint8Array(fileRes.rows[0].yjs_state));
-      } else if (fileRes.rows[0]?.content) {
-         doc.getText('monaco').insert(0, fileRes.rows[0].content);
-      }
+   let compactedBuffer: Buffer;
+   let textContent: string;
 
-      // 2. Apply all incremental delta blobs
-      for (const row of updatesRes.rows) {
-         if (row.update && row.update.length > 0) {
-            Y.applyUpdate(doc, new Uint8Array(row.update));
+   // Offload heavy CRDT merging to WorkerPool when updating > 5 deltas
+   if (updatesList.length > 5) {
+      try {
+         const { workerPoolService } = await import('./workerPool.service.js');
+         const baseStateArr = fileRes.rows[0]?.yjs_state
+            ? new Uint8Array(fileRes.rows[0].yjs_state)
+            : null;
+
+         const mergedBytes = await workerPoolService.mergeYjsUpdatesOffloaded(updatesList, baseStateArr);
+         compactedBuffer = Buffer.from(mergedBytes);
+
+         // Extract text for MONACO representation
+         const doc = new Y.Doc({ gc: false });
+         try {
+            Y.applyUpdate(doc, mergedBytes);
+            textContent = doc.getText('monaco').toString();
+         } finally {
+            doc.destroy();
+         }
+      } catch {
+         // Fallback to inline merging
+         const doc = new Y.Doc({ gc: false });
+         try {
+            if (fileRes.rows[0]?.yjs_state) {
+               Y.applyUpdate(doc, new Uint8Array(fileRes.rows[0].yjs_state));
+            } else if (fileRes.rows[0]?.content) {
+               doc.getText('monaco').insert(0, fileRes.rows[0].content);
+            }
+            for (const u of updatesList) {
+               Y.applyUpdate(doc, u);
+            }
+            compactedBuffer = Buffer.from(Y.encodeStateAsUpdate(doc));
+            textContent = doc.getText('monaco').toString();
+         } finally {
+            doc.destroy();
          }
       }
-
-      // 3. Encode single compacted state vector
-      const compactedBuffer = Buffer.from(Y.encodeStateAsUpdate(doc));
-      const textContent = doc.getText('monaco').toString();
-
-      // 4. Atomic transaction: Update base state & purge delta log
-      const client = await pool.connect();
+   } else {
+      // Small delta list — execute inline
+      const doc = new Y.Doc({ gc: false });
       try {
-         await client.query('BEGIN');
-         await client.query(
-            'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
-            [compactedBuffer, textContent, fileId]
-         );
-         await client.query('DELETE FROM file_updates WHERE file_id = $1', [fileId]);
-         await client.query('COMMIT');
-      } catch (txErr) {
-         await client.query('ROLLBACK');
-         throw txErr;
+         if (fileRes.rows[0]?.yjs_state) {
+            Y.applyUpdate(doc, new Uint8Array(fileRes.rows[0].yjs_state));
+         } else if (fileRes.rows[0]?.content) {
+            doc.getText('monaco').insert(0, fileRes.rows[0].content);
+         }
+         for (const u of updatesList) {
+            Y.applyUpdate(doc, u);
+         }
+         compactedBuffer = Buffer.from(Y.encodeStateAsUpdate(doc));
+         textContent = doc.getText('monaco').toString();
       } finally {
-         client.release();
+         doc.destroy();
       }
-
-      log('📦 COMPACT', `Compacted ${updatesRes.rows.length} deltas for file=${fileId} (${compactedBuffer.length} bytes)`);
-
-      return {
-         fileId,
-         updatesCompacted: updatesRes.rows.length,
-         compactedSizeBytes: compactedBuffer.length,
-      };
-   } finally {
-      doc.destroy();
    }
+
+   // 4. Atomic transaction: Update base state & purge delta log
+   const client = await pool.connect();
+   try {
+      await client.query('BEGIN');
+      await client.query(
+         'UPDATE files SET yjs_state = $1, content = $2 WHERE id = $3',
+         [compactedBuffer, textContent, fileId]
+      );
+      await client.query('DELETE FROM file_updates WHERE file_id = $1', [fileId]);
+      await client.query('COMMIT');
+   } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+   } finally {
+      client.release();
+   }
+
+   log('📦 COMPACT', `Compacted ${updatesRes.rows.length} deltas for file=${fileId} (${compactedBuffer.length} bytes)`);
+
+   return {
+      fileId,
+      updatesCompacted: updatesRes.rows.length,
+      compactedSizeBytes: compactedBuffer.length,
+   };
 }
 
 // =============================================================================

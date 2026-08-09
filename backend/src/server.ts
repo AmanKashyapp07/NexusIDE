@@ -18,6 +18,7 @@ import jwt from 'jsonwebtoken';
 
 import workspaceRoutes from './routes/workspace.js';
 import authRoutes from './routes/auth.js';
+import metricsRoutes from './routes/metrics.routes.js';
 import { requireAuth } from './middleware/auth.js';
 import { setIO } from './socket.js';
 import { getPool } from './db.js';
@@ -29,6 +30,7 @@ import { setupSocketPresenceHandlers } from './services/socketPresence.service.j
 import { setupWebSocketServer } from './services/websocketServer.service.js';
 import { initializeRedisCollaborationMesh } from './services/redisAdapter.service.js';
 import { crdtWriteBehindService } from './services/crdtWriteBehind.service.js';
+import { cleanupCronService } from './services/cleanupCron.service.js';
 
 // =============================================================================
 // EXPRESS APPLICATION INITIALIZATION & MIDDLEWARE SETUP
@@ -76,10 +78,11 @@ app.use((req, res, next) => {
 // REST API ROUTE REGISTRATION
 // =============================================================================
 
-// INTENT: Mount authentication and workspace resource controllers.
+// INTENT: Mount authentication, workspace resource controllers, and observability endpoints.
 // WHY: Isolates unauthenticated OAuth/login routes from JWT-protected workspace resources.
 app.use(['/auth', '/api/auth', '/ide/api/auth'], authRoutes);
 app.use(['/workspace', '/api/workspace', '/ide/api/workspace'], requireAuth, workspaceRoutes);
+app.use(['/metrics', '/api/metrics', '/ide/api/metrics'], metricsRoutes);
 
 // =============================================================================
 // HTTP & WEBSOCKET SERVER CREATION & ROUTING SETUP

@@ -21,6 +21,27 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['monaco-editor'],
   },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/monaco-editor') || id.includes('node_modules/@monaco-editor')) {
+            return 'monaco-vendor';
+          }
+          if (id.includes('node_modules/yjs') || id.includes('node_modules/y-protocols') || id.includes('node_modules/y-websocket') || id.includes('node_modules/y-monaco')) {
+            return 'yjs-vendor';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'icons-vendor';
+          }
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/react-router-dom')) {
+            return 'react-vendor';
+          }
+        },
+      },
+    },
+  },
   worker: {
     format: 'es',
   },

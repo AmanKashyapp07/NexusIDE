@@ -176,8 +176,9 @@ export function useCodeEditorSetup({
       }
     };
 
-    // Direct Monaco deltaDecorations for zero-React re-render cursor performance
-    const handleAwareness = () => {
+    // Direct Monaco deltaDecorations + requestAnimationFrame batching for 60fps render cap
+    let animFrameId: number | null = null;
+    const handleAwarenessDirect = () => {
       if (!isActive) return;
       const states = Array.from(wsProvider.awareness.getStates().entries()) as [number, AwarenessState][];
       setAwarenessStates(states);
@@ -218,6 +219,15 @@ export function useCodeEditorSetup({
       }
     };
 
+    const handleAwareness = () => {
+      if (!isActive) return;
+      if (animFrameId !== null) return;
+      animFrameId = requestAnimationFrame(() => {
+        animFrameId = null;
+        handleAwarenessDirect();
+      });
+    };
+
     const handleUpdate = (_update: Uint8Array, origin: any) => {
       if (!isActive || origin !== binding) return;
       callbackRefs.current.onCodeChange?.(editor.getValue());
@@ -235,6 +245,10 @@ export function useCodeEditorSetup({
 
     return () => {
       isActive = false;
+      if (animFrameId !== null) {
+        cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+      }
       wsProviderRef.current = null;
       ydocRef.current = null;
 

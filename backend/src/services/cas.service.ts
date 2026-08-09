@@ -119,11 +119,30 @@ export class CASService {
 
   /**
    * Builds a flat Merkle DAG from a workspace's active files.
-   * Deduplicates identical blob payloads in memory before database insertion.
+   * Offloads CPU-intensive SHA-256 Merkle tree computation to worker threads
+   * to guarantee sub-millisecond event loop responsiveness.
    */
   static async buildMerkleTree(
     files: { path: string; content: string; language?: string | null }[]
   ): Promise<MerkleDAG> {
+    // For small file sets (<= 3 files), execute inline to avoid message-passing overhead.
+    if (files.length <= 3) {
+      return this.buildMerkleTreeInline(files);
+    }
+    try {
+      const { workerPoolService } = await import('./workerPool.service.js');
+      return await workerPoolService.buildMerkleTreeOffloaded(files);
+    } catch {
+      return this.buildMerkleTreeInline(files);
+    }
+  }
+
+  /**
+   * Synchronous / inline fallback Merkle DAG builder.
+   */
+  static buildMerkleTreeInline(
+    files: { path: string; content: string; language?: string | null }[]
+  ): MerkleDAG {
     const blobsMap = new Map<string, BlobRecord>();
     const rootEntries: TreeEntry[] = [];
 

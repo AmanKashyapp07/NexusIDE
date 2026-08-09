@@ -29,6 +29,9 @@ import type { AuthorInfo } from '../types/cache.types.js';
 // INTENT: Represent a shared real-time collaborative text document backed by a Yjs Y.Doc state tree.
 // WHY: Inheriting from `Y.Doc` grants native access to CRDT update listeners, transaction hooks, and awareness management.
 // INTERVIEW NOTES: By disabling Garbage Collection (`gc: false`), deleted character nodes remain in the struct store as tombstones. This allows git-blame style historical attribution.
+export const BACKPRESSURE_WARN_THRESHOLD = 1 * 1024 * 1024; // 1 MB: Drop non-essential awareness frames
+export const BACKPRESSURE_MAX_THRESHOLD = 5 * 1024 * 1024;  // 5 MB: Hard disconnect choked clients
+
 export class WSSharedDoc extends Y.Doc {
    name: string;
    workspaceId: string;
@@ -42,6 +45,9 @@ export class WSSharedDoc extends Y.Doc {
    authorMap: Map<number, AuthorInfo>;
    private updateQueue: Array<Buffer> = [];
    private isProcessingQueue = false;
+   private pendingAwarenessClients = new Set<number>();
+   private awarenessBatchTimer: NodeJS.Timeout | null = null;
+   private lastAwarenessOrigin: WebSocket | null = null;
 
    constructor(name: string, workspaceId: string, fileId: string) {
       super({ gc: false });
@@ -60,7 +66,7 @@ export class WSSharedDoc extends Y.Doc {
       this.on('update', this.handleDocumentUpdate.bind(this));
       
       // INTENT: Aggregate user presence, cursor locations, and author identity colors.
-      // WHY: Propagates client cursor movement and selection vectors to active room subscribers.
+      // WHY: Propagates client cursor movement and selection vectors to active room subscribers with 16ms micro-tick batching.
       this.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, conn: WebSocket | null) => {
          const changedClients = added.concat(updated, removed);
          if (conn !== null && typeof conn !== 'string') {
@@ -82,24 +88,67 @@ export class WSSharedDoc extends Y.Doc {
             }
          });
 
-         const awarenessUpdate = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients);
-         const encoder = encoding.createEncoder();
-         encoding.writeVarUint(encoder, 1);
-         encoding.writeVarUint8Array(encoder, awarenessUpdate);
-         const buff = encoding.toUint8Array(encoder);
-         this.conns.forEach((_, c) => this.send(c, buff));
-
-         // Fan-out cursor awareness updates across peer pods
-         if ((conn as unknown) !== 'redis') {
-            publishYjsAwareness(this.name, awarenessUpdate).catch(() => {});
-         }
+         this.queueAwarenessBroadcast(changedClients, conn);
       });
    }
 
-   // INTENT: Safely transmit binary WebSocket frames to connected peers.
-   // WHY: Validates socket readyState before invoking `send` to avoid unhandled socket errors.
-   send(conn: WebSocket, m: Uint8Array): void {
+   private queueAwarenessBroadcast(changedClients: number[], conn: WebSocket | null): void {
+      changedClients.forEach((id) => this.pendingAwarenessClients.add(id));
+      this.lastAwarenessOrigin = conn;
+
+      if (!this.awarenessBatchTimer) {
+         this.awarenessBatchTimer = setTimeout(() => {
+            this.flushAwarenessBroadcast();
+         }, 16); // 16ms tick target (~60fps frame budget)
+      }
+   }
+
+   private flushAwarenessBroadcast(): void {
+      this.awarenessBatchTimer = null;
+      if (this.pendingAwarenessClients.size === 0) return;
+
+      const changedClients = Array.from(this.pendingAwarenessClients);
+      this.pendingAwarenessClients.clear();
+      const origin = this.lastAwarenessOrigin;
+      this.lastAwarenessOrigin = null;
+
+      const awarenessUpdate = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients);
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 1);
+      encoding.writeVarUint8Array(encoder, awarenessUpdate);
+      const buff = encoding.toUint8Array(encoder);
+
+      // Transmit to connections with backpressure enforcement (flagged as awareness frame)
+      this.conns.forEach((_, c) => this.send(c, buff, true));
+
+      // Fan-out cursor awareness updates across peer pods
+      if ((origin as unknown) !== 'redis') {
+         publishYjsAwareness(this.name, awarenessUpdate).catch(() => {});
+      }
+   }
+
+   // INTENT: Safely transmit binary WebSocket frames to connected peers with strict backpressure protection.
+   // WHY: Inspects `conn.bufferedAmount` to drop non-critical awareness frames under 1MB buffer pressure
+   // and disconnect choked sockets exceeding 5MB buffer limits.
+   send(conn: WebSocket, m: Uint8Array, isAwareness: boolean = false): void {
       if (conn.readyState !== WebSocket.CONNECTING && conn.readyState !== WebSocket.OPEN) return;
+      
+      const buffered = conn.bufferedAmount || 0;
+
+      // Hard Limit (5MB): Disconnect severely stalled client to reclaim server memory
+      if (buffered > BACKPRESSURE_MAX_THRESHOLD) {
+         log('⚠️ BACKPRESSURE', `Disconnecting choked WebSocket client (buffered ${ (buffered / 1024 / 1024).toFixed(2) } MB)`);
+         try {
+            conn.close(1008, 'Max backpressure threshold exceeded');
+         } catch {}
+         return;
+      }
+
+      // Soft Limit (1MB): Skip non-essential cursor awareness updates to let TCP send buffer drain
+      if (isAwareness && buffered > BACKPRESSURE_WARN_THRESHOLD) {
+         return;
+      }
+
       try {
          conn.send(m);
       } catch {
