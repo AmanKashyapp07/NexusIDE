@@ -137,9 +137,12 @@ export async function getFileHistory(
    );
    
    let baseState = cached?.yjs_state || null;
+   // FIX: Hoist the file fetch used for baseState construction so it also covers
+   // the author_map merge below — eliminating a duplicate SELECT on the same row.
+   let hoistedFile: Awaited<ReturnType<typeof fileRepository.findFileById>> | null = null;
    if (!baseState) {
-      const file = await fileRepository.findFileById(fileId, workspaceId);
-      const content = file?.content || '';
+      hoistedFile = await fileRepository.findFileById(fileId, workspaceId);
+      const content = hoistedFile?.content || '';
       const Y = await import('yjs');
       const doc = new Y.Doc({ gc: false });
       if (content) doc.getText('monaco').insert(0, content);
@@ -149,8 +152,9 @@ export async function getFileHistory(
 
    const authorMap: Record<string, { userId: string; username: string; color: string }> = { ...(cached?.author_map || {}) };
 
+   // Reuse hoistedFile if already fetched; avoids a second round-trip to PostgreSQL
    try {
-      const file = await fileRepository.findFileById(fileId, workspaceId);
+      const file = hoistedFile ?? await fileRepository.findFileById(fileId, workspaceId);
       if (file?.author_map) {
          Object.assign(authorMap, file.author_map);
       }

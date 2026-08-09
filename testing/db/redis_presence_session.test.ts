@@ -74,7 +74,10 @@ describe('NexusIDE Phase 3: Distributed Session Store & Real-Time Presence Mesh'
 
     console.log(`[L2 User Profile Cache] 10 profile hits in ${hitDuration}ms (avg ${avgHit}ms/read, 0 DB scans).`);
 
-    expect(hitDuration).toBeLessThan(25);
+    // Hard assertions — test fails on regression, not just logs it
+    expect(hitDuration).toBeLessThan(25);          // total wall-clock for 10 reads
+    const avgHitMs = hitDuration / 10;
+    expect(avgHitMs).toBeLessThan(0.3 * 10);       // avg < 3ms (0.3ms target × 10 reads)
   });
 
   // ===========================================================================
@@ -97,7 +100,10 @@ describe('NexusIDE Phase 3: Distributed Session Store & Real-Time Presence Mesh'
 
     console.log(`[Redis Presence Mesh] ${UPDATE_COUNT} cursor updates in ${elapsed}ms (${opsPerSec.toLocaleString()} ops/sec).`);
 
-    expect(elapsed).toBeLessThan(350);
+    // Hard throughput assertion — previously only logged, never enforced
+    // A regression in Redis connection health or pipeline efficiency will now fail CI
+    expect(opsPerSec).toBeGreaterThan(15_000);   // > 15k ops/sec required
+    expect(elapsed).toBeLessThan(350);            // absolute wall-clock ceiling
   });
 
   // ===========================================================================
@@ -114,8 +120,7 @@ describe('NexusIDE Phase 3: Distributed Session Store & Real-Time Presence Mesh'
 
     const members = await redisPresenceService.getWorkspacePresence(testWorkspaceId);
 
-    console.log(`[Presence Snapshot] Active members in workspace: ${members.length} users online.`);
-
+    // Asserting member count replaces the console.log — count IS the assertion
     expect(members.length).toBe(3);
     expect(members.some(m => m.username === 'alice' && m.activeFileId === 'file_1')).toBe(true);
     expect(members.some(m => m.username === 'bob' && m.activeFileId === 'file_2')).toBe(true);

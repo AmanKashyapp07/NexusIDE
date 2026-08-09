@@ -111,16 +111,31 @@ export class WorkspaceRepository {
    }
 
    async deleteWorkspace(id: string): Promise<void> {
-      await getPool().query('DELETE FROM workspace_collaborators WHERE workspace_id = $1', [id]).catch(() => {});
-      await getPool().query('DELETE FROM file_updates WHERE file_id IN (SELECT id FROM files WHERE workspace_id = $1)', [id]).catch(() => {});
-      await getPool().query('DELETE FROM files WHERE workspace_id = $1', [id]).catch(() => {});
-      await getPool().query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM workspace_snapshots WHERE workspace_id = $1)', [id]).catch(() => {});
-      await getPool().query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM snapshots WHERE workspace_id = $1)', [id]).catch(() => {});
-      await getPool().query('DELETE FROM workspace_snapshots WHERE workspace_id = $1', [id]).catch(() => {});
-      await getPool().query('DELETE FROM snapshots WHERE workspace_id = $1', [id]).catch(() => {});
-      await getPool().query('DELETE FROM git_commits WHERE workspace_id = $1', [id]).catch(() => {});
-      await getPool().query('DELETE FROM workspaces WHERE id = $1', [id]);
-      await invalidateWorkspaceAuth(id);
+      // WHY: All child deletions must be atomic — a crash after step 3 would leave orphaned `files`
+      // rows with no parent `workspaces` row, making them invisible but still consuming storage.
+      // A single transaction guarantees either full cascade deletion or full rollback.
+      const client = await getPool().connect();
+      try {
+         await client.query('BEGIN');
+         // Delete in foreign-key dependency order: leaves before root
+         await client.query('DELETE FROM workspace_collaborators WHERE workspace_id = $1', [id]);
+         await client.query('DELETE FROM file_updates WHERE file_id IN (SELECT id FROM files WHERE workspace_id = $1)', [id]);
+         await client.query('DELETE FROM files WHERE workspace_id = $1', [id]);
+         await client.query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM workspace_snapshots WHERE workspace_id = $1)', [id]);
+         await client.query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM snapshots WHERE workspace_id = $1)', [id]);
+         await client.query('DELETE FROM workspace_snapshots WHERE workspace_id = $1', [id]);
+         await client.query('DELETE FROM snapshots WHERE workspace_id = $1', [id]);
+         await client.query('DELETE FROM git_commits WHERE workspace_id = $1', [id]);
+         await client.query('DELETE FROM workspaces WHERE id = $1', [id]);
+         await client.query('COMMIT');
+      } catch (err) {
+         await client.query('ROLLBACK').catch(() => {});
+         throw err;
+      } finally {
+         client.release();
+         // Invalidate Redis cache entries regardless of success/failure
+         await invalidateWorkspaceAuth(id).catch(() => {});
+      }
    }
 
    async getCollaborators(workspaceId: string): Promise<CollaboratorEntity[]> {

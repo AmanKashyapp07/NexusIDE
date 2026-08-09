@@ -151,10 +151,13 @@ export class WSSharedDoc extends Y.Doc {
          log('💾 SAVE', `Adaptive save doc=${this.name} (${content.length} chars, ${this.authorMap.size} authors)`);
          
          await withDistributedLock(`lock:file:${this.fileId}:save`, 8000, async () => {
-            await getPool().query(
-               'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
-               [state, content, JSON.stringify(authorMapJson), this.fileId]
-            );
+            // WHY: Named prepared statement — PostgreSQL caches the parse+plan tree under this name,
+            // eliminating repeated query planning on what fires ~every 800ms per active document.
+            await getPool().query({
+               name: 'nexus-update-yjs-state',
+               text: 'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
+               values: [state, content, JSON.stringify(authorMapJson), this.fileId],
+            });
             
             // Flush any remaining buffered updates from Redis Write-Behind Queue
             await crdtWriteBehindService.flushFileBuffer(this.fileId).catch(() => {});
@@ -199,10 +202,12 @@ export class WSSharedDoc extends Y.Doc {
             Array.from(this.authorMap.entries()).map(([k, v]) => [String(k), v])
          );
          log('🔒 CLOSE', `Final save doc=${this.name} (${content.length} chars)`);
-         await getPool().query(
-            'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
-            [state, content, JSON.stringify(authorMapJson), this.fileId]
-         );
+         // WHY: Same named prepared statement as executeSave — reuses the cached plan.
+         await getPool().query({
+            name: 'nexus-update-yjs-state',
+            text: 'UPDATE files SET yjs_state = $1, content = $2, author_map = $3 WHERE id = $4',
+            values: [state, content, JSON.stringify(authorMapJson), this.fileId],
+         });
          
          // Synchronously flush Redis Write-Behind buffer before closing room
          await crdtWriteBehindService.flushFileBuffer(this.fileId).catch(() => {});
