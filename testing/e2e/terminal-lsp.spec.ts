@@ -1408,43 +1408,45 @@ test.describe('LSP - Language Intelligence', () => {
 
   test('7. Viewer role cannot connect to LSP — no badge shown', async ({ page, context }) => {
     const alicePage = page;
-    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
-    const ts = Date.now();
-    await loginUser(alicePage, `LspOwner_${ts}`);
-    await loginUser(bobPage, `LspViewer_${ts}`);
-    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_RBAC_${ts}`);
-    await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
-    const workspaceId = extractWorkspaceId(alicePage.url());
-    await waitForBootComplete(alicePage);
-    await createFile(alicePage, 'secret.ts');
-    await alicePage.waitForTimeout(1000);
-    await inviteUser(alicePage, `LspViewer_${ts}`, 'viewer');
-    await bobPage.goto(`${APP_URL}/${workspaceId}`);
-    await waitForBootComplete(bobPage);
-    await bobPage.locator('.ide-scrollbar').getByText('secret.ts').click();
-    await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
-    await expect(bobPage.locator('text=View Only')).toBeVisible({ timeout: 10000 });
-    await bobPage.waitForTimeout(5000);
-    await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
-    const wsRejectCode = await bobPage.evaluate(async ({ wsId }) => {
-      const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '';
-      return new Promise<number>((resolve) => {
-        const hostname = window.location.hostname;
-        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
-        const wsUrl = isLocal
-          ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${hostname}:4000`
-          : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${hostname}/ide/ws`;
-        const ws = new WebSocket(
-          `${wsUrl}/ws/lsp/${wsId}/typescript?token=${encodeURIComponent(token)}`
-        );
-        ws.onclose = (e) => resolve(e.code);
-        ws.onerror = () => resolve(-1);
-        setTimeout(() => resolve(-2), 8000);
-      });
-    }, { wsId: workspaceId });
-    expect(wsRejectCode).toBe(4403);
-    await bobPage.close();
+    const bobContext = await context.browser()!.newContext();
+    try {
+      const bobPage = await bobContext.newPage();
+      const ts = Date.now();
+      await loginUser(alicePage, `LspOwner_${ts}`);
+      await loginUser(bobPage, `LspViewer_${ts}`);
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_RBAC_${ts}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
+      await waitForBootComplete(alicePage);
+      await createFile(alicePage, 'secret.ts');
+      await inviteUser(alicePage, `LspViewer_${ts}`, 'viewer');
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+      await bobPage.locator('.ide-scrollbar').getByText('secret.ts').click();
+      await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
+      await expect(bobPage.locator('text=View Only')).toBeVisible({ timeout: 10000 });
+      await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
+      const wsRejectCode = await bobPage.evaluate(async ({ wsId }) => {
+        const token = localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '';
+        return new Promise<number>((resolve) => {
+          const hostname = window.location.hostname;
+          const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+          const wsUrl = isLocal
+            ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${hostname}:4000`
+            : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${hostname}/ide/ws`;
+          const ws = new WebSocket(
+            `${wsUrl}/ws/lsp/${wsId}/typescript?token=${encodeURIComponent(token)}`
+          );
+          ws.onclose = (e) => resolve(e.code);
+          ws.onerror = () => resolve(-1);
+          setTimeout(() => resolve(-2), 8000);
+        });
+      }, { wsId: workspaceId });
+      expect(wsRejectCode).toBe(4403);
+    } finally {
+      await bobContext.close();
+    }
   });
 
   test.skip('8. Switching from TypeScript to Python file reconnects to the correct LSP', async ({ page }) => {
@@ -1500,29 +1502,29 @@ test.describe('LSP - Language Intelligence', () => {
 
   test('10. Viewer badge stays absent after switching files', async ({ page, context }) => {
     const alicePage = page;
-    const bobPage = await context.browser()!.newContext().then(c => c.newPage());
-    const ts = Date.now();
-    await loginUser(alicePage, `LspOwner2_${ts}`);
-    await loginUser(bobPage, `LspViewer2_${ts}`);
-    await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_RBAC2_${ts}`);
-    await alicePage.click('button:has-text("Create Now")');
-    await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
-    const workspaceId = extractWorkspaceId(alicePage.url());
-    await waitForBootComplete(alicePage);
-    await createFile(alicePage, 'a.ts');
-    await alicePage.waitForTimeout(500);
-    await createFile(alicePage, 'b.py');
-    await alicePage.waitForTimeout(500);
-    await inviteUser(alicePage, `LspViewer2_${ts}`, 'viewer');
-    await bobPage.goto(`${APP_URL}/${workspaceId}`);
-    await waitForBootComplete(bobPage);
-    await bobPage.locator('.ide-scrollbar').getByText('a.ts').click();
-    await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
-    await bobPage.waitForTimeout(3000);
-    await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
-    await bobPage.locator('.ide-scrollbar').getByText('b.py').click();
-    await bobPage.waitForTimeout(3000);
-    await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
-    await bobPage.close();
+    const bobContext = await context.browser()!.newContext();
+    try {
+      const bobPage = await bobContext.newPage();
+      const ts = Date.now();
+      await loginUser(alicePage, `LspOwner2_${ts}`);
+      await loginUser(bobPage, `LspViewer2_${ts}`);
+      await alicePage.fill('input[placeholder="e.g. React-Sandbox"]', `LSP_RBAC2_${ts}`);
+      await alicePage.click('button:has-text("Create Now")');
+      await alicePage.waitForURL(/\/ide\/[0-9a-fA-F-]{36}/);
+      const workspaceId = extractWorkspaceId(alicePage.url());
+      await waitForBootComplete(alicePage);
+      await createFile(alicePage, 'a.ts');
+      await createFile(alicePage, 'b.py');
+      await inviteUser(alicePage, `LspViewer2_${ts}`, 'viewer');
+      await bobPage.goto(`${APP_URL}/${workspaceId}`);
+      await waitForBootComplete(bobPage);
+      await bobPage.locator('.ide-scrollbar').getByText('a.ts').click();
+      await bobPage.waitForSelector('.monaco-editor', { timeout: 15000 });
+      await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
+      await bobPage.locator('.ide-scrollbar').getByText('b.py').click();
+      await expect(bobPage.locator('[data-testid="lsp-status-badge"]')).not.toBeVisible();
+    } finally {
+      await bobContext.close();
+    }
   });
 });

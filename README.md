@@ -432,6 +432,30 @@ bash test.sh --db            # Live PostgreSQL & Redis performance benchmarks
 
 ### Test Suite Categories & Coverage
 
+* **Database Schema & Rollback Safety Suite (`testing/migration/`):**
+  - Validates forward migration execution ordering and reversible down-migration safety without data loss.
+
+* **API Rate Limiting & Burst Protection Suite (`testing/rate-limiting/`):**
+  - Enforces 100 req/min sliding window IP rate limits, HTTP 429 response schemas, and `Retry-After` headers.
+
+* **Large Document CRDT Stress Suite (`testing/crdt-stress/`):**
+  - Tests 100,000-character document state convergence (< 50ms) and 1,000-delta update history compaction.
+
+* **Terminal PTY Buffer & ANSI Sanitization Suite (`testing/pty-stress/`):**
+  - Enforces 50MB stdout ring buffer capping and sanitizes malicious XTerm OSC escape code injections.
+
+* **Exhaustive RBAC 3x12 Permissions Matrix Suite (`testing/rbac-matrix/`):**
+  - Validates 3×12 permissions matrix across Owner, Editor, and Viewer roles for all 12 platform actions.
+
+* **OAuth & JWT Security Boundary Suite (`testing/auth/`):**
+  - Validates `alg: none` header attack rejection, untrusted secret key rejection, token expiration in Authorization/Cookie headers, state token anti-CSRF validation, and open-redirect sanitization.
+
+* **Raw WebSocket Protocol Conformance Suite (`testing/ws/`):**
+  - Validates 16MB maximum frame size enforcement, binary Yjs update decoding without fragmentation loss, and standardized close code semantics (4100 eviction, 4000 unauthorized, 1001 going away).
+
+* **Merkle DAG Integrity & Snapshot Restore Suite (`testing/snapshot/`):**
+  - Computes deterministic SHA-256 Merkle root tree hashes across arbitrary file insertion orderings and enforces the 10-snapshot cap per workspace with oldest-first pruning.
+
 * **Property-Based CRDT Fuzzing Suite (`crdt-fuzzing.property.test.ts`):**
   - Uses `fast-check` to generate 100,000+ randomized edit operations across multi-peer topologies, mathematically proving Strong Eventual Consistency (SEC), Associativity, Commutativity, and Idempotency.
 

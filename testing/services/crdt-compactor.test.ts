@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import fs from 'fs';
 import path from 'path';
@@ -9,7 +9,6 @@ import {
    ARCHIVE_DATA_DIR,
 } from '../../backend/src/services/crdtCompactor.service.js';
 
-// In-memory mock database state
 const mockFiles: Record<string, { id: string; name: string; content: string | null; yjs_state: Buffer | null; workspace_id: string }> = {};
 const mockFileUpdates: Array<{ id: number; file_id: string; update: Buffer }> = [];
 
@@ -86,15 +85,16 @@ vi.mock('../../backend/src/db.js', () => ({
 describe('CRDT Delta Compaction & Local Archiving Service', () => {
    const testFileId = 'test-file-compact-101';
    const testWorkspaceId = 'test-ws-archive-202';
+   const createdArchives: string[] = [];
 
    beforeEach(() => {
-      // Reset mock data
       for (const k in mockFiles) delete mockFiles[k];
       mockFileUpdates.length = 0;
+      createdArchives.length = 0;
 
-      // Seed initial base document
       const doc = new Y.Doc({ gc: false });
-      doc.getText('monaco').insert(0, 'Hello Base Content!');
+      const text = doc.getText('monaco');
+      text.insert(0, 'Hello Base Content!');
       const baseState = Buffer.from(Y.encodeStateAsUpdate(doc));
 
       mockFiles[testFileId] = {
@@ -105,16 +105,25 @@ describe('CRDT Delta Compaction & Local Archiving Service', () => {
          workspace_id: testWorkspaceId,
       };
 
-      // Create 3 incremental update deltas
       for (let i = 1; i <= 3; i++) {
-         const updateDoc = new Y.Doc({ gc: false });
-         updateDoc.getText('monaco').insert(0, `Edit ${i}: `);
-         const updateBuf = Buffer.from(Y.encodeStateAsUpdate(updateDoc));
+         const prevSv = Y.encodeStateVector(doc);
+         text.insert(text.length, ` Edit ${i}`);
+         const updateBuf = Buffer.from(Y.encodeStateAsUpdate(doc, prevSv));
          mockFileUpdates.push({ id: i, file_id: testFileId, update: updateBuf });
+      }
+
+      doc.destroy();
+   });
+
+   afterEach(() => {
+      for (const archPath of createdArchives) {
+         if (fs.existsSync(archPath)) {
+            try { fs.unlinkSync(archPath); } catch {}
+         }
       }
    });
 
-   it('compacts incremental file_updates into a single unified yjs_state buffer and purges deltas', async () => {
+   it('1. compacts incremental file_updates into a single unified yjs_state buffer and purges deltas', async () => {
       expect(mockFileUpdates.length).toBe(3);
 
       const result = await compactFileCrdtDeltas(testFileId);
@@ -122,34 +131,61 @@ describe('CRDT Delta Compaction & Local Archiving Service', () => {
       expect(result.fileId).toBe(testFileId);
       expect(result.updatesCompacted).toBe(3);
       expect(result.compactedSizeBytes).toBeGreaterThan(0);
-      expect(mockFileUpdates.length).toBe(0); // All deltas purged
+      expect(mockFileUpdates.length).toBe(0);
    });
 
-   it('archives workspace state to local disk Gzip compressed file', async () => {
+   it('2. archives workspace state to local disk Gzip compressed file', async () => {
       const archiveRes = await archiveWorkspaceToLocalDisk(testWorkspaceId);
+      createdArchives.push(archiveRes.archivePath);
 
       expect(archiveRes.workspaceId).toBe(testWorkspaceId);
       expect(fs.existsSync(archiveRes.archivePath)).toBe(true);
 
-      // Verify file is Gzip compressed
       const content = fs.readFileSync(archiveRes.archivePath);
       expect(content.length).toBeGreaterThan(0);
-
-      // Cleanup generated archive file
-      if (fs.existsSync(archiveRes.archivePath)) {
-         fs.unlinkSync(archiveRes.archivePath);
-      }
    });
 
-   it('hydrates archived workspace from local disk compressed archive', async () => {
+   it('3. hydrates archived workspace from local disk compressed archive', async () => {
       const archiveRes = await archiveWorkspaceToLocalDisk(testWorkspaceId);
+      createdArchives.push(archiveRes.archivePath);
       expect(fs.existsSync(archiveRes.archivePath)).toBe(true);
 
       const hydrated = await hydrateArchivedWorkspaceFromLocalDisk(testWorkspaceId);
       expect(hydrated).toBe(true);
+   });
 
-      if (fs.existsSync(archiveRes.archivePath)) {
-         fs.unlinkSync(archiveRes.archivePath);
-      }
+   it('4. scoped compaction leaves adjacent file updates untouched', async () => {
+      const adjacentFileId = 'adjacent-file-999';
+      mockFileUpdates.push({ id: 99, file_id: adjacentFileId, update: Buffer.from('adj_update') });
+
+      await compactFileCrdtDeltas(testFileId);
+
+      const remainingAdjacent = mockFileUpdates.filter(u => u.file_id === adjacentFileId);
+      expect(remainingAdjacent.length).toBe(1);
+   });
+
+   it('5. 0-update compaction on an already compacted file is a safe no-op', async () => {
+      mockFileUpdates.length = 0; // Clear all updates
+
+      const result = await compactFileCrdtDeltas(testFileId);
+      expect(result.updatesCompacted).toBe(0);
+   });
+
+   it('6. archiving an empty workspace handles 0 files without throwing', async () => {
+      const emptyWsId = 'empty-ws-777';
+      const archiveRes = await archiveWorkspaceToLocalDisk(emptyWsId);
+      createdArchives.push(archiveRes.archivePath);
+
+      expect(fs.existsSync(archiveRes.archivePath)).toBe(true);
+   });
+
+   it('7. hydrating a non-existent workspace archive returns false safely', async () => {
+      const hydrated = await hydrateArchivedWorkspaceFromLocalDisk('ws-does-not-exist');
+      expect(hydrated).toBe(false);
+   });
+
+   it('8. compacting non-existent file returns 0 updates compacted', async () => {
+      const result = await compactFileCrdtDeltas('file-does-not-exist');
+      expect(result.updatesCompacted).toBe(0);
    });
 });

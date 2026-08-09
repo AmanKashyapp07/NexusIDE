@@ -20,7 +20,7 @@ describe('NexusIDE Phase 2: Redis Write-Behind CRDT Ingestion Architecture', () 
       statement_timeout: 5000,
     });
 
-    const userRes = await pool.query('SELECT id FROM users LIMIT 1');
+    const userRes = await pool.query('SELECT id FROM users ORDER BY created_at DESC LIMIT 1');
     testUserId = userRes.rows[0]?.id;
 
     if (!testUserId) {

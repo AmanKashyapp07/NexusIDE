@@ -46,7 +46,7 @@ describe('Bit-Packed Binary Cursor Codec (Networking Bandwidth Optimization)', (
       ];
 
       const batchBuffer = encodeCursorBatch(cursors);
-      expect(batchBuffer.byteLength).toBe(4 * 8); // exactly 32 bytes
+      expect(batchBuffer.byteLength).toBe(4 * 8);
 
       const decodedBatch = decodeCursorBatch(batchBuffer);
       expect(decodedBatch).toHaveLength(4);
@@ -63,5 +63,58 @@ describe('Bit-Packed Binary Cursor Codec (Networking Bandwidth Optimization)', (
       expect(decoded.lineNumber).toBe(65535);
       expect(decoded.column).toBe(65535);
       expect(decoded.selectionLength).toBe(65535);
+   });
+
+   it('hashes UTF-8 multi-byte usernames (CJK, Emojis) deterministically into uint16', () => {
+      const hashEmoji = hashUserIdToUint16('user-🚀-dev');
+      const hashCJK = hashUserIdToUint16('user-田中-dev');
+      const hashEmoji2 = hashUserIdToUint16('user-🚀-dev');
+
+      expect(hashEmoji).toBe(hashEmoji2);
+      expect(hashEmoji).toBeGreaterThanOrEqual(0);
+      expect(hashEmoji).toBeLessThanOrEqual(65535);
+      expect(hashCJK).toBeGreaterThanOrEqual(0);
+      expect(hashCJK).toBeLessThanOrEqual(65535);
+   });
+
+   it('encodes and decodes an empty batch of 0 cursors safely returning an empty Uint8Array', () => {
+      const emptyBatch = encodeCursorBatch([]);
+      expect(emptyBatch.byteLength).toBe(0);
+
+      const decoded = decodeCursorBatch(emptyBatch);
+      expect(decoded).toEqual([]);
+   });
+
+   it('encodes a 50-collaborator cursor batch into an exact 400-byte frame (50 * 8 bytes)', () => {
+      const cursors = Array.from({ length: 50 }, (_, i) => ({
+         userHash: i + 100,
+         lineNumber: i * 10,
+         column: i + 1,
+         selectionLength: i % 5
+      }));
+
+      const batchBuffer = encodeCursorBatch(cursors);
+      expect(batchBuffer.byteLength).toBe(400);
+
+      const decoded = decodeCursorBatch(batchBuffer);
+      expect(decoded).toHaveLength(50);
+      expect(decoded[49]).toEqual({ userHash: 149, lineNumber: 490, column: 50, selectionLength: 4 });
+   });
+
+   it('proves 1,000-run randomized cursor position round-trip accuracy property', () => {
+      for (let run = 0; run < 1000; run++) {
+         const userHash = (run * 37) % 65535;
+         const line = (run * 101) % 65535;
+         const col = (run * 13) % 65535;
+         const sel = (run * 7) % 65535;
+
+         const encoded = encodeBitPackedCursor(userHash, line, col, sel);
+         const decoded = decodeBitPackedCursor(encoded);
+
+         expect(decoded.userHash).toBe(userHash);
+         expect(decoded.lineNumber).toBe(line);
+         expect(decoded.column).toBe(col);
+         expect(decoded.selectionLength).toBe(sel);
+      }
    });
 });

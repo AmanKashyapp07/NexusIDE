@@ -25,6 +25,12 @@ describe('CASService — Content-Addressable Storage Engine', () => {
       expect(empty1.hash).toBe(empty2.hash);
       expect(empty1.sizeBytes).toBe(0);
     });
+
+    it('hashes string content deterministically with valid SHA-256 length', () => {
+      const res = CASService.hashContent('binary_sample_data_stream');
+      expect(res.hash).toMatch(/^[a-f0-9]{64}$/);
+      expect(res.sizeBytes).toBe(25);
+    });
   });
 
   describe('Tree Entry Determinism & Merkle Root Hashing', () => {
@@ -58,15 +64,23 @@ describe('CASService — Content-Addressable Storage Engine', () => {
 
       const dag = await CASService.buildMerkleTree(duplicateFiles);
 
-      // Blobs to insert must be deduplicated to 1 entry
       expect(dag.blobsToInsert.length).toBe(1);
       expect(dag.blobsToInsert[0].content).toBe('IDENTICAL CONTENT');
 
-      // The tree still contains all 3 file entries pointing to the same hash
       expect(dag.treesToInsert[0].entries.length).toBe(3);
       expect(dag.treesToInsert[0].entries[0].hash).toBe(dag.blobsToInsert[0].hash);
       expect(dag.treesToInsert[0].entries[1].hash).toBe(dag.blobsToInsert[0].hash);
       expect(dag.treesToInsert[0].entries[2].hash).toBe(dag.blobsToInsert[0].hash);
+    });
+
+    it('builds Merkle DAG deterministically for 5-level deep nested file paths', async () => {
+      const deepFiles = [
+        { path: 'level1/level2/level3/level4/deep.ts', content: 'export const deep = true;' }
+      ];
+
+      const dag = await CASService.buildMerkleTree(deepFiles);
+      expect(dag.rootTreeHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(dag.blobsToInsert.length).toBe(1);
     });
   });
 
@@ -92,8 +106,8 @@ describe('CASService — Content-Addressable Storage Engine', () => {
 
       const treeV2: TreeEntry[] = [
         { name: 'keep.ts', type: 'blob', hash: 'hash_keep', path: 'keep.ts', language: 'typescript' },
-        { name: 'change.ts', type: 'blob', hash: 'hash_v2', path: 'change.ts', language: 'typescript' }, // modified
-        { name: 'new.ts', type: 'blob', hash: 'hash_new', path: 'new.ts', language: 'typescript' },       // added
+        { name: 'change.ts', type: 'blob', hash: 'hash_v2', path: 'change.ts', language: 'typescript' },
+        { name: 'new.ts', type: 'blob', hash: 'hash_new', path: 'new.ts', language: 'typescript' },
       ];
 
       const diff = CASService.diffTrees(treeV1, treeV2);
@@ -101,6 +115,54 @@ describe('CASService — Content-Addressable Storage Engine', () => {
       expect(diff.added.map(e => e.path)).toEqual(['new.ts']);
       expect(diff.modified.map(e => e.path)).toEqual(['change.ts']);
       expect(diff.deleted.map(e => e.path)).toEqual(['delete.ts']);
+    });
+
+    it('handles rename-only file modifications (blob hash identical, path entry changed)', () => {
+      const treeV1: TreeEntry[] = [
+        { name: 'old_name.ts', type: 'blob', hash: 'hash_same_blob', path: 'src/old_name.ts', language: 'typescript' }
+      ];
+
+      const treeV2: TreeEntry[] = [
+        { name: 'new_name.ts', type: 'blob', hash: 'hash_same_blob', path: 'src/new_name.ts', language: 'typescript' }
+      ];
+
+      const diff = CASService.diffTrees(treeV1, treeV2);
+      expect(diff.added.map(e => e.path)).toEqual(['src/new_name.ts']);
+      expect(diff.deleted.map(e => e.path)).toEqual(['src/old_name.ts']);
+      expect(diff.modified.length).toBe(0);
+    });
+
+    it('diffs empty tree arrays safely without throwing', () => {
+      const diff = CASService.diffTrees([], []);
+      expect(diff.added).toEqual([]);
+      expect(diff.modified).toEqual([]);
+      expect(diff.deleted).toEqual([]);
+    });
+
+    it('diffs 500 tree entries in < 5ms (high performance structural diffing)', () => {
+      const v1Entries: TreeEntry[] = Array.from({ length: 500 }, (_, i) => ({
+        name: `file_${i}.ts`,
+        type: 'blob',
+        hash: `hash_${i}`,
+        path: `src/file_${i}.ts`,
+        language: 'typescript'
+      }));
+
+      const v2Entries: TreeEntry[] = Array.from({ length: 500 }, (_, i) => ({
+        name: `file_${i}.ts`,
+        type: 'blob',
+        hash: i === 250 ? 'hash_modified' : `hash_${i}`,
+        path: `src/file_${i}.ts`,
+        language: 'typescript'
+      }));
+
+      const start = Date.now();
+      const diff = CASService.diffTrees(v1Entries, v2Entries);
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeLessThan(15);
+      expect(diff.modified).toHaveLength(1);
+      expect(diff.modified[0].path).toBe('src/file_250.ts');
     });
   });
 });

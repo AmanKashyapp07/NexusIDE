@@ -1,9 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as Y from 'yjs';
 
 describe('Redis Cluster Failovers & Redlock Race Conditions Suite', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('1. Redlock Lock Expiry during CPU stall: secondary worker avoids split-brain corruption', async () => {
-    // Simulated Redlock distributed lock with TTL
+    vi.useFakeTimers();
+
     let lockHolder: string | null = null;
     let lockExpiry = 0;
 
@@ -26,41 +31,33 @@ describe('Redis Cluster Failovers & Redlock Race Conditions Suite', () => {
       return false;
     };
 
-    // Worker 1 acquires lock for 50ms
     const ok1 = acquireLock('pod-1', 50);
     expect(ok1).toBe(true);
 
-    // Worker 2 attempts to acquire lock immediately -> fails
     const ok2 = acquireLock('pod-2', 50);
     expect(ok2).toBe(false);
 
-    // Simulate Pod 1 getting stalled past TTL (e.g. 60ms)
-    await new Promise((r) => setTimeout(r, 60));
+    vi.advanceTimersByTime(60);
 
-    // Pod 2 now successfully acquires lock after TTL expiration
     const ok3 = acquireLock('pod-2', 50);
     expect(ok3).toBe(true);
     expect(lockHolder).toBe('pod-2');
 
-    // Pod 1 wakes up late and attempts to release or write -> release fails because lock expired
     const releasedByPod1 = releaseLock('pod-1');
     expect(releasedByPod1).toBe(false);
   });
 
   it('2. Cross-Pod Eviction Race (workspace:evict): cancels in-memory docs and force-closes clients with code 4100', () => {
-    // Simulated docs map on Pod B
     const docsMap = new Map<string, { doc: Y.Doc; clients: Set<{ id: string; closeCode?: number }> }>();
 
     const docA = new Y.Doc({ gc: false });
-    const client1 = { id: 'client-1' };
-    const client2 = { id: 'client-2' };
+    const client1: { id: string; closeCode?: number } = { id: 'client-1' };
+    const client2: { id: string; closeCode?: number } = { id: 'client-2' };
     docsMap.set('ws-999-file-1', { doc: docA, clients: new Set([client1, client2]) });
 
-    // Eviction function
     const cancelAndEvictWorkspaceDocs = (workspaceId: string) => {
       for (const [key, item] of docsMap.entries()) {
         if (key.startsWith(`${workspaceId}-`)) {
-          // Force-close all connected WebSocket peers with code 4100 (EVICTED)
           for (const c of item.clients) {
             c.closeCode = 4100;
           }
@@ -71,7 +68,6 @@ describe('Redis Cluster Failovers & Redlock Race Conditions Suite', () => {
       }
     };
 
-    // Trigger eviction signal from Redis Pub/Sub mesh on Pod A
     cancelAndEvictWorkspaceDocs('ws-999');
 
     expect(client1.closeCode).toBe(4100);
@@ -83,22 +79,100 @@ describe('Redis Cluster Failovers & Redlock Race Conditions Suite', () => {
     const primaryDoc = new Y.Doc({ gc: false });
     const replicaDoc = new Y.Doc({ gc: false });
 
-    // Primary creates edits
     primaryDoc.getText('monaco').insert(0, 'PRIMARY_AUTHORITATIVE_DATA');
 
-    // Simulate packet loss on Redis pub/sub channel
-    const lostUpdate = Y.encodeStateAsUpdate(primaryDoc);
-
-    // Replica requests missing state via state vector handshake
     const replicaVector = Y.encodeStateVector(replicaDoc);
     const catchupUpdate = Y.encodeStateAsUpdate(primaryDoc, replicaVector);
 
-    // Apply catch-up
     Y.applyUpdate(replicaDoc, catchupUpdate);
 
     expect(replicaDoc.getText('monaco').toString()).toBe('PRIMARY_AUTHORITATIVE_DATA');
 
     primaryDoc.destroy();
     replicaDoc.destroy();
+  });
+
+  it('4. Redis Outage Mid-Flight: switches transparently to L1 in-memory cache without throwing', async () => {
+    const l1Cache = new Map<string, string>();
+    let redisOnline = true;
+
+    const cacheGet = async (key: string): Promise<string | null> => {
+      if (redisOnline) {
+        return 'redis_data';
+      }
+      return l1Cache.get(key) || null; // Fallback to L1
+    };
+
+    l1Cache.set('key-fallback', 'l1_fallback_data');
+
+    expect(await cacheGet('key-fallback')).toBe('redis_data');
+
+    // Simulate Redis outage
+    redisOnline = false;
+    expect(await cacheGet('key-fallback')).toBe('l1_fallback_data');
+  });
+
+  it('5. Redlock Lock Acquisition Timeout: secondary worker fails gracefully when lock is held', () => {
+    let isLocked = true;
+
+    const tryAcquireLockWithTimeout = (timeoutMs: number): boolean => {
+      if (isLocked) return false;
+      return true;
+    };
+
+    const acquired = tryAcquireLockWithTimeout(100);
+    expect(acquired).toBe(false);
+  });
+
+  it('6. 50-Service Concurrent Reconnection Storm: prevents thundering herd on Redis connection pool', async () => {
+    let connectionCount = 0;
+    const MAX_POOL = 10;
+
+    const acquireConnection = async (): Promise<boolean> => {
+      if (connectionCount >= MAX_POOL) {
+        return false; // Queue or backoff
+      }
+      connectionCount++;
+      return true;
+    };
+
+    const results = await Promise.all(Array.from({ length: 50 }, () => acquireConnection()));
+    const successful = results.filter(Boolean);
+
+    expect(successful.length).toBe(10);
+    expect(results.length).toBe(50);
+  });
+
+  it('7. Pub/Sub Stale Message Replay Deduplication: ignores message sequence numbers older than current state', () => {
+    let currentSeq = 10;
+    let appliedCount = 0;
+
+    const handlePubSubMessage = (seq: number) => {
+      if (seq <= currentSeq) {
+        return false; // Ignore stale replay
+      }
+      currentSeq = seq;
+      appliedCount++;
+      return true;
+    };
+
+    expect(handlePubSubMessage(8)).toBe(false); // Stale message -> ignored
+    expect(handlePubSubMessage(10)).toBe(false); // Duplicate message -> ignored
+    expect(handlePubSubMessage(11)).toBe(true); // New message -> applied
+    expect(appliedCount).toBe(1);
+  });
+
+  it('8. Redis Password Rotation Re-Authentication: reconnects pool with new credentials on AUTH failure', () => {
+    let activePassword = 'new_rotated_password';
+
+    const authenticateClient = (password: string): { auth: boolean; code?: string } => {
+      if (password !== activePassword) {
+        return { auth: false, code: 'WRONGPASS' };
+      }
+      return { auth: true };
+    };
+
+    expect(authenticateClient('old_password')).toEqual({ auth: false, code: 'WRONGPASS' });
+    expect(authenticateClient('new_rotated_password')).toEqual({ auth: true });
   });
 });

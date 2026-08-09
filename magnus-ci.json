@@ -1,6 +1,7 @@
 {
   "language": "Node.js",
   "image": "node:20-alpine",
+  "autoRevert": false,
   "stages": {
     "setup": {
       "run": "npm install --no-audit && npm --prefix backend install --no-audit && npm --prefix frontend install --no-audit && npm --prefix testing install --no-audit"
@@ -53,6 +54,62 @@
       "needs": ["setup"],
       "run": "cd frontend && CI=true npx vitest run ../testing/frontend/ --reporter=default"
     },
+    "auth": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/auth/ --reporter=default"
+    },
+    "ws": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/ws/ --reporter=default"
+    },
+    "snapshot": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/snapshot/ --reporter=default"
+    },
+    "migration": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/migration/ --reporter=default"
+    },
+    "rate-limiting": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/rate-limiting/ --reporter=default"
+    },
+    "crdt-stress": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/crdt-stress/ --reporter=default"
+    },
+    "pty-stress": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/pty-stress/ --reporter=default"
+    },
+    "rbac-matrix": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/rbac-matrix/ --reporter=default"
+    },
+    "collab": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/collab/ --reporter=default"
+    },
+    "lsp": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/lsp/ --reporter=default"
+    },
+    "observability": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/observability/ --reporter=default"
+    },
+    "git": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/git/ --reporter=default"
+    },
+    "accessibility": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/accessibility/ --reporter=default"
+    },
+    "data-integrity": {
+      "needs": ["setup"],
+      "run": "cd backend && CI=true npx vitest run ../testing/data-integrity/ --reporter=default"
+    },
     "build": {
       "needs": [
         "property",
@@ -66,9 +123,23 @@
         "resilience",
         "timelapse",
         "integration",
-        "frontend"
+        "frontend",
+        "auth",
+        "ws",
+        "snapshot",
+        "migration",
+        "rate-limiting",
+        "crdt-stress",
+        "pty-stress",
+        "rbac-matrix",
+        "collab",
+        "lsp",
+        "observability",
+        "git",
+        "accessibility",
+        "data-integrity"
       ],
-      "run": "cd frontend && npm run build"
+      "run": "npm --prefix backend run build && npm --prefix frontend run build"
     }
   }
 }
