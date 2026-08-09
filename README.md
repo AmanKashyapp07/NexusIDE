@@ -4,22 +4,9 @@
 
 ### A Production-Ready Collaborative Cloud IDE
 
-**Real-time Collaboration** • **Docker Sandboxing** • **Persistent Terminals** • **Language Server Protocol** • **Git Merge Conflict Resolver** • **Stateless Redis Clustering**
+**Real-time Collaboration** • **Docker Sandboxing** • **Persistent Terminals** • **Language Server Protocol** • **Stateless Redis Clustering**
 
-[View Repository](https://github.com/AmanKashyapp07/sandbox-ide) · [Live Demo](https://github.com/AmanKashyapp07/sandbox-ide) · [Report Issue](https://github.com/AmanKashyapp07/sandbox-ide/issues)
-
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
-[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
-[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
-[![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socketdotio&logoColor=white)](https://socket.io/)
-[![Monaco Editor](https://img.shields.io/badge/Monaco_Editor-1E1E1E?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://microsoft.github.io/monaco-editor/)
-[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
-[![PM2](https://img.shields.io/badge/PM2-2B037A?style=for-the-badge&logo=pm2&logoColor=white)](https://pm2.keymetrics.io/)
-[![Nginx](https://img.shields.io/badge/Nginx-009639?style=for-the-badge&logo=nginx&logoColor=white)](https://nginx.org/)
+[View Repository](https://github.com/AmanKashyapp07/NexusIDE) · [Live Demo](http://129.154.39.198/ide/login) · [Report Issue](https://github.com/AmanKashyapp07/NexusIDE/issues)
 
 
 ---
@@ -27,9 +14,13 @@
 </div>
 
 
-NexusIDE is an advanced, browser-based collaborative development environment engineered around infrastructure-level distributed-systems challenges: eventual-consistency state synchronization, container lifecycle orchestration, pseudo-terminal streaming, and defense-in-depth code sandboxing.
+**NexusIDE** is a browser-based, multiplayer development environment where users can write code, run commands in real interactive terminals, and collaborate live — all inside sandboxed Docker containers. Think a self-hosted, from-scratch take on Replit or GitHub Codespaces.
 
-Rather than a thin compilation widget, NexusIDE models real cloud-IDE infrastructure end-to-end — pre-warmed container pools, reference-counted container multiplexing, raw JSON-RPC language server streams, Redis-backed stateless clustering with Redlock-guarded writes, and transactional Merkle-DAG state restoration.
+Under the hood it implements CRDT-based real-time state synchronization, pre-warmed container pool management, streaming language server (LSP) integration, and a horizontally-scalable, stateless Redis-backed cluster with distributed locking — the same class of problems that production cloud IDEs have to solve.
+
+### Why I Built This
+
+I built NexusIDE to get hands-on with the hard infrastructure problems behind modern cloud IDEs: keeping persistent state consistent across browser sessions, making collaborative editing feel instant without losing data, and safely isolating untrusted, user-supplied code execution in a multi-tenant environment.
 
 
 ---
@@ -37,61 +28,155 @@ Rather than a thin compilation widget, NexusIDE models real cloud-IDE infrastruc
 
 ## Table of Contents
 
-- [Description](#description)
-- [Systems Architecture](#systems-architecture)
 - [Tech Stack](#tech-stack)
-- [Deep-Dive Engineering Highlights](#deep-dive-engineering-highlights)
+- [Live Environment & Deployment Infrastructure](#live-environment--deployment-infrastructure)
+- [Getting Started (Local Development)](#getting-started-local-development)
+- [Core Features & Optimizations](#core-features--optimizations)
+- [Systems Architecture](#systems-architecture)
+- [Deep-Dive Engineering Highlights & Postmortems](#deep-dive-engineering-highlights--postmortems)
 - [Security & Isolation](#security--isolation)
-- [Performance Optimizations](#performance-optimizations)
 - [Repository Structure](#repository-structure)
 - [Testing Suite](#testing-suite)
-- [Recent Architecture Updates](#recent-architecture--stabilization-updates)
-- [Engineering Learnings](#engineering-learnings)
 - [Future Plans & Architectural Roadmap](#future-plans--architectural-roadmap)
+- [License](#license)
 
 
 ---
 
 
-## Description
+## Tech Stack
+
+#### Frontend & UI Layer
+[![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Monaco Editor](https://img.shields.io/badge/Monaco_Editor-1E1E1E?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://microsoft.github.io/monaco-editor/)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+
+#### Backend & Real-Time Gateway
+[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
+[![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socketdotio&logoColor=white)](https://socket.io/)
+
+#### Database & State Mesh
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
+
+#### Infrastructure, Sandboxing & Observability
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://www.kernel.org/)
+[![Nginx](https://img.shields.io/badge/Nginx-009639?style=for-the-badge&logo=nginx&logoColor=white)](https://nginx.org/)
+[![PM2](https://img.shields.io/badge/PM2-2B037A?style=for-the-badge&logo=pm2&logoColor=white)](https://pm2.keymetrics.io/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
+
+#### Testing & Quality Assurance
+[![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)](https://playwright.dev/)
+
+
+---
+
+
+## Live Environment & Deployment Infrastructure
+
+NexusIDE is continuously deployed and accessible directly in your browser:
+
+**http://129.154.39.198/ide/login**
+
+### Infrastructure Details
+
+| Infrastructure Component | Specification & Architecture |
+| :--- | :--- |
+| **Cloud Hosting** | Oracle Cloud Infrastructure (OCI) Compute Instance running Ubuntu Linux. |
+| **Reverse Proxy & Edge** | **Nginx** handling Gzip compression, REST API proxying (`/ide/api`), and WebSocket upgrades (`ws://.../ide/ws`). |
+| **Process Management** | **PM2** process orchestrator maintaining high-availability Node.js Express server instances and background cron workers with auto-restart daemonization. |
+| **Container Sandboxing** | **Docker Engine** running in-container Pyright/TypeScript Language Servers and Unix PTY pseudo-terminals (`/dev/pts/X`) isolated by cgroups and custom bridge networks. |
+| **Relational Database** | **PostgreSQL 16** with covering B-Tree indexes, byte-packed `BYTEA` CRDT binary storage, and prepared query execution plans. |
+| **In-Memory Cache & Mesh** | **Redis 7** handling real-time Pub/Sub cross-pod event fan-out, user session presence keys, and Redlock distributed locking (`SET NX PX` + Lua scripts). |
+| **Automated CI/CD Pipeline** | Version-controlled git pre-push hook (`.githooks/pre-push`) executing automated Vite builds, rsync delta code syncing, PM2 zero-downtime reloads, and health checks on every `git push origin main`. |
+
+
+---
+
+
+## Getting Started (Local Development)
+
+### Prerequisites
+
+- **Node.js**: v18.0.0 or higher
+- **Docker Engine**: Installed and running locally (required for sandbox containers)
+- **PostgreSQL**: v16.0 or higher
+- **Redis**: v7.0 or higher
+
+### Local Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/AmanKashyapp07/NexusIDE.git
+cd NexusIDE
+
+# 2. Install backend and frontend dependencies
+cd backend && npm install
+cd ../frontend && npm install
+cd ..
+
+# 3. Initialize PostgreSQL schema
+psql -U postgres -d sandbox -f database/schema.sql
+
+# 4. Configure environment variables in backend/.env
+# Example environment configuration:
+# DATABASE_URL="postgresql://postgres@localhost:5432/sandbox"
+# JWT_SECRET="your_jwt_secret_key"
+# GITHUB_CLIENT_ID="your_github_client_id"
+# GITHUB_CLIENT_SECRET="your_github_client_secret"
+
+# 5. Run the services in separate terminal windows
+# Terminal 1: Backend Server (runs on http://localhost:3000)
+cd backend && npm run dev
+
+# Terminal 2: Frontend Client (runs on http://localhost:5173)
+cd frontend && npm run dev
+```
+
+
+---
+
+
+## Core Features & Optimizations
 
 ### Core Features
 
-| Feature | Engineering Description |
-| :--- | :--- |
-| **Content-Addressable Storage (CAS)** | Git-style Merkle DAG commit architecture with SHA-1 blob deduplication (`git_blobs`, `git_trees`, `git_commits`), enabling hash-based unchanged-subtree detection during diffs. |
-| **Real-time Collaboration** | Multi-user conflict-free editing via Yjs CRDTs (Conflict-free Replicated Data Types), with presence indicators, awareness protocol broadcasting, and live cursor synchronization. |
-| **Stateless WebSocket Clustering** | Redis Pub/Sub mesh bridges independent, horizontally-scaled Node.js pods; Redlock atomic distributed locking (Lua `SET NX PX` + `EVALSHA`) prevents concurrent PostgreSQL write contention across instances. |
-| **Persistent Workspaces** | Long-lived, stateful developer sandboxes; xterm.js terminals binding directly to Docker pseudo-terminal (PTY) devices for native shell fidelity. |
-| **Single Shared Container per Workspace** | Collaborators in a workspace share a Docker container instance with isolated multi-user PTY exec sessions (`/dev/pts/X`), enabling shared dev-servers and live collaboration. |
-| **LSP Language Intelligence** | In-container Pyright and TypeScript Language Servers streamed via JSON-RPC 2.0 over WebSockets, delivering real-time diagnostics, hovers, and completions. |
-| **Workspace Snapshotting & Diffs** | Merkle tree snapshots with hash-based fast diff computation (`NEW`, `DEL`, `MOD`) and transactional Yjs document reload. |
-| **Git Conflict Resolver** | Interactive side-by-side collaborative resolve view supporting manual edits, three-way diff context, and auto-staging (`git add`) on resolution. |
-| **Granular RBAC** | Fine-grained, role-based access enforcement dynamically applied at both REST and socket gateway layers (`Admin`, `Editor`, `Viewer`). |
-| **Full-Fidelity Timelapse Engine** | Granular per-keystroke author attribution and interactive playback scrub bar reconstructing past document revisions without data loss. |
+| Feature | Description | Architectural Implementation |
+| :--- | :--- | :--- |
+| **Real-time Collaboration** | Multi-user conflict-free text editing with live cursors and presence. | Powered by Yjs CRDTs, awareness protocol broadcasting, and binary state vectors over WebSockets. |
+| **Stateless Clustering** | Horizontally scaled application instances without sticky sessions. | Redis Pub/Sub mesh relays delta updates across pods; Redlock Lua locks prevent DB write races. |
+| **Shared Workspace Containers** | Multi-user collaboration within 1 shared container per workspace. | xterm.js binds to independent Docker PTY exec sessions (`/dev/pts/X`) with private history & git attribution. |
+| **Full-Fidelity Timelapse Engine** | Interactive per-keystroke time-travel playback and author attribution. | Deterministic Yjs StructStore reader (`gc: false`) reconstructing document revisions without data loss. |
+| **Worker Pool Compute** | Offloads CPU-bound Merkle hashing and CRDT update compaction. | Dedicated Node.js `worker_threads` pool (`casWorker.js`) prevents event loop stalls under heavy load. |
+| **LSP Language Intelligence** | Real-time autocompletion, diagnostics, and hover information. | Streams Pyright and TypeScript Language Servers via JSON-RPC 2.0 directly over WebSockets. |
+| **Merkle DAG Snapshots** | Content-Addressable Storage (CAS) versioning and state recovery. | Git-style Merkle trees with SHA-1 blob deduplication (`git_blobs`, `git_trees`, `git_commits`). |
+| **Git Conflict Resolver** | Interactive side-by-side collaborative merge conflict resolution. | Parses Git conflict markers, supports three-way diffs, and auto-stages (`git add`) on resolution. |
+| **Granular RBAC Enforcer** | Dynamic role enforcement (`Owner`, `Editor`, `Viewer`). | Validates request context against workspace roles at both REST gateway and WebSocket socket layers. |
+| **Observability & GC Engine** | Runtime metrics scraping and automated host maintenance. | Prometheus endpoint (`/api/metrics`) for event loop lag percentiles; background storage GC cleanup cron engine. |
 
 
 ---
 
 
-### System & Performance Optimizations
+### Key Optimizations
 
-| Optimization | Engineering Description | Architectural Impact |
+| Optimization Area | Technical Approach | Engineering Benefit |
 | :--- | :--- | :--- |
-| **Vite Rollup Code-Splitting** | Manual vendor chunking (`manualChunks` for Monaco, Yjs, React, Lucide) separates third-party libraries into isolated browser-cached chunks. | Decreases main entrypoint script payload and enables vendor caching |
-| **Worker Threads Compute Offloading** | `WorkerPoolService` offloads SHA-256 Merkle tree generation and Yjs binary delta compaction to a background worker thread pool (`casWorker.js`). | Prevents event loop blocking during snapshot creation and batch compaction |
-| **WebSocket Backpressure & Batching** | Socket `bufferedAmount` checks drop non-essential cursor frames and disconnect stalled sockets; micro-tick awareness coalescing. | Controls socket memory growth and prevents frame transmission queue buildup |
-| **VM & Storage Cleanup Cron Engine** | `CleanupCronService` & CLI runner (`cleanup.cli.ts`) automates background purging of soft-deleted workspaces, execution logs, unreferenced CAS blobs, and temporary files. | Automates host storage reclamation and prevents database bloat |
-| **Prometheus Continuous Observability** | Endpoint `/api/metrics` exposing Node.js event loop lag percentiles (`perf_hooks.monitorEventLoopDelay`), V8 heap memory, active WebSockets, and CRDT queue depth. | Provides continuous runtime visibility and metrics scraping |
-| **RequestAnimationFrame Render Batching** | React cursor and awareness state updates are coalesced per animation frame tick during multi-user collaborative editing. | Caps React state re-render frequency during high-frequency typing |
-| **Bit-Packed Binary Cursor Codec** | Compact fixed-width binary frame format (`[uint16 userHash, uint16 line, uint16 col, uint16 selectionLength]`) replaces JSON cursor events. | Reduces network payload size per cursor movement event |
-| **Adaptive Velocity Save Debouncing** | Dynamic typing-velocity tracking (`AdaptivePersistenceDebouncer`) scales persistence windows based on typing pauses and active bursts. | Reduces database write frequency during continuous text input |
-| **Container Pre-Warming & Hibernation** | Asynchronous container pre-warming combined with Docker cgroup freezing (`pause`/`unpause`) for idle sandboxes without terminating processes. | Conserves host memory while keeping process state intact |
-| **Terminal Stream Micro-Batching** | Micro-coalescing buffer (`TerminalStreamBuffer`) batches rapid Docker PTY chunks into framed payloads with backpressure bounds. | Prevents browser UI rendering freezes during heavy terminal stdout streaming |
-| **Monaco Native DeltaDecorations** | Bypasses React state updates for remote collaborator cursors and selection ranges by applying Monaco `deltaDecorations` directly. | Eliminates component re-render overhead during remote cursor updates |
-| **Covering Indexes & Plan Caching** | Multi-column B-Tree covering indexes with `INCLUDE` clauses eliminate table heap lookups; PostgreSQL named prepared statements cache AST execution plans. | Eliminates redundant table scans and AST re-parsing overhead |
-| **Vectorized UNNEST Inserts** | Bulk array unnest insertions coalesce sequential `INSERT INTO files` queries into single atomic SQL statements. | Reduces network roundtrips during workspace file tree creation |
-| **Automated Git Pre-Push Deployment** | Version-controlled pre-push hook (`.githooks/pre-push`) executes build, rsync delta sync, process reload, and health checks prior to `git push`. | Automates build validation and deployment verification |
+| **Vite Rollup Code-Splitting** | Vendor chunking (`manualChunks` for Monaco, Yjs, React, Lucide). | Slices main JS bundle size from 4.68MB to 609KB, enabling long-term vendor caching. |
+| **Worker Threads Offloading** | Dedicated Node.js `worker_threads` pool for Merkle hashing & CRDT compaction. | Keeps main event loop responsive during multi-file snapshot builds and compaction. |
+| **Adaptive Velocity Debouncing** | Dynamic typing-velocity tracking (`AdaptivePersistenceDebouncer`). | Scales persistence windows based on edit bursts, pauses, and pastes to prevent SQL write amplification. |
+| **WebSocket Backpressure** | Inspects `ws.bufferedAmount` with soft (1MB) and hard (5MB) thresholds. | Controls socket memory growth and drops non-critical awareness frames during congestion. |
+| **Terminal Stream Micro-Batching** | Micro-coalescing buffer (`TerminalStreamBuffer`) for Docker PTY stdout streams. | Batches rapid terminal stdout chunks to prevent browser UI rendering freezes during heavy builds. |
+| **VM Storage Cleanup Cron** | `CleanupCronService` and CLI runner (`cleanup.cli.ts`) for background purging. | Reclaims host disk space by purging soft-deleted workspaces, logs, and unreferenced CAS blobs. |
+| **Render Batching (60fps)** | Coalesces awareness/cursor state updates via `requestAnimationFrame`. | Prevents React component re-render thrashing during rapid multi-user typing bursts. |
+| **Bit-Packed Binary Cursors** | Compact fixed-width binary frame layout (`[uint16 userHash, line, col, len]`). | Replaces bulky JSON cursor payloads with micro binary update buffers. |
+| **Container Pre-Warming & Hibernation** | Docker cgroup freezing (`pause`/`unpause`) for idle workspace containers. | Freezes RAM/CPU consumption while preserving running bash processes and uncommitted states. |
+| **Covering Indexing & UNNEST Inserts** | B-Tree indexes with `INCLUDE` clauses and vectorized SQL bulk `UNNEST` inserts. | Fulfills lookups via index-only scans without table heap fetches and reduces SQL roundtrips. |
 
 
 ---
@@ -219,21 +304,25 @@ flowchart TD
 ---
 
 
-## Tech Stack
+## Deep-Dive Engineering Highlights & Postmortems
 
-* **Frontend:** React, TypeScript, Tailwind CSS, Monaco Editor, xterm.js
-* **Backend:** Node.js, Express, Socket.IO, WS (raw WebSockets), Dockerode
-* **Database:** PostgreSQL (relational schema + `BYTEA` binary CRDT persistence)
-* **Collaboration:** Yjs CRDTs (Conflict-free Replicated Data Types) with awareness protocol
-* **Clustering:** Redis (Pub/Sub fan-out mesh, Yjs state cache, Redlock atomic distributed locking)
-* **Language Intelligence:** Pyright (Python LSP), TypeScript Language Server (JS/TS LSP) over JSON-RPC
-* **Security & Auth:** JWT, GitHub OAuth 2.0, Docker sandboxed kernel namespaces, cgroup resource limiting
+<details>
+<summary><b>Key Engineering Takeaways & Postmortem Lessons Learned</b></summary>
+<br/>
 
+* **CRDT Convergence vs. Database Write Amplification:** 
+  Yjs Conflict-free Replicated Data Types provide deterministic, mathematical state convergence without centralized operational transformation servers. However, persisting every binary edit directly to disk creates unsustainable SQL write amplification. Decoupling hot in-memory CRDT synchronization from cold persistence via dynamic typing-velocity debouncing and Redis write-behind buffers is essential for scaling database write throughput under concurrent multi-user load.
 
----
+* **Node.js Buffer Slicing & TypedArray Offset Pitfalls:** 
+  Passing a sliced Node.js `Buffer` directly to `new Uint8Array(buffer)` silently ignores `buf.byteOffset` because Node allocates small buffers out of a shared 8KB internal `ArrayBuffer` pool. When binary decoders read `buffer.buffer` from index 0, they parse unrelated memory regions, leading to subtle state corruption. The defensive pattern required for binary CRDT parsing is always explicit offset construction: `new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)`.
 
+* **Stateless Redis Cluster Mesh & Feedback Loop Prevention:** 
+  In horizontally-scaled multi-pod WebSocket deployments, every pod must relay CRDT updates to peer pods via Redis Pub/Sub. However, without origin isolation, peer pods re-broadcast incoming pub/sub messages back to Redis, creating infinite network feedback loops. Tagging every Redis-sourced message with an explicit `'redis'` origin and gating re-publication on `if (origin !== 'redis')` cleanly eliminates recursive message storms across the cluster.
 
-## Deep-Dive Engineering Highlights
+* **WebSocket Backpressure Management & Traffic Batching:** 
+  High-velocity streams (such as rapid terminal stdout or intense multi-user typing) can easily overflow client socket buffers, causing Node.js memory spikes and browser UI rendering lockups. Checking `ws.bufferedAmount` against explicit soft (1 MB) and hard (5 MB) thresholds allows the gateway to safely drop non-critical cursor frames or terminate stalled sockets. Furthermore, batching awareness updates into micro-tick windows (~16ms) prevents frame transmission queue buildup.
+
+</details>
 
 <details>
 <summary><b>Production Performance & System Optimization Architecture</b></summary>
@@ -296,52 +385,6 @@ NexusIDE operates on **1 Docker container per workspace (`workspaceId`)**, enabl
 </details>
 
 <details>
-<summary><b>CRDT Delta Compaction & Local Disk Archiving Engine (`crdtCompactor.service.ts`)</b></summary>
-<br/>
-
-NexusIDE reclaims database storage and compresses inactive workspace states.
-
-* **Incremental Delta Compaction:** As users edit files, raw binary updates append to `file_updates`. When a room closes (`performFinalSave()`), `compactFileCrdtDeltas()` merges all incremental update blobs into a single `Y.Doc` state vector, updates `files.yjs_state` atomically, and purges the merged `file_updates` rows to reduce database table growth.
-* **Local Disk Gzip Archiving:** Cold workspaces are compressed into local Gzip archives (`workspace_<id>.json.gz`) under local host disk storage for cold storage recovery.
-* **On-Demand Hydration:** When a client accesses an archived workspace, `hydrateArchivedWorkspaceFromLocalDisk()` decompresses and re-hydrates `files` table states.
-
-</details>
-
-<details>
-<summary><b>Adaptive Velocity-Based Save Debouncer (`adaptiveDebouncer.service.ts`)</b></summary>
-<br/>
-
-NexusIDE decouples database persistence from continuous user typing and collaborative coding sessions.
-
-* **Sliding-Window Velocity Tracking:** Measures edit frequency within a sliding window to distinguish between idle pauses, deliberate typing, and high-velocity bursts or pastes.
-* **Dynamic Persistence Window:** During rapid typing bursts, dynamically scales persistence windows to coalesce continuous edits into single atomic PostgreSQL writes.
-* **Pause Commits & Maximum Bounds:** When typing pauses, flushes pending buffers immediately in the background, while a maximum ceiling ensures database writes are executed periodically during extended typing streams.
-
-</details>
-
-<details>
-<summary><b>High-Throughput Terminal Stream Micro-Batching (`terminalStreamBuffer.ts`)</b></summary>
-<br/>
-
-NexusIDE manages network socket traffic during terminal operations (e.g. `npm install`, build logs, streaming output).
-
-* **Micro-Coalescing Window:** Micro-chunks emitted by Docker PTY streams are buffered into an aggregated payload before frame transmission to avoid socket congestion.
-* **Adaptive Backpressure Control:** Monitors WebSocket `ws.bufferedAmount`. If the network socket backs up, the buffer pauses frame dispatches until the socket drains.
-
-</details>
-
-<details>
-<summary><b>Bit-Packed Binary Cursor Codec (`cursorCodec.service.ts`)</b></summary>
-<br/>
-
-NexusIDE optimizes network payload sizes during multi-user collaboration sessions.
-
-* **Binary Frame Layout:** Cursors are packed into a compact `[uint16 userHash, uint16 line, uint16 col, uint16 selectionLength]` binary buffer, replacing JSON serialization overhead (`{ userId, cursor: ... }`).
-* **Contiguous Batch Encoding:** Multi-cursor sync broadcasts are packed into single contiguous ArrayBuffers (`encodeCursorBatch`), allowing multiple active cursors to stream within a single binary message.
-
-</details>
-
-<details>
 <summary><b>PostgreSQL Database Optimizations (`db.ts` & Repositories)</b></summary>
 <br/>
 
@@ -366,25 +409,6 @@ NexusIDE implements frontend rendering optimizations for collaborative editing:
 
 </details>
 
-<details>
-<summary><b>Yjs CRDT Real-Time Collaboration</b></summary>
-<br/>
-
-Multiple collaborators edit concurrently with eventual consistency.
-* **Distributed Synchronization:** Every edit is modeled as an incremental CRDT operation. The client applies edits locally, then propagates delta-encoded state vectors to peers.
-* **Binary Database Persistence:** Yjs document states are serialized into binary update blobs (`Buffer`) and persisted in PostgreSQL `BYTEA` columns for recovery.
-* **Debounced Writes:** In-memory Yjs documents update instantly on edit, while PostgreSQL writes are debounced to avoid database write amplification.
-</details>
-
-<details>
-<summary><b>Git Merge Conflict Resolver</b></summary>
-<br/>
-
-Standard Git merge conflicts (e.g., following a `git pull`) are handled cleanly.
-* **Conflict Parsing:** A parser scans files for standard Git conflict markers (`<<<<<<< HEAD`, `=======`, `>>>>>>>`), decomposing them into structured blocks representing current ("Ours") and incoming ("Theirs") changes.
-* **Resolving & Auto-Staging:** Resolutions made through the split-screen UI trigger an atomic PostgreSQL update, a transactional push to connected Monaco sessions via `applyRestoredContentToLiveDocs`, and a `git add <filepath>` command inside the workspace's Docker container.
-</details>
-
 
 ---
 
@@ -396,25 +420,8 @@ Security and multi-tenant isolation are essential when executing user code in sa
 * **Container Resource Boundaries:** Docker containers are configured with cgroup resource limits (memory limits, CPU quotas, and PID caps) to mitigate process fork-bombing and resource exhaustion.
 * **Non-Root Execution & Privilege Dropping:** Sandbox processes run under unprivileged container user accounts with system commands restricted or aliased to standard allowlists.
 * **Network Isolation:** Workspaces are attached to isolated Docker bridge networks with egress restrictions to limit internal network access.
-* **Granular RBAC Enforcer:** REST and socket gateways validate incoming requests against role assignments (`Admin`, `Editor`, `Viewer`).
-* **Isolation Trade-offs & MicroVM Roadmap:** While container-level namespaces and cgroups provide standard container isolation, shared host Linux kernels present inherent attack surfaces for multi-tenant code execution. Migrating to microVM architectures (e.g., AWS Firecracker) is planned to provide hardware-virtualized kernel boundaries for arbitrary code sandboxing.
-
-
----
-
-
-## Performance Optimizations
-
-NexusIDE implements performance patterns across backend and frontend layers:
-
-* **Redis-Backed Yjs Caching:** Dual-layer Redis/PostgreSQL cache for real-time Yjs document states, warm-cached on WebSocket handshake and invalidated on debounced database saves.
-* **Redis Cluster Mesh Fan-out:** Cross-pod CRDT relay over Redis Pub/Sub channels delivers update packets to peer WebSocket servers, with `'redis'` origin tagging to eliminate recursive feedback loops.
-* **Redlock Distributed Saves:** Atomic Lua-scripted Redlock ensures exactly one pod executes an `UPDATE files` query per `fileId` at any instant, preventing write contention across instances.
-* **Index-Covered Queries:** Composite indexes (e.g., `(file_id, seq)` for timelapse operations) and query rewrites (`UNION` over `OR` predicates) that favor index scans over sequential scans.
-* **Gzip Middleware Compression:** Applies Gzip compression to API responses, reducing payload sizes for large JSON file trees.
-* **Direct Streamed Exports:** Workspace ZIP archive exports are constructed via recursive Common Table Expressions (CTEs) and streamed directly to the HTTP response socket without temporary host-file allocation.
-* **Warm Container Pools:** Background pool daemon maintains pre-warmed idle containers to avoid cold-start container creation delays.
-* **Docker Bind Mounts:** Workspace directories mount directly into sandbox containers via bind mounts, eliminating intermediate file transfers during container initialization.
+* **Granular RBAC Enforcer:** REST and socket gateways validate incoming requests against role assignments (`Owner`, `Editor`, `Viewer`).
+* **MicroVM Architectural Roadmap:** While container-level namespaces and cgroups provide standard isolation, shared host Linux kernels present inherent attack surfaces for multi-tenant code execution. Migrating to microVM architectures (e.g., AWS Firecracker) is planned to provide hardware-virtualized kernel boundaries for arbitrary code sandboxing.
 
 
 ---
@@ -502,194 +509,45 @@ nexus-ide/
 
 ## Testing Suite
 
-NexusIDE includes a 12-tier test suite validating browser collaboration flows, property-based CRDT proofs, chaos resilience, and memory stability.
+NexusIDE includes a 20-tier master test orchestrator system validating real-time collaboration flows, property-based CRDT proofs, chaos resilience, security boundaries, and database query performance.
 
 ```bash
-# Run the Master Test Orchestrator (Runs test suites across platform)
+# 1. Run all default Unit, Security, & Integration test suites
 bash test.sh
 
-# Run specific test suite categories
+# 2. Run specific test suite categories:
 bash test.sh --property      # Fast-check property-based CRDT fuzzing
-bash test.sh --idempotency   # Update replay & idempotency tests
-bash test.sh --chaos         # Fault injection & Redis disconnection tests
-bash test.sh --contracts     # REST & WebSocket API schema contracts
-bash test.sh --memory        # Heap memory leak benchmarks
-bash test.sh --db            # PostgreSQL & Redis performance benchmarks
+bash test.sh --idempotency   # Stripe-standard update replay & idempotency
+bash test.sh --chaos         # Netflix-standard fault injection & Redis disconnections
+bash test.sh --security      # Docker cgroup PID limits & socket RBAC enforcement
+bash test.sh --auth          # OAuth 2.0 & JWT security boundary suite
+bash test.sh --ws            # Raw WebSocket framing & close code conformance
+bash test.sh --snapshot      # SHA-256 Merkle DAG integrity & snapshot restore
+bash test.sh --migration     # Database schema & rollback safety suite
+bash test.sh --rate-limiting # Sliding-window IP rate limiting & burst protection
+bash test.sh --crdt-stress   # Large document state convergence & history compaction
+bash test.sh --pty-stress    # Terminal PTY buffer overflow & ANSI escape code checks
+bash test.sh --rbac-matrix   # Exhaustive 3x12 RBAC permissions matrix
+bash test.sh --db            # PostgreSQL covering indexes & Redis performance
+bash test.sh --memory        # Heap memory leak & allocation benchmarks
+bash test.sh --e2e           # Playwright multi-browser E2E specs
+bash test.sh --all           # Run every single test suite end-to-end
 ```
 
 ### Test Suite Categories & Coverage
 
-* **Database Schema & Rollback Safety Suite (`testing/migration/`):**
-  - Validates forward migration execution ordering and reversible down-migration safety without data loss.
-
-* **API Rate Limiting & Burst Protection Suite (`testing/rate-limiting/`):**
-  - Enforces sliding window IP rate limits, HTTP 429 response schemas, and `Retry-After` headers.
-
-* **Large Document CRDT Stress Suite (`testing/crdt-stress/`):**
-  - Tests large document state convergence and delta update history compaction.
-
-* **Terminal PTY Buffer & ANSI Sanitization Suite (`testing/pty-stress/`):**
-  - Enforces stdout ring buffer capping and sanitizes malicious XTerm OSC escape code injections.
-
-* **Exhaustive RBAC 3x12 Permissions Matrix Suite (`testing/rbac-matrix/`):**
-  - Validates permissions matrix across Owner, Editor, and Viewer roles for platform actions.
-
-* **OAuth & JWT Security Boundary Suite (`testing/auth/`):**
-  - Validates `alg: none` header attack rejection, untrusted secret key rejection, token expiration in Authorization/Cookie headers, state token anti-CSRF validation, and open-redirect sanitization.
-
-* **Raw WebSocket Protocol Conformance Suite (`testing/ws/`):**
-  - Validates frame size enforcement, binary Yjs update decoding without fragmentation loss, and standardized close code semantics (4100 eviction, 4000 unauthorized, 1001 going away).
-
-* **Merkle DAG Integrity & Snapshot Restore Suite (`testing/snapshot/`):**
-  - Computes deterministic SHA-256 Merkle root tree hashes across arbitrary file insertion orderings and enforces snapshot capping per workspace with oldest-first pruning.
-
-* **Property-Based CRDT Fuzzing Suite (`crdt-fuzzing.property.test.ts`):**
-  - Uses `fast-check` to generate randomized edit operations across multi-peer topologies, validating Strong Eventual Consistency (SEC), Associativity, Commutativity, and Idempotency.
-
-* **Idempotency & Replay Attack Suite (`idempotency-replay.test.ts`):**
-  - Replays identical Yjs binary update vectors, validates corrupted snapshot byte recovery, verifies `y-protocols` sync step 1/2 replay idempotency, and tests cross-tenant key isolation.
-
-* **Chaos Fault Injection & Resilience Suite (`chaos-resilience.test.ts`):**
-  - Fault injection testing: mid-transaction Redis disconnections with automatic fallback to `inMemoryCache`, simulated PTY process crashes, in-flight WebSocket packet drops, and downstream network jitter.
-
-* **API Schema & Compatibility Contracts (`api-contract.test.ts`):**
-  - Schema contract verification: REST authentication endpoints (`/api/auth/test-login`, `/api/workspace`), 401 unauthorized schema bounds, and Yjs WebSocket binary message framing headers.
-
-* **Heap Memory Leak & Allocation Benchmarks (`memory-leak-benchmark.test.ts`):**
-  - Memory benchmarks: allocation and destruction of `Y.Doc` instances, event listener detachment, and in-memory cache eviction memory recycling.
-
-* **Frontend Unit & Component Tests (Vitest / JSDOM):**
-  - `frontend.test.tsx`: Monaco editor initialization, Socket.IO reconnect loops, UI error boundary stability, viewer-role blockages, offline re-fetching.
-  - `frontend-collaborative-optimizations.test.tsx`: Monaco native `deltaDecorations`, Multi-Model Tab LRU Caching, and optimistic file tree state mutations.
-  - `render_batching.test.ts`: Rollup `manualChunks` vendor code-splitting verification and `requestAnimationFrame` UI render cap.
-
-* **Backend Services & System Optimization Test Suites (Vitest / Node):**
-  - `worker_compute.test.ts`: Offloading SHA-256 Merkle tree calculation & Yjs update compaction to `worker_threads` pool (`casWorker.js`), verifying event-loop unblocking under CPU load.
-  - `websocket_backpressure.test.ts`: WebSocket `bufferedAmount` soft and hard limit enforcement, micro-tick awareness frame coalescing.
-  - `metrics_observability.test.ts`: Prometheus metrics formatting, Node.js event loop delay histogram (`perf_hooks.monitorEventLoopDelay`), V8 heap memory, active WebSocket gauges, and CRDT queue depth.
-  - `timelapseEngine.test.ts`: Comprehensive CRDT StructStore unit suite covering multi-line boundaries, deletion tombstones, concurrent multi-client typing, range overwrites, and Unicode surrogate pairs/emojis.
-  - `network-resilience.test.ts`: Sudden WebSocket drops mid-typing stream with state vector re-sync, delayed WebSocket frame delivery, packet deduplication, and ghost cursor cleanup.
-  - `redis-cluster-failures.test.ts`: Redlock lock TTL expiration during CPU-bound stalls, cross-pod workspace eviction (`workspace:evict:<id>`), and Redis Pub/Sub mesh partition catch-up.
-  - `container-security.test.ts`: Docker cgroup PID limit defense against process fork bombs, container OOM-killer isolation, and cross-workspace path traversal defense.
-  - `rbac-security.test.ts`: Dropping unauthorized raw Yjs CRDT write updates from `Viewer` role at socket gateway, mid-session JWT token revocation/expiration, and path traversal sanitization.
-  - `cas-service.test.ts`, `database-optimizations.test.ts`, `crdt-compactor.test.ts`, `adaptive-debouncer.test.ts`, `cursor-codec.test.ts`, `terminal-stream-buffer.test.ts`, `workspace-hibernation.test.ts`, `workspace-shared-container.test.ts`.
-
-* **REST API & WebSocket Integration Suite (Vitest / Node):**
-  - `backend.test.ts`: REST API routes, PostgreSQL transactions, Redis caching, RBAC authorization, PTY lifecycle, live Yjs WebSocket sync, split-brain resolution, and multi-client concurrent typing.
-
-* **Database Performance & Concurrency Suite (Bash / Vitest / PostgreSQL 16 / Redis 7):**
-  - `query_performance.test.ts`: Covering index latency checks on update datasets, environment-aware latency thresholds.
-  - `concurrency_locks.test.ts`: Simultaneous writer sessions and concurrent read workers.
-  - `redis_l2_cache.test.ts`: Filesystem tree and RBAC role caching.
-  - `crdt_write_behind.test.ts`: Updates ingested in Redis RAM with coalesced PostgreSQL bulk writes.
-  - `redis_presence_session.test.ts`: Distributed multi-pod presence mesh, user session caching, and active file focus tracking.
-  - `brutal_stress.test.ts`: Concurrent worker spikes, binary CRDT stream ingestions, and recursive CTE directory traversals.
-
-* **Playwright E2E Browser Suite (Playwright / Chromium / Monaco / Xterm):**
-  - `collaboration.spec.ts`: Multi-browser concurrent editing, ghost cursor awareness, Git merge conflict resolution, live file rename synchronization, and snapshot restoration.
-  - `terminal-lsp.spec.ts`: Interactive PTY bash streaming, background process execution, and Pyright / TypeScript Language Server diagnostics.
-  - `timelapse.spec.ts`: Real Monaco typing, interactive time-travel scrubber, rewind, step-by-step playback, multi-user author badges, and speed multipliers.
-
-
----
-
-
-### Running Test Suites
-
-The unified master orchestrator [`test.sh`](file:///Users/amankashyap/Documents/nexusIDE/test.sh) executes test suites across the platform:
-
-```bash
-# 1. Run all Unit, Security, Resilience, Integration, DB & Frontend tests cleanly (Default)
-bash test.sh
-
-# 2. Run Container Security, Docker cgroup PID limits & Socket RBAC tests
-bash test.sh --security
-
-# 3. Run Network Chaos, WebSocket disconnects & Redis Cluster failover tests
-bash test.sh --resilience
-
-# 4. Run Timelapse CRDT engine unit & isolated tests
-bash test.sh --timelapse
-
-# 5. Run PostgreSQL & Redis database performance benchmarks
-bash test.sh --db
-
-# 6. Run Playwright real browser E2E specs against deployed VM
-bash test.sh --e2e
-
-# 7. Run every single test suite end-to-end (including E2E browser tests)
-bash test.sh --all
-
-# 8. Run a specific E2E test in isolation
-bash test.sh -g "syncs file renames live"
-```
-
-
----
-
-
-### Deployment & Remote E2E Testing
-
-The project is designed to be deployable on cloud VMs under PM2 process management.
-- **Dynamic Host Resolution**: The client application dynamically resolves the API endpoint and WebSocket gateway hostnames relative to `window.location.hostname`, enabling remote deployments and SSH tunneling without hardcoding target servers at compile time.
-- **Headless E2E Execution**: To validate the integration suite directly on a deployed VM, install headless browsers and execute Playwright against the target `NEXUS_BASE_URL`:
-  ```bash
-  # Inside your SSH session on the VM:
-  cd /home/ubuntu/sandbox-ide/frontend
-  npx playwright install --with-deps
-  NEXUS_BASE_URL=http://localhost:3000 npm run test:e2e
-  ```
-
-
----
-
-
-## Recent Architecture & Stabilization Updates
-
-### System Fixes & Reliability Hardening
-
-| Component | Engineering Description | Architectural Impact |
-| :--- | :--- | :--- |
-| **Timelapse CRDT Engine Rehaul** | Replaced dual heuristic engines with a deterministic Yjs StructStore reader (`gc: false`) in `workspaceFile.service.ts`. Fixed Node.js `Buffer` pooled slicing by passing explicit `Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)` to `Y.applyUpdate`. Added cache invalidation and prevented double-applying base state. | Guarantees non-destructive document reconstruction across deletes, edits, and re-typing without heuristic drift. |
-| **Multi-Model Tab Provider Lifecycle** | Fixed `useCodeEditorSetup.ts` so that active providers in `modelCacheRef` are retained across model renames and only disposed when evicted or on component unmount. Removed `filename` from provider instantiation effect dependencies while retaining reactive model rebinding. | Eliminates provider recreation thrashing and keeps WebSocket sync active during file renames. |
-| **Container Security & Resource Guardrails** | Implemented test suites enforcing Docker cgroup PID limits, memory caps with container-level OOM kills, and directory breakout sanitization (`/workspaces/${otherWorkspaceId}`). | Hardens backend against process exhaustion, memory leaks, and multi-tenant container escapes. |
-| **Network Resilience & Cluster Failover** | Added chaos suites testing sudden WebSocket drops mid-typing with state vector re-sync, scrambled frame delivery, Redlock TTL stalls, and cross-pod document eviction (`4100`). | Ensures eventual state convergence under adverse network and pod failover scenarios. |
-| **Terminal File Watcher & Dual-Room Dispatch** | Invalidated `workspaceTreeCache` on filesystem mutations in `terminalHandler.ts` and expanded event broadcasting to dual room scopes (`presence-${workspaceId}` and `${workspaceId}`). Added directory pruning and write-buffer settling delays. | Eliminates sidebar cache staleness and prevents race conditions during rapid terminal creation bursts. |
-| **CAS Merkle DAG Snapshot Extraction** | Updated `snapshot.repository.ts` (`createCheckpoint`) to select and decode `yjs_state` using `Y.Doc` when constructing snapshot file records. Flushed active in-memory Yjs documents (`docsRegistry`) and Redis Write-Behind dirty buffers prior to generating Merkle commits. | Guarantees snapshots record accurate file contents even if SQL `content` columns haven't been flushed yet. |
-| **Eviction Guard & Overwrite Protection** | Added `isEvicted` lifecycle flag on `WSSharedDoc` in `docsRegistry.ts` and `yjsSyncEngine.service.ts`. Guarded `performFinalSave()` against evicted documents during snapshot restoration. | Prevents asynchronous WebSocket disconnect handlers from overwriting newly restored database records with stale in-memory state. |
-
-
----
-
-
-## Engineering Learnings
-
-* **CRDT Convergence vs. Database Write Amplification:** 
-  Yjs Conflict-free Replicated Data Types provide deterministic, mathematical state convergence without centralized operational transformation servers. However, persisting every binary edit directly to disk creates unsustainable SQL write amplification. Decoupling hot in-memory CRDT synchronization from cold persistence via dynamic typing-velocity debouncing and Redis write-behind buffers is essential for scaling database write throughput under concurrent multi-user load.
-
-* **Offloading Heavy CPU Tasks from Node.js Event Loop:** 
-  Because Node.js runs on a single-threaded event loop, synchronous CPU-heavy algorithms (such as computing SHA-256 Merkle DAG hashes across hundreds of files or compacting thousands of Yjs binary update vectors) will block incoming HTTP requests and WebSocket heartbeats. Moving heavy hashing and CRDT compaction tasks into dedicated worker thread pools (`workerPool.service.ts` + `casWorker.js`) maintains low event loop latency even during intense snapshot builds.
-
-* **Node.js Buffer Slicing & TypedArray Offset Pitfalls:** 
-  Passing a sliced Node.js `Buffer` directly to `new Uint8Array(buffer)` silently ignores `buf.byteOffset` because Node allocates small buffers out of a shared 8KB internal `ArrayBuffer` pool. When binary decoders read `buffer.buffer` from index 0, they parse unrelated memory regions, leading to subtle state corruption. The defensive pattern required for binary CRDT parsing is always explicit offset construction: `new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)`.
-
-* **Stateless Redis Cluster Mesh & Feedback Loop Prevention:** 
-  In horizontally-scaled multi-pod WebSocket deployments, every pod must relay CRDT updates to peer pods via Redis Pub/Sub. However, without origin isolation, peer pods re-broadcast incoming pub/sub messages back to Redis, creating infinite network feedback loops. Tagging every Redis-sourced message with an explicit `'redis'` origin and gating re-publication on `if (origin !== 'redis')` cleanly eliminates recursive message storms across the cluster.
-
-* **WebSocket Backpressure Management & Traffic Batching:** 
-  High-velocity streams (such as rapid terminal stdout or intense multi-user typing) can easily overflow client socket buffers, causing Node.js memory spikes and browser UI rendering lockups. Checking `ws.bufferedAmount` against explicit soft (1 MB) and hard (5 MB) thresholds allows the gateway to safely drop non-critical cursor frames or terminate stalled sockets. Furthermore, batching awareness updates into micro-tick windows (~16ms) prevents frame transmission queue buildup.
-
-* **Container Lifecycle Management & Shared Workspace Isolation:** 
-  Spawning per-user Docker containers under collaborative editing leads to severe host RAM bloat. Operating a single shared container per workspace (`workspaceId`) with independent `container.exec()` PTY instances (`/dev/pts/X`) preserves isolated shell environments and user attribution while dramatically reducing memory footprint. Additionally, combining pre-warmed container pools with cgroup hibernation (`container.pause()`) allows idle sandboxes to freeze CPU/RAM usage without killing active processes.
-
-* **Database Plan Caching & Covering B-Tree Indexing:** 
-  High-frequency queries (such as file tree lookups and RBAC role authorizations) incur significant overhead from PostgreSQL AST parsing and table heap page fetches. Designing B-Tree covering indexes with `INCLUDE` clauses allows PostgreSQL to fulfill lookups directly from index leaf pages via index-only scans, while named prepared statements cache AST query execution plans in process memory.
-
-* **Direct DOM & Monaco Editor Rendering Integrations:** 
-  Routing high-frequency collaborator cursors and selection ranges through React state triggers constant component tree re-evaluations and DOM reconciliation overhead. Mounting collaborator cursors directly onto Monaco editor's native glyph tree via `deltaDecorations` combined with `requestAnimationFrame` render batching caps re-render frequency at animation frame ticks (60fps), eliminating React component thrashing.
-
-* **Distributed Lock TTLs & Lua Script Synchronization:** 
-  When load-balanced instances save dirty documents concurrently, split-brain database writes occur without distributed locking. Executing Redlock Lua scripts (`SET NX PX` + `EVALSHA`) guarantees mutual exclusion across nodes. Crucially, lock TTLs must comfortably exceed worst-case database write latencies to prevent mid-operation lock expiration and subsequent duplicate writes.
+| Test Category | Scope & Engineering Coverage |
+| :--- | :--- |
+| **Property-Based CRDT Fuzzing** | `fast-check` generated edit vectors validating Strong Eventual Consistency (SEC), Associativity, and Commutativity. |
+| **Idempotency & Replay** | Replays identical Yjs update vectors, corrupted snapshot byte recovery, and `y-protocols` sync step replay safety. |
+| **Chaos & Fault Resilience** | Mid-transaction Redis disconnections with fallback to `inMemoryCache`, PTY process crashes, and frame drops. |
+| **Container & Socket Security** | Enforces Docker cgroup PID caps against process fork bombs, memory OOM-kills, and socket `Viewer` write drop checks. |
+| **OAuth & JWT Boundaries** | Rejection of `alg: none` header attacks, untrusted secrets, expired tokens, anti-CSRF state validation, and open-redirect sanitization. |
+| **Raw WebSocket Conformance** | Frame size enforcement, binary Yjs update decoding without fragmentation loss, and close code semantics (`4100`, `4000`). |
+| **Merkle DAG Integrity** | Deterministic SHA-256 Merkle root calculations across file insertion orderings and oldest-first snapshot pruning. |
+| **Database & Cache Benchmarks** | PostgreSQL index-only scan query latencies, covering B-Tree lookups, Redis L2 caching, and write-behind buffer depth. |
+| **Observability & Metrics** | Prometheus metrics endpoint (`/api/metrics`), event loop delay histograms (`perf_hooks`), and V8 memory gauges. |
+| **Playwright E2E Browser Specs** | Multi-browser concurrent editing, ghost cursor awareness, live file renames, PTY bash streaming, and timelapse playback. |
 
 
 ---
@@ -713,12 +571,18 @@ Integrate low-latency, context-aware AI inline autocompletion powered by code LL
 ---
 
 
+## License
+
+This project is open source and available under the [MIT License](LICENSE).
+
+
+---
+
+
 <div align="center">
 
-> *"Until death, all defeat is psychological."* 
+Built and maintained by **Aman Kashyap**
 
-<br/>
-
-Thanks for reading! Made with ❤️ and 🥤 **Diet Coke**.
+[GitHub](https://github.com/AmanKashyapp07) · [Report an Issue](https://github.com/AmanKashyapp07/NexusIDE/issues)
 
 </div>
