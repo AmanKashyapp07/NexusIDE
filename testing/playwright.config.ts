@@ -10,11 +10,11 @@ export default defineConfig({
     timeout: process.env.CI ? 30000 : 25000,
   },
   fullyParallel: true,
-  workers: process.env.PLAYWRIGHT_WORKERS ? parseInt(process.env.PLAYWRIGHT_WORKERS) : '100%',
+  workers: process.env.PLAYWRIGHT_WORKERS ? parseInt(process.env.PLAYWRIGHT_WORKERS) : 2,
   retries: process.env.CI ? 2 : 1,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: process.env.NEXUS_BASE_URL || process.env.BASE_URL || 'http://129.154.39.198/ide',
+    baseURL: process.env.NEXUS_BASE_URL || process.env.BASE_URL || 'http://localhost:5173/ide',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',

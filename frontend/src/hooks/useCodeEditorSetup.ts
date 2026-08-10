@@ -127,9 +127,7 @@ export function useCodeEditorSetup({
     const tryBind = () => {
       if (!isActive) return;
       const model = editor.getModel();
-      const expectedName = filename || fileId;
-
-      if (!model || !model.uri || !model.uri.path.endsWith(expectedName)) return;
+      if (!model) return;
       if (binding && boundModel === model) return;
 
       const ytext = ydoc.getText('monaco');
@@ -286,24 +284,7 @@ export function useCodeEditorSetup({
     };
   }, [editor, workspaceId, fileId, currentUser.username, currentUser.id, monacoInstance]);
 
-  // Handle model rebinding if filename updates while fileId remains the same
-  useEffect(() => {
-    if (!editor || !fileId || !ydocRef.current || !wsProviderRef.current) return;
-    const model = editor.getModel();
-    const expectedName = filename || fileId;
-    if (model && model.uri && model.uri.path.endsWith(expectedName)) {
-      const ytext = ydocRef.current.getText('monaco');
-      const entry = modelCacheRef.current.get(`${workspaceId}-${fileId}`);
-      if (entry && !entry.binding) {
-        entry.binding = new MonacoBinding(
-          ytext,
-          model,
-          new Set([editor]),
-          wsProviderRef.current.awareness as any
-        );
-      }
-    }
-  }, [filename, editor, fileId, workspaceId]);
+
 
   // ===========================================================================
   // Jump-to-member Cursor Effect

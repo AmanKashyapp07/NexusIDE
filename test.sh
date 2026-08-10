@@ -559,7 +559,7 @@ EXTRA_ARGS=()
 
 run_e2e() {
   local t_start=$(date +%s)
-  local max_workers="${PLAYWRIGHT_WORKERS:-100%}"
+  local max_workers="${PLAYWRIGHT_WORKERS:-2}"
   local flags=()
   if [ -n "$LAST_FAILED" ]; then
     flags+=("--last-failed")
@@ -568,7 +568,10 @@ run_e2e() {
     flags+=("${EXTRA_ARGS[@]}")
   fi
 
-  echo -e "${DIM}Executing Playwright browser journeys in maximum parallel concurrency (--workers=${max_workers}) against target ${NEXUS_BASE_URL}...${RESET}"
+  echo -e "${DIM}Running system storage cleanup routine before E2E run...${RESET}"
+  (cd "${LOCAL_BASE}/backend" && npx tsx src/cli/cleanup.cli.ts 2>/dev/null || true)
+
+  echo -e "${DIM}Executing Playwright browser journeys with controlled concurrency (--workers=${max_workers}) against target ${NEXUS_BASE_URL}...${RESET}"
   if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/ --config playwright.config.ts --reporter=list --workers="${max_workers}" ${flags[@]+"${flags[@]}"}); then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))

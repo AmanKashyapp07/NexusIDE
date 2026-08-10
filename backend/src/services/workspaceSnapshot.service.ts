@@ -200,11 +200,6 @@ export async function restoreSnapshot(workspaceId: string, snapshotId: string): 
       await applyRestoredContentToLiveDocs(workspaceId, restoredFilesData);
       await client.query('COMMIT');
 
-      // INTENT: Evict all in-memory Yjs docs for this workspace AFTER committing the DB transaction.
-      // WHY: Without eviction, reconnecting clients re-use the stale in-memory WSSharedDoc (which still holds
-      // the pre-restore content). Eviction forces the next connect to load fresh state from the updated DB.
-      await cancelAndEvictWorkspaceDocs(workspaceId);
-
       for (const f of filesToSyncToTerminal) {
          syncFileToTerminal(workspaceId, f.fileId, f.content).catch(() => {});
       }

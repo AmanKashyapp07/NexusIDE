@@ -4,8 +4,9 @@ import {
   login, loginUser, inviteUser, waitForBootComplete, focusEditor,
   createTestWorkspace, deleteTestWorkspace, createTestFile, createFile, typeTextInMonaco,
   getEditorValue, waitForEditorModel, waitForEditorSync, setMonacoValue, setEditorValue, waitForSocketConnect,
-  setupUserAndWorkspace, createFileAndOpen, waitForLspStatus, getMarkers
+  setupUserAndWorkspace, createFileAndOpen, waitForLspStatus, getMarkers, waitForTerminalText
 } from '../test-utils';
+
 
 test.describe('Terminal - Core Operations', () => {
   test.beforeEach(async ({ page }) => {
@@ -35,15 +36,15 @@ test.describe('Terminal - Core Operations', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo "PTY_TEST_OK"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('PTY_TEST_OK', { timeout: 5000 });
+    await waitForTerminalText(page, 'PTY_TEST_OK', 5000);
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 15000 });
+    await waitForTerminalText(page, `/workspaces/${workspaceId}`, 15000);
     await page.keyboard.type('echo \'console.log("FROM_SHELL_OK");\' > shell-script.js', { delay: 10 });
     await page.keyboard.press('Enter');
     const fileSelector = page.locator('.ide-scrollbar').getByText('shell-script.js');
@@ -65,7 +66,7 @@ test.describe('Terminal - Core Operations', () => {
     await page.waitForTimeout(200);
     await page.keyboard.type('node dev-server.js', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('node dev-server.js', { timeout: 5000 });
+    await waitForTerminalText(page, 'node dev-server.js', 5000);
     await page.waitForTimeout(2000);
     const previewPromise = context.waitForEvent('page');
     await page.click('button:has-text("Preview")');
@@ -105,17 +106,17 @@ test.describe('Terminal - Core Operations', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('clear\n', { delay: 10 });
     await page.keyboard.type(`git clone ${repoUrl}\n`, { delay: 10 });
-    await expect(terminalBody).toContainText(`Cloning into '${repoName}'`, { timeout: 30000 });
-    await expect(terminalBody).toContainText(/Receiving objects:|Resolving deltas:|done\./, { timeout: 45000 });
+    await waitForTerminalText(page, `Cloning into '${repoName}'`, 30000);
+    await waitForTerminalText(page, /Receiving objects:|Resolving deltas:|done\./, 45000);
     const repoFolder = page.locator('.ide-scrollbar').getByText(repoName);
     await expect(repoFolder).toBeVisible({ timeout: 20000 });
     await page.keyboard.type(`cd ${repoName} && ls -d .git\n`, { delay: 10 });
-    await expect(terminalBody).toContainText('.git', { timeout: 5000 });
+    await waitForTerminalText(page, '.git', 5000);
     await repoFolder.click();
     await page.waitForTimeout(1000);
     const amanFile = page.locator('.ide-scrollbar').getByText('README', { exact: true }).first();
@@ -127,17 +128,17 @@ test.describe('Terminal - Core Operations', () => {
     await page.keyboard.type('git config --global user.email "admin@example.com" && git config --global user.name "Admin User" && git config --global core.pager cat\n', { delay: 10 });
     await page.waitForTimeout(1000);
     await page.keyboard.type('git checkout -b feature/collaborative-edit\n', { delay: 10 });
-    await expect(terminalBody).toContainText("Switched to a new branch 'feature/collaborative-edit'", { timeout: 10000 });
+    await waitForTerminalText(page, "Switched to a new branch 'feature/collaborative-edit'", 10000);
     await page.keyboard.type('echo "edited from collaborative IDE" >> README\n', { delay: 10 });
     await page.waitForTimeout(1000);
     await page.keyboard.type('git status\n', { delay: 10 });
-    await expect(terminalBody).toContainText('modified:   README', { timeout: 10000 });
+    await waitForTerminalText(page, 'modified:   README', 10000);
     await page.keyboard.type('git add README && git commit -m "test: commit change from collaborative IDE"\n', { delay: 10 });
-    await expect(terminalBody).toContainText('1 file changed', { timeout: 15000 });
+    await waitForTerminalText(page, '1 file changed', 15000);
     await page.keyboard.type('git log -n 1\n', { delay: 10 });
-    await expect(terminalBody).toContainText('test: commit change from collaborative IDE', { timeout: 10000 });
+    await waitForTerminalText(page, 'test: commit change from collaborative IDE', 10000);
     await page.keyboard.type('git checkout master\n', { delay: 10 });
-    await expect(terminalBody).toContainText("Switched to branch 'master'", { timeout: 10000 });
+    await waitForTerminalText(page, "Switched to branch 'master'", 10000);
   });
 
   test('xterm.js frontend withstands massive stdout floods without crashing or desyncing', async ({ page }) => {
@@ -156,16 +157,16 @@ test.describe('Terminal - Core Operations', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     const floodCommand = `for i in $(seq 1 2000); do echo "STRESS_TEST_LINE_$i"; done`;
     await page.keyboard.type(floodCommand, { delay: 5 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('STRESS_TEST_LINE_2000', { timeout: 20000 });
+    await waitForTerminalText(page, 'STRESS_TEST_LINE_2000', 20000);
     await page.keyboard.type('echo "SURVIVED"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('SURVIVED', { timeout: 5000 });
+    await waitForTerminalText(page, 'SURVIVED', 5000);
   });
 
   test('handles interactive stdin prompts and background process orchestration', async ({ page }) => {
@@ -184,23 +185,23 @@ test.describe('Terminal - Core Operations', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo \'read -p "Enter Magic Word: " word; echo "You said: $word"\' > prompt.sh', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('bash prompt.sh', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('Enter Magic Word:', { timeout: 5000 });
+    await waitForTerminalText(page, 'Enter Magic Word:', 5000);
     await page.keyboard.type('PlaywrightRules', { delay: 50 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('You said: PlaywrightRules', { timeout: 5000 });
+    await waitForTerminalText(page, 'You said: PlaywrightRules', 5000);
     await page.keyboard.type('sleep 100 &', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 5000 });
+    await waitForTerminalText(page, 'sandbox:~#', 5000);
     await page.keyboard.type('echo "PTY_UNBLOCKED"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('PTY_UNBLOCKED', { timeout: 5000 });
+    await waitForTerminalText(page, 'PTY_UNBLOCKED', 5000);
   });
 });
 
@@ -228,7 +229,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalA = page.locator('.xterm');
     const textareaA = page.locator('.xterm-helper-textarea');
-    await expect(terminalA).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
@@ -251,7 +252,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await pageB.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalB = pageB.locator('.xterm');
     const textareaB = pageB.locator('.xterm-helper-textarea');
-    await expect(terminalB).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(pageB, 'sandbox:~#', 25000);
     await pageB.waitForTimeout(2000);
     await textareaA.focus();
     await page.keyboard.type('export MY_SECRET_A="onlyForA"', { delay: 10 });
@@ -266,18 +267,18 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await textareaB.focus();
     await pageB.keyboard.type('echo "B_CHECK:$MY_SECRET_A"', { delay: 10 });
     await pageB.keyboard.press('Enter');
-    await expect(terminalB).toContainText('B_CHECK:', { timeout: 5000 });
+    await waitForTerminalText(pageB, 'B_CHECK:', 5000);
     await pageB.keyboard.type('echo "B_OWN:$MY_SECRET_B"', { delay: 10 });
     await pageB.keyboard.press('Enter');
-    await expect(terminalB).toContainText('B_OWN:onlyForB', { timeout: 5000 });
+    await waitForTerminalText(pageB, 'B_OWN:onlyForB', 5000);
     await textareaA.focus();
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalA).toContainText('subdir_a', { timeout: 5000 });
+    await waitForTerminalText(page, 'subdir_a', 5000);
     await textareaB.focus();
     await pageB.keyboard.type('pwd', { delay: 10 });
     await pageB.keyboard.press('Enter');
-    await expect(terminalB).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
+    await waitForTerminalText(pageB, `/workspaces/${workspaceId}`, 5000);
     await textareaA.focus();
     await page.keyboard.type('echo "from_A" > ../created_by_a.txt', { delay: 10 });
     await page.keyboard.press('Enter');
@@ -295,6 +296,8 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     const timestamp = Date.now();
     const username = `MultiTab_${timestamp}`;
     await page.goto(`${APP_URL}/login`);
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+    await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
     await usernameInput.click();
@@ -310,7 +313,7 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminal1 = page.locator('.xterm');
     const textarea1 = page.locator('.xterm-helper-textarea');
-    await expect(terminal1).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await textarea1.focus();
     await page.keyboard.type('echo "TAB1_MARKER" > tab1_test.txt', { delay: 10 });
@@ -321,18 +324,18 @@ test.describe('Terminal Multi-User Isolation & Concurrent Sessions', () => {
     await page2.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminal2 = page2.locator('.xterm');
     const textarea2 = page2.locator('.xterm-helper-textarea');
-    await expect(terminal2).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page2, 'sandbox:~#', 25000);
     await page2.waitForTimeout(2000);
     await textarea2.focus();
     await page2.keyboard.type('cat tab1_test.txt', { delay: 10 });
     await page2.keyboard.press('Enter');
-    await expect(terminal2).toContainText('TAB1_MARKER', { timeout: 5000 });
+    await waitForTerminalText(page2, 'TAB1_MARKER', 5000);
     await page.close();
     await page2.waitForTimeout(1000);
     await textarea2.focus();
     await page2.keyboard.type('echo "STILL_ALIVE"', { delay: 10 });
     await page2.keyboard.press('Enter');
-    await expect(terminal2).toContainText('STILL_ALIVE', { timeout: 5000 });
+    await waitForTerminalText(page2, 'STILL_ALIVE', 5000);
     await page2.close();
   });
 });
@@ -354,7 +357,7 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('sleep 300', { delay: 10 });
@@ -362,13 +365,13 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await page.waitForTimeout(500);
     await page.keyboard.press('Control+Z');
     await page.waitForTimeout(1000);
-    await expect(terminalBody).toContainText(/Stopped|stopped/i, { timeout: 5000 });
+    await waitForTerminalText(page, /Stopped|stopped/i, 5000);
     await page.keyboard.type('echo "SHELL_BACK"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('SHELL_BACK', { timeout: 5000 });
+    await waitForTerminalText(page, 'SHELL_BACK', 5000);
     await page.keyboard.type('jobs', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('sleep', { timeout: 5000 });
+    await waitForTerminalText(page, 'sleep', 5000);
     await page.keyboard.type('fg', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
@@ -376,11 +379,13 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await page.waitForTimeout(500);
     await page.keyboard.type('echo "RECOVERED"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('RECOVERED', { timeout: 5000 });
+    await waitForTerminalText(page, 'RECOVERED', 5000);
   });
 
   test('handles SIGINT (Ctrl+C) on a node process that traps signals', async ({ page }) => {
     const timestamp = Date.now();
+    await page.goto(`${APP_URL}/login`);
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
     await page.goto(`${APP_URL}/login`);
     const usernameInput = page.locator('input[placeholder="Username (e.g. alice, bob)"]');
     await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
@@ -395,7 +400,7 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo "process.on(\'SIGINT\', () => {" > trap.js', { delay: 5 });
@@ -411,14 +416,14 @@ test.describe('Terminal Signal Handling & Process Control', () => {
     await page.waitForTimeout(500);
     await page.keyboard.type('node trap.js', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('HEARTBEAT', { timeout: 8000 });
+    await waitForTerminalText(page, 'HEARTBEAT', 8000);
     await page.waitForTimeout(1000);
     await page.keyboard.press('Control+C');
-    await expect(terminalBody).toContainText('GRACEFUL_SHUTDOWN_CAUGHT', { timeout: 8000 });
+    await waitForTerminalText(page, 'GRACEFUL_SHUTDOWN_CAUGHT', 8000);
     await page.waitForTimeout(500);
     await page.keyboard.type('echo "POST_TRAP_OK"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('POST_TRAP_OK', { timeout: 5000 });
+    await waitForTerminalText(page, 'POST_TRAP_OK', 5000);
   });
 });
 
@@ -440,7 +445,7 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('mkdir -p src/components/ui', { delay: 10 });
@@ -492,7 +497,7 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     const pkgJson = '{"name":"test-pkg","version":"1.0.0","dependencies":{"is-odd":"3.0.1"}}';
@@ -502,10 +507,10 @@ test.describe('Terminal File System Operations & Reverse Sync', () => {
     await expect(pkgFile).toBeVisible({ timeout: 15000 });
     await page.keyboard.type('npm install', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/added|up to date/i, { timeout: 30000 });
+    await waitForTerminalText(page, /added|up to date/i, 30000);
     await page.keyboard.type('ls node_modules/is-odd/index.js', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('node_modules/is-odd/index.js', { timeout: 5000 });
+    await waitForTerminalText(page, 'node_modules/is-odd/index.js', 5000);
     const nodeModulesEntry = page.locator('.ide-scrollbar').getByText('node_modules', { exact: true });
     await page.waitForTimeout(5000);
     await expect(nodeModulesEntry).not.toBeVisible();
@@ -529,15 +534,15 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo "apple banana cherry" | grep -o "banana"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('banana', { timeout: 5000 });
+    await waitForTerminalText(page, 'banana', 5000);
     await page.keyboard.type('echo -e "zeta\\nalpha\\nbeta" | sort | head -1', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('alpha', { timeout: 5000 });
+    await waitForTerminalText(page, 'alpha', 5000);
     await page.keyboard.type('echo "line1" > append_test.txt', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('echo "line2" >> append_test.txt', { delay: 10 });
@@ -546,22 +551,22 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
     await page.keyboard.press('Enter');
     await page.keyboard.type('wc -l append_test.txt', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('3', { timeout: 5000 });
+    await waitForTerminalText(page, '3', 5000);
     await page.keyboard.type('true && echo "CHAIN_AND_OK"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('CHAIN_AND_OK', { timeout: 5000 });
+    await waitForTerminalText(page, 'CHAIN_AND_OK', 5000);
     await page.keyboard.type('false || echo "CHAIN_OR_OK"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('CHAIN_OR_OK', { timeout: 5000 });
+    await waitForTerminalText(page, 'CHAIN_OR_OK', 5000);
     await page.keyboard.type('ls /nonexistent 2> err.txt; cat err.txt', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/No such file|cannot access/i, { timeout: 5000 });
+    await waitForTerminalText(page, /No such file|cannot access/i, 5000);
     await page.keyboard.type('echo "Today is $(date +%A)"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/Today is (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i, { timeout: 5000 });
+    await waitForTerminalText(page, /Today is (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i, 5000);
     await page.keyboard.type('false; echo "EXIT_CODE:$?"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('EXIT_CODE:1', { timeout: 5000 });
+    await waitForTerminalText(page, 'EXIT_CODE:1', 5000);
   });
 
   test('ANSI escape sequences and color codes render without corruption', async ({ page }) => {
@@ -580,28 +585,28 @@ test.describe('Terminal Pipe, Redirect & Advanced Shell Features', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo -e "\\033[31mRED_TEXT\\033[0m \\033[32mGREEN_TEXT\\033[0m \\033[34mBLUE_TEXT\\033[0m"', { delay: 5 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('RED_TEXT', { timeout: 5000 });
-    await expect(terminalBody).toContainText('GREEN_TEXT', { timeout: 5000 });
-    await expect(terminalBody).toContainText('BLUE_TEXT', { timeout: 5000 });
+    await waitForTerminalText(page, 'RED_TEXT', 5000);
+    await waitForTerminalText(page, 'GREEN_TEXT', 5000);
+    await waitForTerminalText(page, 'BLUE_TEXT', 5000);
     await page.keyboard.type('echo -e "ABCDEF\\033[3D***"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('ABC***', { timeout: 5000 });
+    await waitForTerminalText(page, 'ABC***', 5000);
     await page.keyboard.press('Control+L');
     await page.waitForTimeout(500);
     await page.keyboard.type('echo "AFTER_CLEAR"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('AFTER_CLEAR', { timeout: 5000 });
+    await waitForTerminalText(page, 'AFTER_CLEAR', 5000);
     await page.keyboard.type('ech', { delay: 10 });
     await page.keyboard.press('Tab');
     await page.waitForTimeout(300);
     await page.keyboard.type(' "TAB_COMPLETED"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('TAB_COMPLETED', { timeout: 5000 });
+    await waitForTerminalText(page, 'TAB_COMPLETED', 5000);
   });
 });
 
@@ -624,40 +629,40 @@ test.describe('Terminal Working Directory Persistence & Navigation', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
+    await waitForTerminalText(page, `/workspaces/${workspaceId}`, 5000);
     await page.keyboard.type('mkdir -p deep/nested/path/here', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('cd deep/nested/path/here', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('deep/nested/path/here', { timeout: 5000 });
+    await waitForTerminalText(page, 'deep/nested/path/here', 5000);
     await page.keyboard.type('cd ../..', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('deep/nested', { timeout: 5000 });
+    await waitForTerminalText(page, 'deep/nested', 5000);
     await page.keyboard.type('cd -', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('deep/nested/path/here', { timeout: 5000 });
+    await waitForTerminalText(page, 'deep/nested/path/here', 5000);
     await page.keyboard.type(`cd /workspaces/${workspaceId}`, { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('pwd', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
+    await waitForTerminalText(page, `/workspaces/${workspaceId}`, 5000);
     await page.keyboard.type('echo $HOME', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(`/workspaces/${workspaceId}`, { timeout: 5000 });
+    await waitForTerminalText(page, `/workspaces/${workspaceId}`, 5000);
     await page.keyboard.type('cd deep && echo "RELATIVE_FILE" > from_nested.txt', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('cat from_nested.txt', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('RELATIVE_FILE', { timeout: 5000 });
+    await waitForTerminalText(page, 'RELATIVE_FILE', 5000);
   });
 });
 
@@ -679,7 +684,7 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     const burstCmd = 'for i in $(seq 1 10); do echo "content_$i" > "burst_file_$i.txt"; done';
@@ -714,7 +719,7 @@ test.describe('Terminal Concurrent File Operations & Race Conditions', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo "EDITOR_TARGET" > editor_file.js', { delay: 10 });
@@ -761,40 +766,40 @@ test.describe('Terminal Environment & System Validation', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo "TERM=$TERM"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('TERM=xterm-256color', { timeout: 5000 });
+    await waitForTerminalText(page, 'TERM=xterm-256color', 5000);
     await page.keyboard.type('echo "HOME=$HOME"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(`HOME=/workspaces/${workspaceId}`, { timeout: 5000 });
+    await waitForTerminalText(page, `HOME=/workspaces/${workspaceId}`, 5000);
     await page.keyboard.type('node --version', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/v\d+\.\d+/, { timeout: 5000 });
+    await waitForTerminalText(page, /v\d+\.\d+/, 5000);
     await page.keyboard.type('python3 --version', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/Python \d+\.\d+/, { timeout: 5000 });
+    await waitForTerminalText(page, /Python \d+\.\d+/, 5000);
     await page.keyboard.type('gcc --version | head -1', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/gcc/i, { timeout: 5000 });
+    await waitForTerminalText(page, /gcc/i, 5000);
     await page.keyboard.type('which run', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('/usr/local/bin/run', { timeout: 5000 });
+    await waitForTerminalText(page, '/usr/local/bin/run', 5000);
     await page.keyboard.type('echo "console.log(42 * 2);" > calc.js', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('run calc.js', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('84', { timeout: 5000 });
+    await waitForTerminalText(page, '84', 5000);
     await page.keyboard.type('echo "print(7 ** 3)" > power.py', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('run power.py', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('343', { timeout: 5000 });
+    await waitForTerminalText(page, '343', 5000);
     await page.keyboard.type('echo "PROMPT_CHECK"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('sandbox', { timeout: 5000 });
+    await waitForTerminalText(page, 'sandbox', 5000);
   });
 
   test('compiles and runs C/C++ programs through the PTY correctly', async ({ page }) => {
@@ -813,7 +818,7 @@ test.describe('Terminal Environment & System Validation', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     const cProgram = '#include <stdio.h>\\nint main() { printf("C_OUTPUT_OK\\\\n"); return 0; }';
@@ -822,19 +827,19 @@ test.describe('Terminal Environment & System Validation', () => {
     await page.waitForTimeout(300);
     await page.keyboard.type('run hello.c', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('C_OUTPUT_OK', { timeout: 10000 });
+    await waitForTerminalText(page, 'C_OUTPUT_OK', 10000);
     const cppProgram = '#include <iostream>\\n#include <vector>\\nint main() { std::vector<int> v = {1,2,3}; std::cout << "CPP_VECTOR_SIZE:" << v.size() << std::endl; return 0; }';
     await page.keyboard.type(`echo -e '${cppProgram}' > test.cpp`, { delay: 5 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(300);
     await page.keyboard.type('run test.cpp', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('CPP_VECTOR_SIZE:3', { timeout: 15000 });
+    await waitForTerminalText(page, 'CPP_VECTOR_SIZE:3', 15000);
     await page.keyboard.type('echo "int main() { undeclared_var; }" > broken.c', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('run broken.c', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/error|undeclared/i, { timeout: 10000 });
+    await waitForTerminalText(page, /error|undeclared/i, 10000);
   });
 });
 
@@ -855,18 +860,18 @@ test.describe('Terminal History & Shell State', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('echo "HISTORY_CMD_1"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('HISTORY_CMD_1', { timeout: 5000 });
+    await waitForTerminalText(page, 'HISTORY_CMD_1', 5000);
     await page.keyboard.type('echo "HISTORY_CMD_2"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('HISTORY_CMD_2', { timeout: 5000 });
+    await waitForTerminalText(page, 'HISTORY_CMD_2', 5000);
     await page.keyboard.type('echo "HISTORY_CMD_3"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('HISTORY_CMD_3', { timeout: 5000 });
+    await waitForTerminalText(page, 'HISTORY_CMD_3', 5000);
     await page.keyboard.press('ArrowUp');
     await page.waitForTimeout(200);
     await page.keyboard.press('Enter');
@@ -880,18 +885,18 @@ test.describe('Terminal History & Shell State', () => {
     await page.keyboard.press('Enter');
     await page.keyboard.type('ll', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText(/total|drwx/i, { timeout: 5000 });
+    await waitForTerminalText(page, /total|drwx/i, 5000);
     await page.keyboard.type('MY_VAR="PERSISTENT_VALUE"', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('echo "CHECK:$MY_VAR"', { delay: 10 });
     await page.keyboard.press('Enter');
-    await expect(terminalBody).toContainText('CHECK:PERSISTENT_VALUE', { timeout: 5000 });
+    await waitForTerminalText(page, 'CHECK:PERSISTENT_VALUE', 5000);
     await page.keyboard.type('echo "LAST_COMMAND_TEST"', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.keyboard.type('!!', { delay: 10 });
     await page.keyboard.press('Enter');
     await page.waitForTimeout(1000);
-    await expect(terminalBody).toContainText('LAST_COMMAND_TEST', { timeout: 5000 });
+    await waitForTerminalText(page, 'LAST_COMMAND_TEST', 5000);
   });
 
   test.skip('runs standard Node React Express server replica and serves live preview', async ({ page, context }) => {
@@ -916,7 +921,7 @@ test.describe('Terminal History & Shell State', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     const serverScript = `
 const http = require('http');
@@ -933,7 +938,7 @@ server.listen(3000, '0.0.0.0', () => {
     await page.keyboard.type(`echo "${b64Server}" | base64 -d > app.js\n`, { delay: 5 });
     await page.waitForTimeout(1000);
     await page.keyboard.type('node app.js &\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Server listening on port 3000', { timeout: 15000 });
+    await waitForTerminalText(page, 'Server listening on port 3000', 15000);
     await page.waitForTimeout(3500);
     const token = await page.evaluate(() => localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
@@ -972,7 +977,7 @@ server.listen(3000, '0.0.0.0', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:', 25000);
     await page.waitForTimeout(3000);
     const backendScript = `
         const http = require('http');
@@ -1023,9 +1028,9 @@ server.listen(3000, '0.0.0.0', () => {
     await page.keyboard.type(`echo "${b64Frontend}" | base64 -d > frontend/dev-server.js\n`, { delay: 5 });
     await page.waitForTimeout(500);
     await page.keyboard.type('node backend/server.js &\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Backend listening on port 5000', { timeout: 15000 });
+    await waitForTerminalText(page, 'Backend listening on port 5000', 15000);
     await page.keyboard.type('node frontend/dev-server.js &\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Frontend dev server listening on port 3000', { timeout: 15000 });
+    await waitForTerminalText(page, 'Frontend dev server listening on port 3000', 15000);
     await page.waitForTimeout(3500);
     const token = await page.evaluate(() => localStorage.getItem('nexus_ide_token') || localStorage.getItem('token') || '');
     const previewPage = await context.newPage();
@@ -1064,7 +1069,7 @@ server.listen(3000, '0.0.0.0', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('git config --global user.email "test@example.com" && git config --global user.name "Tester"\n', { delay: 10 });
@@ -1072,11 +1077,11 @@ server.listen(3000, '0.0.0.0', () => {
     await page.keyboard.type('git clone https://github.com/octocat/Hello-World.git\n', { delay: 10 });
     await page.waitForTimeout(8000); // Allow sufficient time for the git clone download to finish
     await page.keyboard.type('ls -la\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Hello-World', { timeout: 10000 });
+    await waitForTerminalText(page, 'Hello-World', 10000);
     await page.keyboard.type('cd Hello-World && echo "first_edit" >> README && git add README && git commit -m "first commit"\n', { delay: 10 });
     await page.waitForTimeout(1500);
     await page.keyboard.type('git status\n', { delay: 10 });
-    await expect(terminalBody).toContainText('nothing to commit, working tree clean', { timeout: 5000 });
+    await waitForTerminalText(page, 'nothing to commit, working tree clean', 5000);
     await page.goto(`${APP_URL}/dashboard`);
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
     await page.goto(ideUrl);
@@ -1110,11 +1115,11 @@ server.listen(3000, '0.0.0.0', () => {
     await page.waitForSelector('text=Select a file from the explorer to begin.');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
     const terminalBody = page.locator('.xterm');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('git status\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Error: Git commands are only available when signed in with a GitHub account.', { timeout: 10000 });
+    await waitForTerminalText(page, 'Error: Git commands are only available when signed in with a GitHub account.', 10000);
   });
 });
 
@@ -1133,7 +1138,7 @@ test.describe('Terminal Multi-File Interconnection & Compilation', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('mkdir cpp_project && cd cpp_project\n', { delay: 10 });
@@ -1162,9 +1167,9 @@ int main() {
     await page.keyboard.type(`cat << 'EOF' > main.cpp\n${mainCode}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1000);
     await page.keyboard.type('g++ main.cpp math_utils.cpp -o app\n', { delay: 10 });
-    await expect(terminalBody).toContainText('app', { timeout: 15000 });
+    await waitForTerminalText(page, 'app', 15000);
     await page.keyboard.type('./app\n', { delay: 10 });
-    await expect(terminalBody).toContainText('CPP_LINK_OK: 42', { timeout: 5000 });
+    await waitForTerminalText(page, 'CPP_LINK_OK: 42', 5000);
   });
 
   test('executes multi-file Python program with package initialization and cross-imports', async ({ page }) => {
@@ -1181,7 +1186,7 @@ int main() {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('mkdir -p my_package/submodule\n', { delay: 10 });
@@ -1203,8 +1208,8 @@ if __name__ == "__main__":
     await page.keyboard.type(`cat << 'EOF' > main.py\n${mainPyCode}\nEOF\n`, { delay: 10 });
     await page.waitForTimeout(1000);
     await page.keyboard.type('python3 main.py IDE_TESTER\n', { delay: 10 });
-    await expect(terminalBody).toContainText('Status: PYTHON_IMPORT_SUCCESS', { timeout: 5000 });
-    await expect(terminalBody).toContainText('Args: IDE_TESTER', { timeout: 5000 });
+    await waitForTerminalText(page, 'Status: PYTHON_IMPORT_SUCCESS', 5000);
+    await waitForTerminalText(page, 'Args: IDE_TESTER', 5000);
   });
 
   test('resolves Node.js ESM and CommonJS interop and deeply nested requires', async ({ page }) => {
@@ -1221,7 +1226,7 @@ if __name__ == "__main__":
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     const cjsModule = `module.exports = { secret: 'CJS_MODULE_LOADED' };`;
@@ -1229,13 +1234,13 @@ if __name__ == "__main__":
     const cjsMain = `const lib = require('./lib.cjs'); console.log(lib.secret);`;
     await page.keyboard.type(`cat << 'EOF' > main.cjs\n${cjsMain}\nEOF\n`, { delay: 10 });
     await page.keyboard.type('node main.cjs\n', { delay: 10 });
-    await expect(terminalBody).toContainText('CJS_MODULE_LOADED', { timeout: 5000 });
+    await waitForTerminalText(page, 'CJS_MODULE_LOADED', 5000);
     const esmModule = `export const calculate = (n) => n * 3;`;
     await page.keyboard.type(`cat << 'EOF' > math.mjs\n${esmModule}\nEOF\n`, { delay: 10 });
     const esmMain = `import { calculate } from './math.mjs'; console.log('ESM_RESULT_' + calculate(5));`;
     await page.keyboard.type(`cat << 'EOF' > app.mjs\n${esmMain}\nEOF\n`, { delay: 10 });
     await page.keyboard.type('node app.mjs\n', { delay: 10 });
-    await expect(terminalBody).toContainText('ESM_RESULT_15', { timeout: 5000 });
+    await waitForTerminalText(page, 'ESM_RESULT_15', 5000);
   });
 
   test('executes a mixed-language pipeline (Bash -> Python -> Node -> C++)', async ({ page }) => {
@@ -1252,7 +1257,7 @@ if __name__ == "__main__":
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     const pyScript = `import sys\nprint(int(sys.stdin.read().strip()) * 2)`;
@@ -1269,10 +1274,10 @@ int main(int argc, char** argv) {
 `;
     await page.keyboard.type(`cat << 'EOF' > step3.cpp\n${cppScript}\nEOF\n`, { delay: 10 });
     await page.keyboard.type('g++ step3.cpp -o step3_bin\n', { delay: 10 });
-    await expect(terminalBody).toContainText('step3_bin', { timeout: 15000 });
+    await waitForTerminalText(page, 'step3_bin', 15000);
     await page.keyboard.type('result=$(echo "5" | python3 step1.py | node step2.js)\n', { delay: 10 });
     await page.keyboard.type('./step3_bin $result\n', { delay: 10 });
-    await expect(terminalBody).toContainText('PIPELINE_FINAL:20', { timeout: 10000 });
+    await waitForTerminalText(page, 'PIPELINE_FINAL:20', 10000);
   });
 });
 
@@ -1291,19 +1296,19 @@ test.describe('Terminal Advanced File System Edge Cases', () => {
     await page.waitForSelector('text=Booting environment...', { state: 'detached', timeout: 35000 });
     const terminalBody = page.locator('.xterm');
     const terminalTextarea = page.locator('.xterm-helper-textarea');
-    await expect(terminalBody).toContainText('sandbox:~#', { timeout: 25000 });
+    await waitForTerminalText(page, 'sandbox:~#', 25000);
     await page.waitForTimeout(3000);
     await terminalTextarea.focus();
     await page.keyboard.type('curl -s https://raw.githubusercontent.com/torvalds/linux/master/README > linux_readme.txt\n', { delay: 10 });
     await page.keyboard.type('wc -l linux_readme.txt\n', { delay: 10 });
-    await expect(terminalBody).toContainText(/[1-9][0-9]+ linux_readme\.txt/, { timeout: 25000 });
+    await waitForTerminalText(page, /[1-9][0-9]+ linux_readme\.txt/, 25000);
     const bashScript = `#!/bin/bash\necho "EXECUTION_GRANTED_OK"`;
     await page.keyboard.type(`cat << 'EOF' > runner.sh\n${bashScript}\nEOF\n`, { delay: 10 });
     await page.keyboard.type('./runner.sh\n', { delay: 10 });
-    await expect(terminalBody).toContainText(/Permission denied|not found/, { timeout: 5000 });
+    await waitForTerminalText(page, /Permission denied|not found/, 5000);
     await page.keyboard.type('chmod +x runner.sh\n', { delay: 10 });
     await page.keyboard.type('./runner.sh\n', { delay: 10 });
-    await expect(terminalBody).toContainText('EXECUTION_GRANTED_OK', { timeout: 5000 });
+    await waitForTerminalText(page, 'EXECUTION_GRANTED_OK', 5000);
   });
 });
 test.describe('LSP - Language Intelligence', () => {

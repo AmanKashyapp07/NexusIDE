@@ -63,6 +63,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
 
     const terminal = new XTerm({
       cursorBlink: true,
+      screenReaderMode: true,
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace",
       rows: 30,

@@ -37,9 +37,15 @@ warn()    { echo -e "${YELLOW}${BOLD}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}${BOLD}[ERROR]${NC} $*"; }
 section() { echo -e "\n${YELLOW}${BOLD}══ $* ══${NC}"; }
 
+CLEANUP_FIRST=false
+
 # ─── Parse Arguments ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --clean|--cleanup|-c)
+      CLEANUP_FIRST=true
+      shift
+      ;;
     --quick|-q)
       MODE="quick"
       shift
@@ -67,6 +73,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "  (no args)       Smart deploy (auto-detects changes, skips redundant work)"
+      echo "  --clean, -c     Execute VM deep storage & container cleanup before deploy"
       echo "  --quick, -q     Ultra-fast deploy (syncs backend & assets, fast restart)"
       echo "  --backend, -b   Deploy backend service only"
       echo "  --frontend, -f  Build and deploy frontend bundle only"
@@ -132,6 +139,16 @@ if ! ssh "${SSH_COMMON_OPTS[@]}" "${REMOTE}" "echo SSH_OK" &>/dev/null; then
   exit 1
 fi
 success "SSH Connection Multiplexed (0ms subsequent latency)."
+
+# ─── Optional VM Cleanup Step ─────────────────────────────────────────
+if [ "$CLEANUP_FIRST" = true ] || [ "${RUN_VM_CLEANUP:-false}" = true ]; then
+  section "Executing VM Deep Cleanup Routine"
+  if [ -f "$LOCAL_BASE/vm-cleanup.sh" ]; then
+    bash "$LOCAL_BASE/vm-cleanup.sh" || warn "VM Cleanup encountered warnings, continuing deployment..."
+  else
+    warn "vm-cleanup.sh script not found at $LOCAL_BASE/vm-cleanup.sh, skipping cleanup."
+  fi
+fi
 
 # ─── 1. Smart Frontend Build ──────────────────────────────────────────────────
 SHOULD_BUILD_FRONTEND=false

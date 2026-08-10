@@ -17,10 +17,14 @@ const getColor = (username: string): string => {
 };
 
 export const broadcastPresence = async (io: SocketIOServer, wsId: string): Promise<void> => {
-   // Blend local memory state with distributed Redis state
    const redisMembers = await redisPresenceService.getWorkspacePresence(wsId);
    const localMembers = Array.from(workspacePresence.get(wsId)?.values() || []);
-   const merged = redisMembers.length > 0 ? redisMembers : localMembers;
+   const memberMap = new Map<string, PresenceMember>();
+   for (const m of localMembers) memberMap.set(m.userId, m);
+   for (const m of redisMembers) {
+      if (!memberMap.has(m.userId)) memberMap.set(m.userId, m);
+   }
+   const merged = Array.from(memberMap.values());
    io.to(`presence-${wsId}`).emit('workspace-presence-update', merged);
 };
 

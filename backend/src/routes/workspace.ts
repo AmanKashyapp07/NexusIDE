@@ -131,7 +131,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
    }
 });
 
-router.post('/:id/snapshot', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
+router.post(['/:id/snapshot', '/:id/snapshots'], requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
    const workspaceId = req.params.id as string;
    const userId = req.user?.id;
    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -147,7 +147,7 @@ router.post('/:id/snapshot', requireWorkspaceRole('admin'), async (req: Workspac
    }
 });
 
-router.get('/:id/snapshots', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+router.get(['/:id/snapshot', '/:id/snapshots'], requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
    try {
       const snapshots = await listSnapshots(req.params.id as string);
       res.json(snapshots);
@@ -157,7 +157,7 @@ router.get('/:id/snapshots', requireWorkspaceRole('viewer'), async (req: Workspa
    }
 });
 
-router.get('/:id/snapshots/:snapshotId/files', requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
+router.get(['/:id/snapshot/:snapshotId/files', '/:id/snapshots/:snapshotId/files'], requireWorkspaceRole('viewer'), async (req: WorkspaceAuthRequest, res: Response) => {
    const { id: workspaceId, snapshotId } = req.params as { id: string; snapshotId: string };
    try {
       const files = await getSnapshotFilesWithDiff(workspaceId, snapshotId);
@@ -169,7 +169,7 @@ router.get('/:id/snapshots/:snapshotId/files', requireWorkspaceRole('viewer'), a
    }
 });
 
-router.post('/:id/snapshots/:snapshotId/restore', requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
+router.post(['/:id/snapshot/:snapshotId/restore', '/:id/snapshots/:snapshotId/restore'], requireWorkspaceRole('admin'), async (req: WorkspaceAuthRequest, res: Response) => {
    const { id: workspaceId, snapshotId } = req.params as { id: string; snapshotId: string };
    try {
       const result = await restoreSnapshot(workspaceId, snapshotId);

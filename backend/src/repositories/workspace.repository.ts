@@ -120,11 +120,9 @@ export class WorkspaceRepository {
          // Delete in foreign-key dependency order: leaves before root
          await client.query('DELETE FROM workspace_collaborators WHERE workspace_id = $1', [id]);
          await client.query('DELETE FROM file_updates WHERE file_id IN (SELECT id FROM files WHERE workspace_id = $1)', [id]);
-         await client.query('DELETE FROM files WHERE workspace_id = $1', [id]);
          await client.query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM workspace_snapshots WHERE workspace_id = $1)', [id]);
-         await client.query('DELETE FROM snapshot_files WHERE snapshot_id IN (SELECT id FROM snapshots WHERE workspace_id = $1)', [id]);
          await client.query('DELETE FROM workspace_snapshots WHERE workspace_id = $1', [id]);
-         await client.query('DELETE FROM snapshots WHERE workspace_id = $1', [id]);
+         await client.query('DELETE FROM files WHERE workspace_id = $1', [id]);
          await client.query('DELETE FROM git_commits WHERE workspace_id = $1', [id]);
          await client.query('DELETE FROM workspaces WHERE id = $1', [id]);
          await client.query('COMMIT');

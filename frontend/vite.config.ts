@@ -13,6 +13,26 @@ export default defineConfig({
     allowedHosts: true,
     fs: {
       allow: ['..']
+    },
+    proxy: {
+      '/ide/api': {
+        target: 'http://127.0.0.1:4000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ide\/api/, '/api'),
+      },
+      '/api': {
+        target: 'http://127.0.0.1:4000',
+        changeOrigin: true,
+      },
+      '/ide/ws': {
+        target: 'ws://127.0.0.1:4000',
+        ws: true,
+        rewrite: (path) => path.replace(/^\/ide\/ws/, ''),
+      },
+      '/ws': {
+        target: 'ws://127.0.0.1:4000',
+        ws: true,
+      }
     }
   },
   preview: {
