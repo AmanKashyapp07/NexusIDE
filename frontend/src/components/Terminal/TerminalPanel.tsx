@@ -163,8 +163,12 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
 
     ws.onmessage = (event) => {
       const data = new Uint8Array(event.data);
-      outputQueueRef.current.push(data);
-      scheduleFlush();
+      if (xtermRef.current && (data.length <= 128 || outputQueueRef.current.length === 0)) {
+        xtermRef.current.write(data);
+      } else {
+        outputQueueRef.current.push(data);
+        scheduleFlush();
+      }
     };
 
     ws.onerror = (err) => {
