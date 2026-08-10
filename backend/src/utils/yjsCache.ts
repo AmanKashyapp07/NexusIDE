@@ -73,12 +73,16 @@ export async function getYjsStateFromCache(fileId: string): Promise<CachedYjsSta
       }
 
       if (yjsStateBuffer) {
+         if (yjsStateBuffer.length === 0) {
+            await deleteYjsStateFromCache(fileId).catch(() => {});
+            return null;
+         }
          try {
             const testDoc = new Y.Doc();
             Y.applyUpdate(testDoc, yjsStateBuffer);
             testDoc.destroy();
          } catch (err) {
-            console.error('[YjsCache] Corrupt Yjs state in cache, ignoring:', err);
+            console.error('[YjsCache] Corrupt Yjs state in cache, purging:', err);
             await deleteYjsStateFromCache(fileId).catch(() => {});
             return null;
          }

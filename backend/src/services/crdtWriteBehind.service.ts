@@ -10,6 +10,7 @@
 import { redis } from '../utils/redisCache.js';
 import { getPool } from '../db.js';
 import { withDistributedLock } from './distributedLock.service.js';
+import { deleteYjsStateFromCache } from '../utils/yjsCache.js';
 import * as Y from 'yjs';
 
 const BUFFER_KEY_PREFIX = 'crdt:buffer:';
@@ -117,7 +118,6 @@ export class CrdtWriteBehindService {
             );
 
             try {
-               const { deleteYjsStateFromCache } = await import('../utils/yjsCache.js');
                await deleteYjsStateFromCache(fileId);
             } catch {}
 
