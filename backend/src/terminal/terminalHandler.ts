@@ -183,6 +183,19 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
          streamBuffer.push(data);
       });
       ws.on('message', (data: unknown) => {
+         const rawStr = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf-8') : '';
+         if (rawStr && rawStr.trim().startsWith('{')) {
+            try {
+               const parsed = JSON.parse(rawStr);
+               if (parsed && (parsed.type === 'heartbeat' || parsed.type === 'ping')) {
+                  // Keep-alive control frame acknowledged — do not leak into PTY bash stdin
+                  return;
+               }
+            } catch {
+               // Normal terminal input (not control JSON)
+            }
+         }
+
          const bufferData = Buffer.isBuffer(data) ? data : Buffer.from(data as string | Uint8Array);
          if (stream && !stream.destroyed && stream.writable) stream.write(bufferData);
       });

@@ -35,17 +35,17 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
   title,
   desc,
 }) => (
-  <div className="group relative rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 transition-all duration-200 hover:border-zinc-700 hover:bg-zinc-900/70 flex flex-col justify-between">
+  <div className="group relative rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 transition-all duration-200 hover:border-zinc-700 hover:bg-zinc-900/70 flex flex-col justify-between">
     <div>
       <div className="flex items-center justify-between">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700/60 bg-zinc-800/50 text-zinc-300 group-hover:border-zinc-600 group-hover:text-white transition-colors">
-          <Icon className="h-4 w-4" />
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-700/60 bg-zinc-800/50 text-zinc-300 group-hover:border-zinc-600 group-hover:text-white transition-colors">
+          <Icon className="h-3.5 w-3.5" />
         </div>
         <span className="font-mono text-xs text-zinc-600 group-hover:text-zinc-500 transition-colors">
           {number}
         </span>
       </div>
-      <h3 className="mt-3 text-sm font-semibold tracking-tight text-zinc-100">
+      <h3 className="mt-2 text-sm font-semibold tracking-tight text-zinc-100">
         {title}
       </h3>
       <p className="mt-1 text-xs leading-relaxed text-zinc-400">
@@ -102,7 +102,7 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#09090b] text-zinc-100 font-sans antialiased selection:bg-zinc-800 selection:text-white flex flex-col justify-between">
+    <div className="relative h-screen overflow-y-auto bg-[#09090b] text-zinc-100 font-sans antialiased selection:bg-zinc-800 selection:text-white flex flex-col">
       {/* Background Subtle Grid */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.035] [background-image:linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] [background-size:36px_36px]" />
 
@@ -147,13 +147,13 @@ export default function AuthPage() {
       {/* =========================================================
           MAIN HERO & LOGIN
       ========================================================== */}
-      <main className="mx-auto max-w-[1440px] w-full px-6 sm:px-10 lg:px-12 pt-12 sm:pt-16 lg:pt-20 min-h-[calc(100vh-64px)] flex flex-col justify-between gap-8 pb-40 lg:pb-52">
+      <main className="mx-auto max-w-[1440px] w-full px-6 sm:px-10 lg:px-12 py-[2vh] flex-1 flex flex-col gap-[2vh]">
         
         {/* TOP ROW: HERO (Left) & PERFECTLY CENTERED LOGIN CARD (Right) */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-12 items-center w-full">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-10 items-center w-full">
 
           {/* LEFT COLUMN: Hero & IDE Preview Window */}
-          <div className="lg:col-span-7 space-y-6">
+          <div className="lg:col-span-7 space-y-4">
             <div>
               {/* Eyebrow Tag */}
               <div className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1 font-mono text-xs text-zinc-200 font-semibold">
@@ -162,7 +162,7 @@ export default function AuthPage() {
               </div>
 
               {/* Prominent Hero Title */}
-              <h1 className="mt-3.5 text-2xl sm:text-3xl xl:text-4xl font-bold tracking-tight text-white leading-[1.18]">
+              <h1 className="mt-2.5 text-2xl sm:text-3xl xl:text-4xl font-bold tracking-tight text-white leading-[1.18]">
                 Collaborative coding, without friction.
               </h1>
 
@@ -348,7 +348,7 @@ export default function AuthPage() {
         </div>
 
         {/* BOTTOM ROW: ALL 4 FEATURE BOXES HORIZONTAL IN 1 ROW */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full">
           <FeatureCard
             number="01"
             icon={Users}

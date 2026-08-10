@@ -99,28 +99,7 @@ function IdeHeaderBase({
           </button>
         )}
 
-        {/* Active Collaborators Dropdown & Avatar stack */}
-        <div className="relative">
-          <div
-            className="flex cursor-pointer items-center gap-1.5 rounded-md p-1 transition-colors hover:bg-white/5"
-            onClick={onToggleActiveMembers}
-          >
-            <div className="flex -space-x-1.5 overflow-hidden">
-              {activeCollaborators.slice(0, 4).map((collab) => (
-                <div
-                  key={collab.userId}
-                  className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-[#0c0c0e]"
-                  style={{ backgroundColor: collab.color }}
-                  title={`${collab.username}${typingUsers.has(collab.userId) ? ' (typing...)' : ''}`}
-                >
-                  {collab.username.substring(0, 2).toUpperCase()}
-                </div>
-              ))}
-            </div>
-            <span className="text-xs font-medium text-zinc-400">{activeCollaborators.length} online</span>
-          </div>
-
-        {/* Active collaborators */}
+        {/* Active Collaborators Dropdown */}
         <ActiveMembersDropdown
           collaborators={activeCollaborators}
           typingUsers={typingUsers}
@@ -131,7 +110,6 @@ function IdeHeaderBase({
           onToggle={onToggleActiveMembers}
           onJumpToUser={onJumpToUser}
         />
-        </div>
 
         <div className="h-4 w-[1px] bg-white/10" />
 

@@ -58,9 +58,9 @@ export default function ActiveMembersDropdown({
     <div className="relative flex items-center">
       <button
         onClick={onToggle}
-        className="group flex items-center gap-1 rounded-full p-1 pr-2 transition-colors hover:bg-white/5"
+        className="group flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-white/5"
       >
-        <div className="flex items-center -space-x-2 mr-1">
+        <div className="flex items-center -space-x-1.5">
           {collaborators.slice(0, 3).map((c, i) => (
             <div
               key={c.userId}
@@ -73,7 +73,7 @@ export default function ActiveMembersDropdown({
               }}
             >
               {c.username ? c.username.substring(0, 2).toUpperCase() : '??'}
-              <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-[#030303] bg-emerald-500" />
+              <div className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-[#0c0c0e] bg-emerald-500" />
               {typingUsers.has(c.userId) && (
                 <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-blue-400 animate-ping" />
               )}
@@ -83,7 +83,8 @@ export default function ActiveMembersDropdown({
             <div className={styles.overflow}>+{collaborators.length - 3}</div>
           )}
         </div>
-        <ChevronDown size={14} className="text-zinc-500 transition-transform group-hover:text-zinc-300" />
+        <span className="text-xs font-medium text-zinc-400">{collaborators.length} online</span>
+        <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-200 ${isOpen ? 'rotate-180 text-zinc-300' : 'group-hover:text-zinc-300'}`} />
       </button>
 
       {isOpen && (
