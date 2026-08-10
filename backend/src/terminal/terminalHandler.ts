@@ -183,6 +183,12 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
          streamBuffer.push(data);
       });
       ws.on('message', (data: unknown) => {
+         // FAST PATH: Direct PTY write for binary keypress chunks (not starting with '{')
+         if (Buffer.isBuffer(data) && data.length > 0 && data[0] !== 123) {
+            if (stream && !stream.destroyed && stream.writable) stream.write(data);
+            return;
+         }
+
          const rawStr = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf-8') : '';
          if (rawStr && rawStr.trim().startsWith('{')) {
             try {
@@ -503,7 +509,7 @@ function startTerminalWatcher(ws: WebSocket, container: Docker.Container, worksp
                if (!lastState.has(pathKey)) lastState.set(pathKey, entry);
             }
             isFirstScan = false;
-            if (ws.readyState === WebSocket.OPEN) watcherTimeout.current = setTimeout(runScan, 1500);
+            if (ws.readyState === WebSocket.OPEN) watcherTimeout.current = setTimeout(runScan, 3000);
             return;
          }
 

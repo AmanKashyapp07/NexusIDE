@@ -7,8 +7,11 @@ describe('Multi-Port Live Preview URL & Routing Parsing', () => {
    }
 
    function rewritePreviewPath(reqUrl: string, wsId: string): string {
-      const rewritten = reqUrl.replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId}\\/preview([\\/:-](port[\\/:-])?\\d{2,5})?`), '').replace(/[\?&]port=\d{2,5}/i, '');
-      return rewritten === '' ? '/' : rewritten;
+      const rewritten = reqUrl
+         .replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId}\\/preview([\\/:-](port[\\/:-])?\\d{2,5})?`), '')
+         .replace(/^[\/:-]?(port[\/:-])?\d{2,5}/i, '')
+         .replace(/[\?&]port=\d{2,5}/i, '');
+      return rewritten === '' ? '/' : (rewritten.startsWith('/') ? rewritten : `/${rewritten}`);
    }
 
    it('defaults to port 3000 when no port is specified', () => {

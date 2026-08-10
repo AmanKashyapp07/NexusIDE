@@ -18,8 +18,9 @@ describe('Multi-Port Live Preview Proxy Engine Suite', () => {
   function rewritePreviewPath(reqUrl: string, wsId: string): string {
     const rewritten = reqUrl
       .replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId}\\/preview([\\/:-](port[\\/:-])?\\d{2,5})?`), '')
+      .replace(/^[\/:-]?(port[\/:-])?\d{2,5}/i, '')
       .replace(/[\?&]port=\d{2,5}/i, '');
-    return rewritten === '' ? '/' : rewritten;
+    return rewritten === '' ? '/' : (rewritten.startsWith('/') ? rewritten : `/${rewritten}`);
   }
 
   function computeRefererRedirect(path: string, referer: string): string | null {

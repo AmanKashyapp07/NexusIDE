@@ -292,7 +292,7 @@ export default function AuthPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="Username (e.g. dev_user)"
+                    placeholder="Username (e.g. alice, bob)"
                     value={testUsername}
                     onChange={(e) => setTestUsername(e.target.value)}
                     className="w-full rounded-lg border border-zinc-800/90 bg-[#070709] px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition-all duration-200 focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/10 focus:bg-zinc-950"

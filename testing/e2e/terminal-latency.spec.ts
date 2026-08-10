@@ -7,8 +7,9 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Terminal Interactive Latency SLA Suite', () => {
   test('terminal keystroke echo roundtrip SLA is under 30ms', async ({ page }) => {
+    const targetUrl = process.env.NEXUS_BASE_URL || 'http://129.154.39.198/ide';
     // 1. Navigate to auth landing page and perform instant demo login
-    await page.goto('http://localhost:3000/auth');
+    await page.goto(`${targetUrl}/login`);
     await page.waitForSelector('button[type="submit"]');
 
     await page.fill('input[placeholder*="Username"]', 'latency_test_user');

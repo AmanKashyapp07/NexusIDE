@@ -1067,9 +1067,9 @@ test.describe('Collab - Security & RBAC', () => {
       const valBob = await getEditorValue(bobPage);
       return valAlice === valBob && (valAlice.includes('Alice') && valAlice.includes('Bob'));
     }, { timeout: 15000 }).toBe(true);
-    await expect(alicePage.locator('.flex.items-center.-space-x-2')).toContainText(bobName.slice(0, 2).toUpperCase());
+    await expect(alicePage.locator('.flex.items-center.-space-x-2, .flex.items-center.-space-x-1\\.5')).toContainText(bobName.slice(0, 2).toUpperCase());
     await bobPage.close();
-    await expect(alicePage.locator('.flex.items-center.-space-x-2')).not.toContainText(bobName.slice(0, 2).toUpperCase(), { timeout: 15000 });
+    await expect(alicePage.locator('.flex.items-center.-space-x-2, .flex.items-center.-space-x-1\\.5')).not.toContainText(bobName.slice(0, 2).toUpperCase(), { timeout: 15000 });
   });
 
   test('2. runs interactive bash scripts, handles Ctrl+C signal trapping, and sustains CPU load', async ({ page, request }) => {

@@ -93,6 +93,16 @@ done
 # ─── SSH Multiplexing Setup ───────────────────────────────────────────────────
 SSH_CTRL_DIR="/tmp/ssh-nexus-mux"
 mkdir -p "$SSH_CTRL_DIR"
+
+# Clean up stale/dead multiplex sockets from previous interrupted runs
+for sock in "$SSH_CTRL_DIR"/mux-*; do
+  if [ -e "$sock" ]; then
+    if ! ssh -O check -S "$sock" "${REMOTE}" &>/dev/null; then
+      rm -f "$sock"
+    fi
+  fi
+done
+
 SSH_CTRL_SOCKET="${SSH_CTRL_DIR}/mux-%r@%h:%p"
 
 SSH_COMMON_OPTS=(

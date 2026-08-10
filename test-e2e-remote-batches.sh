@@ -60,9 +60,9 @@ run_playwright_batch() {
   cd "$SCRIPT_DIR/testing"
   
   if [ -n "$grep_pattern" ]; then
-    npx playwright test "$spec_file" -g "$grep_pattern" --workers=2
+    npx playwright test "$spec_file" -g "$grep_pattern" --workers=4
   else
-    npx playwright test "$spec_file" --workers=2
+    npx playwright test "$spec_file" --workers=4
   fi
 
   success "Batch completed: $title 🚀"
@@ -108,14 +108,18 @@ case "$BATCH_FLAG" in
     run_vm_cleanup
     run_playwright_batch "Batch 8: Timelapse Engine Suite (9 tests)" "e2e/timelapse.spec.ts"
     ;;
+  9)
+    run_vm_cleanup
+    run_playwright_batch "Batch 9: Live Preview & Multi-Port Proxy Engine (5 tests)" "e2e/live-preview.spec.ts"
+    ;;
   all)
-    for b in 1 2 3 4 5 6 7 8; do
+    for b in 1 2 3 4 5 6 7 8 9; do
       bash "$SCRIPT_DIR/test-e2e-remote-batches.sh" "--$b"
     done
     ;;
   *)
     error "Unknown batch flag: $RAW_FLAG"
-    echo "Available flags: --1, --2, --3, --4, --5, --6, --7, --8, --all"
+    echo "Available flags: --1, --2, --3, --4, --5, --6, --7, --8, --9, --all"
     exit 1
     ;;
 esac

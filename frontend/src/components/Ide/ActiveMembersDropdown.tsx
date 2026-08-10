@@ -60,7 +60,7 @@ export default function ActiveMembersDropdown({
         onClick={onToggle}
         className="group flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-white/5"
       >
-        <div className="flex items-center -space-x-1.5">
+        <div className="flex items-center -space-x-2">
           {collaborators.slice(0, 3).map((c, i) => (
             <div
               key={c.userId}

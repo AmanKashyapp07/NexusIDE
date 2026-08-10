@@ -410,9 +410,11 @@ router.use('/:id/preview', requireWorkspaceRole('viewer'), (req, res, next) => {
       const anyReq = req as any;
       const reqUrl = anyReq.originalUrl || anyReq.url || _p || '';
       const wsId = reqUrl.match(/\/api\/workspace\/([^\/]+)\/preview/)?.[1] || anyReq.params?.id;
-      if (!wsId) return _p;
-      const rewritten = _p.replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId}\\/preview([\\/:-](port[\\/:-])?\\d{2,5})?`), '').replace(/[\?&]port=\d{2,5}/i, '');
-      return rewritten === '' ? '/' : rewritten;
+      let rewritten = _p
+         .replace(new RegExp(`^.*\\/api\\/workspace\\/${wsId || '[^\\/]+'}\\/preview([\\/:-](port[\\/:-])?\\d{2,5})?`), '')
+         .replace(/^[\/:-]?(port[\/:-])?\d{2,5}/i, '')
+         .replace(/[\?&]port=\d{2,5}/i, '');
+      return rewritten === '' ? '/' : (rewritten.startsWith('/') ? rewritten : `/${rewritten}`);
    },
    on: {
       proxyReq: (proxyReq: any, req: any) => {
