@@ -637,6 +637,7 @@ while [[ $# -gt 0 ]]; do
     --property)       MODE="property"; shift ;;
     --idempotency)    MODE="idempotency"; shift ;;
     --chaos)          MODE="chaos"; shift ;;
+    --latency)        MODE="latency"; shift ;;
     --contracts)      MODE="contracts"; shift ;;
     --memory|--leak)  MODE="memory"; shift ;;
     --auth)           MODE="auth"; shift ;;
@@ -782,6 +783,10 @@ case "$MODE" in
   frontend)
     step_header "1" "1" "Frontend React & Monaco Component Tests"
     run_frontend
+    ;;
+  latency)
+    step_header "1" "1" "Terminal Keystroke & WS Echo Latency SLA Suite"
+    run_e2e
     ;;
   e2e)
     step_header "1" "1" "Playwright E2E Browser Specs"

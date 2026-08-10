@@ -12,6 +12,7 @@ import {
 import { useToast } from '../Toast/Toast';
 import { apiUrl, wsUrl } from '../../lib/backendUrls';
 import { getNexusToken } from '../../lib/tokenStorage';
+import { latencyTelemetry } from '../../utils/latencyTelemetry';
 
 interface TerminalPanelProps {
   workspaceId: string;
@@ -147,7 +148,10 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     };
     window.addEventListener('resize', handleWindowResize);
 
+    latencyTelemetry.initPerformanceObserver();
+
     const token = getNexusToken();
+    let lastMarkName = '';
     
     const terminalWsUrl = wsUrl(`/terminal/${workspaceId}?token=${token}`);
     const ws = new WebSocket(terminalWsUrl);
@@ -162,6 +166,10 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     };
 
     ws.onmessage = (event) => {
+      if (lastMarkName) {
+        latencyTelemetry.measureEcho(lastMarkName, 30);
+        lastMarkName = '';
+      }
       const data = new Uint8Array(event.data);
       if (xtermRef.current && (data.length <= 128 || outputQueueRef.current.length === 0)) {
         xtermRef.current.write(data);
@@ -208,6 +216,7 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
 
     const disposable = terminal.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) {
+        lastMarkName = latencyTelemetry.markInput('terminal');
         ws.send(data);
       }
     });

@@ -131,7 +131,7 @@ export function useCodeEditorSetup({
       if (binding && boundModel === model) return;
 
       const ytext = ydoc.getText('monaco');
-      if (!(wsProvider as any).synced && ytext.length === 0 && model.getValue().length > 0) {
+      if (!(wsProvider as any).synced && ytext.length === 0 && typeof model.getValue === 'function' && model.getValue().length > 0) {
         return;
       }
 

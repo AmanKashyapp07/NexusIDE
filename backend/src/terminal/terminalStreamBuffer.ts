@@ -39,8 +39,8 @@ export class TerminalStreamBuffer {
       this.chunks.push(chunk);
       this.currentBytes += chunk.length;
 
-      // Immediate flush for interactive keypress echoes (<= 128 bytes) or max batch threshold
-      if (this.currentBytes >= this.maxBatchBytes || (this.chunks.length === 1 && chunk.length <= 128)) {
+      // Immediate flush if max batch threshold reached or maxBatchMs is 0
+      if (this.currentBytes >= this.maxBatchBytes || this.maxBatchMs === 0) {
          if (this.flushTimer) {
             clearTimeout(this.flushTimer);
             this.flushTimer = null;

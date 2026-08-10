@@ -31,6 +31,7 @@ import { setupWebSocketServer } from './services/websocketServer.service.js';
 import { initializeRedisCollaborationMesh } from './services/redisAdapter.service.js';
 import { crdtWriteBehindService } from './services/crdtWriteBehind.service.js';
 import { cleanupCronService } from './services/cleanupCron.service.js';
+import { eventLoopMonitorService } from './services/eventLoopMonitor.service.js';
 
 // =============================================================================
 // EXPRESS APPLICATION INITIALIZATION & MIDDLEWARE SETUP
@@ -133,6 +134,7 @@ const PORT = process.env.PORT || 4000;
 if (process.env.NODE_ENV !== 'test') {
    server.listen(PORT, () => {
       log('🚀 BOOT', `Server listening on port ${PORT}`);
+      eventLoopMonitorService.start(5000);
       initializeRedisCollaborationMesh();
       crdtWriteBehindService.startWriteBehindWorker(1000);
       warmPoolManager.initializePools().catch(() => {});
