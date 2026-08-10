@@ -147,84 +147,84 @@ export default function AuthPage() {
       {/* =========================================================
           MAIN HERO & LOGIN
       ========================================================== */}
-      <main className="mx-auto max-w-[1440px] w-full px-6 sm:px-10 lg:px-12 py-[2vh] flex-1 flex flex-col gap-[2vh]">
+      <main className="mx-auto max-w-[1440px] w-full px-6 sm:px-10 lg:px-12 pt-4 pb-16 lg:pb-24 flex-1 flex flex-col gap-[2vh]">
         
         {/* TOP ROW: HERO (Left) & PERFECTLY CENTERED LOGIN CARD (Right) */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-10 items-center w-full">
 
           {/* LEFT COLUMN: Hero & IDE Preview Window */}
-          <div className="lg:col-span-7 space-y-4">
+          <div className="lg:col-span-7 space-y-3">
             <div>
               {/* Eyebrow Tag */}
-              <div className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1 font-mono text-xs text-zinc-200 font-semibold">
-                <Terminal className="h-3.5 w-3.5 text-zinc-100" />
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900/90 px-2.5 py-0.5 font-mono text-[11px] text-zinc-300 font-semibold">
+                <Terminal className="h-3 w-3 text-zinc-100" />
                 <span>COLLABORATIVE CLOUD DEVELOPMENT ENVIRONMENT</span>
               </div>
 
-              {/* Prominent Hero Title */}
-              <h1 className="mt-2.5 text-2xl sm:text-3xl xl:text-4xl font-bold tracking-tight text-white leading-[1.18]">
+              {/* Hero Title */}
+              <h1 className="mt-2 text-xl sm:text-2xl xl:text-3xl font-bold tracking-tight text-white leading-[1.18]">
                 Collaborative coding, without friction.
               </h1>
 
               {/* Subtitle */}
-              <p className="mt-3 text-sm sm:text-base text-zinc-100 font-semibold leading-relaxed max-w-2xl">
+              <p className="mt-2 text-xs sm:text-sm text-zinc-300 font-medium leading-relaxed max-w-xl">
                 A production-grade web IDE featuring real-time Yjs CRDT synchronization, isolated Docker containers, interactive PTY bash terminals, and streaming LSP autocomplete.
               </p>
 
               {/* Tech Badges */}
-              <div className="mt-3.5 flex flex-wrap gap-2 font-mono text-xs text-zinc-200 font-semibold">
-                <span className="rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1 text-zinc-100">Yjs CRDTs</span>
-                <span className="rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1 text-zinc-100">Docker PTY</span>
-                <span className="rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1 text-zinc-100">LSP Auto-complete</span>
-                <span className="rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1 text-zinc-100">Redis Cluster Mesh</span>
+              <div className="mt-2.5 flex flex-wrap gap-1.5 font-mono text-[11px] text-zinc-300 font-medium">
+                <span className="rounded bg-zinc-900 border border-zinc-700/80 px-2 py-0.5 text-zinc-200">Yjs CRDTs</span>
+                <span className="rounded bg-zinc-900 border border-zinc-700/80 px-2 py-0.5 text-zinc-200">Docker PTY</span>
+                <span className="rounded bg-zinc-900 border border-zinc-700/80 px-2 py-0.5 text-zinc-200">LSP Auto-complete</span>
+                <span className="rounded bg-zinc-900 border border-zinc-700/80 px-2 py-0.5 text-zinc-200">Redis Cluster Mesh</span>
               </div>
             </div>
 
-            {/* MOCK IDE PREVIEW (Sleek Window) */}
-            <div className="rounded-xl border border-zinc-800/90 bg-[#0d0d10] shadow-2xl overflow-hidden font-mono text-xs sm:text-sm">
+            {/* MOCK IDE PREVIEW (Sleek Compact Window) */}
+            <div className="rounded-lg border border-zinc-800/90 bg-[#0d0d10] shadow-xl overflow-hidden font-mono text-[11px] sm:text-xs">
               {/* Window Bar */}
-              <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/60 px-4 py-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-                  <span className="ml-2 text-zinc-400 text-xs">workspace.ts — NexusIDE</span>
+              <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/60 px-3 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-zinc-700" />
+                  <span className="h-2 w-2 rounded-full bg-zinc-700" />
+                  <span className="h-2 w-2 rounded-full bg-zinc-700" />
+                  <span className="ml-1.5 text-zinc-400 text-[11px]">workspace.ts — NexusIDE</span>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs font-sans">
-                  <span className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2.5 py-1 text-emerald-400 border border-emerald-500/20 font-mono text-xs">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <div className="flex items-center gap-2 text-[11px] font-sans">
+                  <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-400 border border-emerald-500/20 font-mono text-[10px]">
+                    <span className="h-1 w-1 rounded-full bg-emerald-400 animate-pulse" />
                     2 Active Peers
                   </span>
                 </div>
               </div>
 
               {/* Code Body */}
-              <div className="p-4 space-y-1.5 text-zinc-300 leading-relaxed bg-[#0c0c0e]">
+              <div className="p-3 space-y-1 text-zinc-300 leading-relaxed bg-[#0c0c0e] text-[11px] sm:text-xs">
                 <div className="text-zinc-500">// Real-time CRDT sync & Docker terminal execution</div>
                 <div>
                   <span className="text-purple-400">import</span> &#123; <span className="text-blue-400">createWorkspace</span> &#125; <span className="text-purple-400">from</span> <span className="text-emerald-400">'@nexus/core'</span>;
                 </div>
-                <div className="pt-1">
+                <div className="pt-0.5">
                   <span className="text-purple-400">export const</span> <span className="text-yellow-300">session</span> = <span className="text-purple-400">await</span> <span className="text-blue-400">createWorkspace</span>(&#123;
                 </div>
-                <div className="pl-4">
+                <div className="pl-3">
                   <span className="text-zinc-400">sandbox:</span> <span className="text-emerald-400">'docker://node-20-sandbox'</span>,
                 </div>
-                <div className="pl-4">
+                <div className="pl-3">
                   <span className="text-zinc-400">terminal:</span> <span className="text-emerald-400">'/dev/pts/1'</span>,
                 </div>
-                <div className="pl-4">
+                <div className="pl-3">
                   <span className="text-zinc-400">syncMode:</span> <span className="text-emerald-400">'yjs-crdt-binary'</span>
                 </div>
                 <div>&#125;);</div>
               </div>
 
               {/* Integrated PTY Terminal Drawer */}
-              <div className="border-t border-zinc-800/80 bg-zinc-950 px-4 py-2 text-xs font-mono">
-                <div className="flex items-center justify-between text-zinc-500 mb-0.5 text-[11px]">
-                  <span className="flex items-center gap-1.5">
-                    <Terminal className="h-3.5 w-3.5 text-zinc-400" />
+              <div className="border-t border-zinc-800/80 bg-zinc-950 px-3 py-1.5 text-[11px] font-mono">
+                <div className="flex items-center justify-between text-zinc-500 mb-0.5 text-[10px]">
+                  <span className="flex items-center gap-1">
+                    <Terminal className="h-3 w-3 text-zinc-400" />
                     TERMINAL — bash
                   </span>
                   <span className="text-zinc-600">pts/1</span>
@@ -232,7 +232,7 @@ export default function AuthPage() {
                 <div className="text-zinc-300">
                   <span className="text-emerald-400">user@nexus:~$</span> docker exec -it sandbox /bin/bash
                 </div>
-                <div className="text-zinc-500 text-[11px] mt-0.5">
+                <div className="text-zinc-500 text-[10px] mt-0.5">
                   [OK] Sandboxed container ready in 18ms. Listening on WS port 3000.
                 </div>
               </div>
@@ -261,13 +261,21 @@ export default function AuthPage() {
 
               {/* GitHub OAuth Button */}
               <button
-                onClick={handleGitHubLogin}
-                className="group relative flex w-full items-center justify-center gap-3 rounded-xl bg-white px-4 py-3.5 text-sm font-semibold text-zinc-950 transition-all duration-200 hover:bg-zinc-100 hover:shadow-[0_0_25px_rgba(255,255,255,0.15)] active:scale-[0.99] cursor-pointer shadow-md overflow-hidden"
-              >
-                <GithubIcon className="h-5 w-5" />
-                <span>Continue with GitHub</span>
-                <ArrowRight className="h-4 w-4 ml-auto text-zinc-400 group-hover:text-zinc-950 group-hover:translate-x-1 transition-all duration-200" />
-              </button>
+  onClick={handleGitHubLogin}
+  className="group relative flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3.5 text-sm font-semibold text-zinc-950 transition-all duration-200 hover:bg-zinc-100 hover:shadow-[0_0_25px_rgba(255,255,255,0.15)] active:scale-[0.99] cursor-pointer shadow-md overflow-hidden"
+>
+  {/* Empty div balances the arrow on the right to keep center align perfectly mathematical */}
+  <div className="w-4 h-4 opacity-0 pointer-events-none" />
+
+  {/* Centered content */}
+  <div className="flex items-center justify-center gap-3">
+    <GithubIcon className="h-5 w-5" />
+    <span>Continue with GitHub</span>
+  </div>
+
+  {/* Arrow pinned right */}
+  <ArrowRight className="h-4 w-4 text-zinc-400 group-hover:text-zinc-950 group-hover:translate-x-1 transition-all duration-200" />
+</button>
 
               {/* Divider */}
               <div className="flex items-center gap-3 py-1">
