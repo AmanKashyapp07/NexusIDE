@@ -34,12 +34,14 @@ export default function WorkspaceGrid({
 
   if (workspaces.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] py-16 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/5 mb-4">
-          <FolderCode size={28} className="text-zinc-500" />
+      <div className="flex h-full min-h-[380px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800 bg-[#0d0d11]/80 backdrop-blur-xl p-8 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 mb-4 text-purple-400">
+          <FolderCode size={26} />
         </div>
-        <h3 className="text-lg font-medium text-zinc-200">No workspaces yet</h3>
-        <p className="text-sm text-zinc-500 mt-1 max-w-xs">Create your first sandbox environment to start writing code.</p>
+        <h3 className="text-base font-bold text-white">No active workspaces</h3>
+        <p className="text-xs font-semibold text-zinc-400 mt-1 max-w-xs leading-relaxed">
+          Create your first sandbox environment or join an existing session to start coding.
+        </p>
       </div>
     );
   }

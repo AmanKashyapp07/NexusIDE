@@ -27,3 +27,6 @@ id_rsa*
 deploy.env
 t.md
 s.md
+
+/features-doc
+

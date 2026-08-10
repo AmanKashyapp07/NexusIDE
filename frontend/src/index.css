@@ -134,8 +134,11 @@ html, body {
   width: 100%;
   height: 100%;
   background-color: var(--nx-bg-deep);
-  color: #e4e4e7;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #ffffff;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 #root {
@@ -143,8 +146,15 @@ html, body {
   height: 100%;
 }
 
-.font-mono {
-  font-family: 'JetBrains Mono', monospace;
+.font-mono,
+.font-mono * {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-style: normal !important;
+}
+
+.font-serif {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-style: normal;
 }
 
 @keyframes float-orb-1 {
