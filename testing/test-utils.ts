@@ -119,12 +119,9 @@ export async function login(page: Page, username: string, password?: string): Pr
 }
 
 export async function loginUser(page: Page, arg2: APIRequestContext | string, arg3?: string): Promise<string> {
-  if (typeof arg2 === 'string') {
-    return login(page, arg2, arg3);
-  }
-  const request = arg2 as APIRequestContext;
-  const username = arg3!;
-  const loginRes = await request.post(`${API_URL}/auth/test-login`, {
+  const username = typeof arg2 === 'string' ? arg2 : arg3!;
+  const apiReq = page.request;
+  const loginRes = await apiReq.post(`${API_URL}/auth/test-login`, {
     data: { username, password: 'test' },
   });
   if (!loginRes.ok()) {

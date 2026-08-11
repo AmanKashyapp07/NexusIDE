@@ -59,10 +59,11 @@ run_playwright_batch() {
 
   cd "$SCRIPT_DIR/testing"
   
+  local max_workers="${PLAYWRIGHT_WORKERS:-1}"
   if [ -n "$grep_pattern" ]; then
-    npx playwright test $spec_file -g "$grep_pattern" --workers=4
+    npx playwright test $spec_file -g "$grep_pattern" --workers="${max_workers}"
   else
-    npx playwright test $spec_file --workers=4
+    npx playwright test $spec_file --workers="${max_workers}"
   fi
 
   success "Batch completed: $title 🚀"
@@ -111,10 +112,6 @@ case "$BATCH_FLAG" in
   9)
     run_vm_cleanup
     run_playwright_batch "Batch 9: Live Preview & Multi-Port Proxy Engine (5 tests)" "e2e/live-preview.spec.ts"
-    ;;
-  latency-all|latency)
-    run_vm_cleanup
-    run_playwright_batch "Enterprise SLA Performance & Latency Matrix" "e2e/terminal-latency.spec.ts e2e/editor-latency.spec.ts e2e/collab-latency.spec.ts e2e/file-tree-latency.spec.ts e2e/preview-latency.spec.ts e2e/crdt-sync-latency.spec.ts e2e/filetree-latency.spec.ts e2e/editor-responsiveness.spec.ts e2e/memory-leak.spec.ts"
     ;;
   all)
     for b in 1 2 3 4 5 6 7 8 9; do

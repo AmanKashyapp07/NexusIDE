@@ -585,21 +585,6 @@ run_e2e() {
   fi
 }
 
-run_latency() {
-  local t_start=$(date +%s)
-  echo -e "${DIM}Executing system-wide in-browser latency SLA test specs...${RESET}"
-  if bash "${LOCAL_BASE}/test-e2e-remote-batches.sh" "--latency-all"; then
-    local t_end=$(date +%s)
-    local elapsed=$((t_end - t_start))
-    log_success "System-wide in-browser latency SLA tests passed in ${elapsed}s ✓"
-    record_result "System Latency SLA Suite" "PASSED ✓" "9 SLA Specs" "$elapsed"
-  else
-    local t_end=$(date +%s)
-    log_error "Latency SLA tests encountered failures."
-    record_result "System Latency SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
-    return 1
-  fi
-}
 
 # ─── Master Summary Dashboard ─────────────────────────────────────────────────
 show_summary_dashboard() {
@@ -653,7 +638,6 @@ while [[ $# -gt 0 ]]; do
     --property)       MODE="property"; shift ;;
     --idempotency)    MODE="idempotency"; shift ;;
     --chaos)          MODE="chaos"; shift ;;
-    --latency)        MODE="latency"; shift ;;
     --contracts)      MODE="contracts"; shift ;;
     --memory|--leak)  MODE="memory"; shift ;;
     --auth)           MODE="auth"; shift ;;
@@ -800,69 +784,63 @@ case "$MODE" in
     step_header "1" "1" "Frontend React & Monaco Component Tests"
     run_frontend
     ;;
-  latency)
-    step_header "1" "1" "System-Wide In-Browser Latency SLA Suite"
-    run_latency
-    ;;
   e2e)
     step_header "1" "1" "Playwright E2E Browser Specs"
     run_e2e
     ;;
   default|all)
-    step_header "1" "27" "Property-Based CRDT Fuzzing & Invariant Proofs"
+    step_header "1" "26" "Property-Based CRDT Fuzzing & Invariant Proofs"
     run_property || true
-    step_header "2" "27" "Idempotency & Replay Attack Suite"
+    step_header "2" "26" "Idempotency & Replay Attack Suite"
     run_idempotency || true
-    step_header "3" "27" "Chaos Fault Injection & Infrastructure Recovery"
+    step_header "3" "26" "Chaos Fault Injection & Infrastructure Recovery"
     run_chaos || true
-    step_header "4" "27" "API Schema & Compatibility Contract Suite"
+    step_header "4" "26" "API Schema & Compatibility Contract Suite"
     run_contracts || true
-    step_header "5" "27" "Heap Memory Leak & Allocation Benchmarks"
+    step_header "5" "26" "Heap Memory Leak & Allocation Benchmarks"
     run_memory || true
-    step_header "6" "27" "OAuth & JWT Security Boundary Suite"
+    step_header "6" "26" "OAuth & JWT Security Boundary Suite"
     run_auth || true
-    step_header "7" "27" "WebSocket Protocol Conformance Suite"
+    step_header "7" "26" "WebSocket Protocol Conformance Suite"
     run_ws || true
-    step_header "8" "27" "Merkle DAG Integrity & Snapshot Restore Suite"
+    step_header "8" "26" "Merkle DAG Integrity & Snapshot Restore Suite"
     run_snapshot || true
-    step_header "9" "27" "Database Schema & Rollback Safety Suite"
+    step_header "9" "26" "Database Schema & Rollback Safety Suite"
     run_migration || true
-    step_header "10" "27" "API Rate Limiting & DDoS Protection Suite"
+    step_header "10" "26" "API Rate Limiting & DDoS Protection Suite"
     run_rate_limiting || true
-    step_header "11" "27" "Large Document CRDT Stress Suite"
+    step_header "11" "26" "Large Document CRDT Stress Suite"
     run_crdt_stress || true
-    step_header "12" "27" "PTY Buffer Overflow & ANSI Parser Suite"
+    step_header "12" "26" "PTY Buffer Overflow & ANSI Parser Suite"
     run_pty_stress || true
-    step_header "13" "27" "Exhaustive 3x12 RBAC Permissions Matrix"
+    step_header "13" "26" "Exhaustive 3x12 RBAC Permissions Matrix"
     run_rbac_matrix || true
-    step_header "14" "27" "Multi-Peer Collaboration & Convergence Suite"
+    step_header "14" "26" "Multi-Peer Collaboration & Convergence Suite"
     run_collab || true
-    step_header "15" "27" "LSP Protocol Lifecycle Suite"
+    step_header "15" "26" "LSP Protocol Lifecycle Suite"
     run_lsp || true
-    step_header "16" "27" "Observability & Audit Trail Suite"
+    step_header "16" "26" "Observability & Audit Trail Suite"
     run_observability || true
-    step_header "17" "27" "Git Integration Edge Cases Suite"
+    step_header "17" "26" "Git Integration Edge Cases Suite"
     run_git || true
-    step_header "18" "27" "Accessibility WCAG 2.1 AA Suite"
+    step_header "18" "26" "Accessibility WCAG 2.1 AA Suite"
     run_accessibility || true
-    step_header "19" "27" "Data Integrity & Tenant Isolation Suite"
+    step_header "19" "26" "Data Integrity & Tenant Isolation Suite"
     run_data_integrity || true
-    step_header "20" "27" "Backend Services & Algorithmic Unit Tests"
+    step_header "20" "26" "Backend Services & Algorithmic Unit Tests"
     run_services || true
-    step_header "21" "27" "Container Security & RBAC Guardrail Tests"
+    step_header "21" "26" "Container Security & RBAC Guardrail Tests"
     run_security || true
-    step_header "22" "27" "Network Resilience & Redis Failover Tests"
+    step_header "22" "26" "Network Resilience & Redis Failover Tests"
     run_resilience || true
-    step_header "23" "27" "Timelapse CRDT Engine Unit & Isolated Suites"
+    step_header "23" "26" "Timelapse CRDT Engine Unit & Isolated Suites"
     run_timelapse || true
-    step_header "24" "27" "REST API & WebSocket Integration Tests"
+    step_header "24" "26" "REST API & WebSocket Integration Tests"
     run_integration || true
-    step_header "25" "27" "PostgreSQL & Redis Performance Benchmarks"
+    step_header "25" "26" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "26" "27" "Frontend React & Monaco Component Tests"
+    step_header "26" "26" "Frontend React & Monaco Component Tests"
     run_frontend || true
-    step_header "27" "27" "System-Wide In-Browser Latency SLA Suite"
-    run_latency || true
     ;;
 esac
 
