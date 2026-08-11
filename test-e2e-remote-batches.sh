@@ -113,14 +113,26 @@ case "$BATCH_FLAG" in
     run_vm_cleanup
     run_playwright_batch "Batch 9: Live Preview & Multi-Port Proxy Engine (5 tests)" "e2e/live-preview.spec.ts"
     ;;
+  latency|batch-latency)
+    run_vm_cleanup
+    run_playwright_batch "Batch Latency: WAN Keystroke K2R & PTY Throughput SLA" "e2e/e2e-latency-sla.spec.ts"
+    ;;
+  jepsen|batch-jepsen)
+    run_vm_cleanup
+    (cd "$SCRIPT_DIR/backend" && npx vitest run ../testing/chaos/remote-chaos-jepsen.test.ts)
+    ;;
+  security|batch-security)
+    run_vm_cleanup
+    (cd "$SCRIPT_DIR/backend" && npx vitest run ../testing/services/remote-security-isolation.test.ts)
+    ;;
   all)
-    for b in 1 2 3 4 5 6 7 8 9; do
+    for b in 1 2 3 4 5 6 7 8 9 latency jepsen security; do
       bash "$SCRIPT_DIR/test-e2e-remote-batches.sh" "--$b"
     done
     ;;
   *)
     error "Unknown batch flag: $RAW_FLAG"
-    echo "Available flags: --1, --2, --3, --4, --5, --6, --7, --8, --9, --latency-all, --all"
+    echo "Available flags: --1, --2, --3, --4, --5, --6, --7, --8, --9, --latency, --jepsen, --security, --all"
     exit 1
     ;;
 esac

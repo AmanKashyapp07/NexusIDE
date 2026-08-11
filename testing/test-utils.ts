@@ -128,9 +128,9 @@ export async function loginUser(page: Page, arg2: APIRequestContext | string, ar
     throw new Error(`Login API failed for "${username}": ${loginRes.status()} ${await loginRes.text()}`);
   }
   const { token } = await loginRes.json();
-  await page.goto(`${APP_BASE_URL}/login`);
+  await page.goto(`${APP_BASE_URL}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.evaluate((t) => { localStorage.setItem('nexus_ide_token', t); localStorage.setItem('token', t); }, token);
-  await page.goto(`${APP_BASE_URL}/dashboard`);
+  await page.goto(`${APP_BASE_URL}/dashboard`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 20000 });
   return token;
 }

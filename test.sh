@@ -132,6 +132,9 @@ show_help() {
   echo "  --integration   Run REST API & Yjs WebSocket integration tests"
   echo "  --frontend      Run frontend React component tests"
   echo "  --e2e           Run Playwright E2E browser tests against VM"
+  echo "  --latency       Run Keystroke-to-Screen K2R latency & PTY throughput SLA suite"
+  echo "  --jepsen        Run Jepsen-style split-brain & RAM write-behind crash recovery"
+  echo "  --pen-test      Run Container escape, WS protocol fuzzing & storage RBAC isolation"
   echo "  --all           Run all test suites end-to-end"
   echo "  --verbose       Show full raw stdout/stderr output"
   echo "  --help, -h      Show this help message"
@@ -585,6 +588,56 @@ run_e2e() {
   fi
 }
 
+run_latency() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Keystroke-to-Screen (K2R) Latency & PTY Stream Throughput SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-latency-sla.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Keystroke Latency & PTY Stream Throughput SLA tests passed in ${elapsed}s ✓"
+    record_result "Keystroke K2R & PTY SLA Suite" "PASSED ✓" "3 SLA Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Keystroke Latency & SLA tests encountered failures."
+    record_result "Keystroke K2R & PTY SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_jepsen() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Jepsen-Style Split-Brain Chaos & RAM Write-Behind Crash Recovery E2E Specs...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/chaos/remote-chaos-jepsen.test.ts --reporter=default) && \
+     (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-jepsen-chaos.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Jepsen Split-Brain & Crash Recovery E2E tests passed in ${elapsed}s ✓"
+    record_result "Jepsen Split-Brain Chaos Suite" "PASSED ✓" "5 Fault & E2E Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Jepsen Split-Brain Chaos tests encountered failures."
+    record_result "Jepsen Split-Brain Chaos Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_pen_test() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Container Escape, WS Protocol Fuzzing & Storage RBAC Penetration E2E Specs...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/services/remote-security-isolation.test.ts --reporter=default) && \
+     (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-security-penetration.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Container Escape & Security Penetration E2E tests passed in ${elapsed}s ✓"
+    record_result "Container Security & Fuzzing Suite" "PASSED ✓" "8 Pen Vectors & E2E" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Container Escape & Security Penetration tests encountered failures."
+    record_result "Container Security & Fuzzing Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
 
 # ─── Master Summary Dashboard ─────────────────────────────────────────────────
 show_summary_dashboard() {
@@ -662,6 +715,9 @@ while [[ $# -gt 0 ]]; do
     --integration)    MODE="integration"; shift ;;
     --frontend)       MODE="frontend"; shift ;;
     --e2e)            MODE="e2e"; shift ;;
+    --latency)        MODE="latency"; shift ;;
+    --jepsen)         MODE="jepsen"; shift ;;
+    --pen-test)       MODE="pen_test"; shift ;;
     --all)            MODE="all"; shift ;;
     -g|--grep)        EXTRA_ARGS+=("-g" "$2"); MODE="e2e"; shift 2 ;;
     --help|-h)        show_help; exit 0 ;;
@@ -784,6 +840,18 @@ case "$MODE" in
     step_header "1" "1" "Frontend React & Monaco Component Tests"
     run_frontend
     ;;
+  latency)
+    step_header "1" "1" "Keystroke-to-Screen (K2R) Latency & PTY Stream Throughput SLA Suite"
+    run_latency
+    ;;
+  jepsen)
+    step_header "1" "1" "Jepsen-Style Split-Brain Chaos & RAM Write-Behind Crash Recovery"
+    run_jepsen
+    ;;
+  pen_test)
+    step_header "1" "1" "Container Escape, WS Protocol Fuzzing & Storage RBAC Penetration Suite"
+    run_pen_test
+    ;;
   e2e)
     step_header "1" "1" "Playwright E2E Browser Specs"
     run_e2e
@@ -839,8 +907,14 @@ case "$MODE" in
     run_integration || true
     step_header "25" "26" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "26" "26" "Frontend React & Monaco Component Tests"
+    step_header "26" "29" "Frontend React & Monaco Component Tests"
     run_frontend || true
+    step_header "27" "29" "Keystroke-to-Screen (K2R) Latency & PTY Stream Throughput SLA Suite"
+    run_latency || true
+    step_header "28" "29" "Jepsen-Style Split-Brain Chaos & RAM Write-Behind Crash Recovery"
+    run_jepsen || true
+    step_header "29" "29" "Container Escape, WS Protocol Fuzzing & Storage RBAC Penetration Suite"
+    run_pen_test || true
     ;;
 esac
 
