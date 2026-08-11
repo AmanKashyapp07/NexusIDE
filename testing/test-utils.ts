@@ -1,5 +1,7 @@
 import { expect, type Page, type APIRequestContext } from '@playwright/test';
 
+export * from './latency-utils.js';
+
 export function extractWorkspaceId(url: string): string {
   const match = url.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
   if (match) return match[1];
@@ -138,11 +140,26 @@ export async function loginUser(page: Page, arg2: APIRequestContext | string, ar
 
 export async function inviteUser(page: Page, username: string, role: 'editor' | 'viewer' | 'admin') {
   await page.click('button:has-text("Share")');
-  await page.fill('input[placeholder="Username or Email"]', username);
+  const input = page.locator('input[placeholder="Username or Email"]');
+  await input.waitFor({ state: 'visible', timeout: 5000 });
+  await input.fill(username);
   await page.selectOption('select', role);
   await page.click('button:has-text("Invite")');
-  await expect(page.locator(`.flex.items-center.justify-between:has-text("${username}")`)).toBeVisible({ timeout: 10000 });
-  await page.click('.fixed.inset-0', { position: { x: 10, y: 10 } });
+  
+  const userRow = page.locator(`.flex.items-center.justify-between:has-text("${username}")`);
+  try {
+    await expect(userRow).toBeVisible({ timeout: 10000 });
+  } catch (err) {
+    try {
+      await page.click('button:has-text("Invite")');
+      await expect(userRow).toBeVisible({ timeout: 10000 });
+    } catch {
+      throw err;
+    }
+  }
+  
+  await page.locator('body').click({ position: { x: 10, y: 10 } });
+  await page.waitForTimeout(200);
 }
 
 export async function waitForBootComplete(page: Page) {

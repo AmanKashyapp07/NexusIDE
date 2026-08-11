@@ -65,6 +65,7 @@ function IdePage() {
   const [isActiveMembersOpen, setIsActiveMembersOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [terminalKey, setTerminalKey] = useState(0);
+  const [terminalCwd, setTerminalCwd] = useState<string>('');
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [jumpToUserId, setJumpToUserId] = useState<string | null>(null);
@@ -569,6 +570,12 @@ function IdePage() {
                 <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Sandbox</span>
               </div>
               <div className="flex items-center gap-2 bg-[#121214] p-1 rounded-lg border border-white/[0.04]">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.04] text-[11px] text-zinc-300 font-mono">
+                  <Folder size={12} className="text-amber-400 shrink-0" />
+                  <span className="max-w-[160px] truncate" title={terminalCwd || (activeFile ? (activeFile.name.includes('/') ? activeFile.name.substring(0, activeFile.name.lastIndexOf('/')) + '/' : '~/') : '~/')}>
+                    {terminalCwd || (activeFile ? (activeFile.name.includes('/') ? activeFile.name.substring(0, activeFile.name.lastIndexOf('/')) + '/' : '~/') : '~/')}
+                  </span>
+                </div>
                 <button
                   onClick={() => window.open(apiUrl(`/workspace/${workspaceId}/preview/?token=${getNexusToken()}`), '_blank')}
                   className="group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-all hover:bg-emerald-500/20"
@@ -578,7 +585,7 @@ function IdePage() {
                 </button>
                 {userRole !== 'viewer' && (
                   <button
-                    onClick={() => { sessionStorage.setItem('resetTerminal', 'true'); setTerminalKey(prev => prev + 1); }}
+                    onClick={() => { sessionStorage.setItem('resetTerminal', 'true'); setTerminalKey(prev => prev + 1); setTerminalCwd(''); }}
                     className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
                   >
                     <RotateCcw size={12} />
@@ -590,7 +597,7 @@ function IdePage() {
 
             <div className="min-h-0 flex-1 bg-[#020202]/80">
               {workspaceId && (
-                <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} isVisible={true} />
+                <TerminalPanel key={terminalKey} workspaceId={workspaceId} userRole={userRole} isVisible={true} onCwdChange={setTerminalCwd} />
               )}
             </div>
           </section>

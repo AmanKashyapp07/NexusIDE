@@ -128,7 +128,7 @@ export async function handleTerminalConnection(ws: WebSocket, req: IncomingMessa
 
       const isViewer = userRole === 'viewer';
       const envVars = [
-         'PS1=\\[\\033[1;35m\\]sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]~#\\[\\033[0m\\] ',
+         'PS1=\\[\\033]0;DIR:\\w\\007\\]\\[\\033[1;35m\\]sandbox\\[\\033[0m\\]:\\[\\033[1;34m\\]~#\\[\\033[0m\\] ',
          'PROMPT_DIRTRIM=2',
          'TERM=xterm-256color', 'LANG=C.UTF-8', `HOME=/workspaces/${workspaceId}`
       ];

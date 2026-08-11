@@ -18,9 +18,10 @@ interface TerminalPanelProps {
   workspaceId: string;
   userRole?: 'admin' | 'editor' | 'viewer' | null;
   isVisible: boolean;
+  onCwdChange?: (cwd: string) => void;
 }
 
-export default function TerminalPanel({ workspaceId, userRole, isVisible }: TerminalPanelProps) {
+export default function TerminalPanel({ workspaceId, userRole, isVisible, onCwdChange }: TerminalPanelProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -113,6 +114,22 @@ export default function TerminalPanel({ workspaceId, userRole, isVisible }: Term
     }
 
     xtermRef.current = terminal;
+
+    terminal.onTitleChange((title) => {
+      if (title && title.includes('DIR:')) {
+        const rawDir = title.substring(title.indexOf('DIR:') + 4).trim();
+        let path = rawDir;
+        if (path.startsWith('~/')) {
+          path = path.slice(2);
+        } else if (path === '~') {
+          path = '';
+        }
+        const display = path ? (path.endsWith('/') ? path : path + '/') : '~/';
+        if (onCwdChange) {
+          onCwdChange(display);
+        }
+      }
+    });
 
     const flushOutputQueue = () => {
       if (outputQueueRef.current.length > 0 && xtermRef.current) {

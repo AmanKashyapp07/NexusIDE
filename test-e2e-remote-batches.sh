@@ -114,7 +114,7 @@ case "$BATCH_FLAG" in
     ;;
   latency-all|latency)
     run_vm_cleanup
-    run_playwright_batch "Latency SLA Suite: Terminal, Monaco, Yjs Collab, File Tree & Preview" "e2e/terminal-latency.spec.ts e2e/editor-latency.spec.ts e2e/collab-latency.spec.ts e2e/file-tree-latency.spec.ts e2e/preview-latency.spec.ts"
+    run_playwright_batch "Enterprise SLA Performance & Latency Matrix" "e2e/terminal-latency.spec.ts e2e/editor-latency.spec.ts e2e/collab-latency.spec.ts e2e/file-tree-latency.spec.ts e2e/preview-latency.spec.ts e2e/crdt-sync-latency.spec.ts e2e/filetree-latency.spec.ts e2e/editor-responsiveness.spec.ts e2e/memory-leak.spec.ts"
     ;;
   all)
     for b in 1 2 3 4 5 6 7 8 9; do

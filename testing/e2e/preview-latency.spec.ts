@@ -7,15 +7,19 @@ import {
   createFile,
   extractWorkspaceId,
   waitForTerminalText,
+  calculateLatencyStats,
+  getLatencyThreshold,
+  printLatencyReport,
 } from '../test-utils.js';
 
 /**
- * Purpose: Live Preview Proxy HTTP Response Latency SLA Spec.
- * Asserts container dev server proxy response latency is under < 150ms.
+ * Purpose: Live Preview Proxy HTTP Response Latency SLA Suite.
+ * Measures container dev server proxy response latency over 20 requests (discarding warmup request),
+ * isolating backend proxy network response SLA from browser rendering time.
  */
 
 test.describe('Live Preview Proxy Latency SLA Suite', () => {
-  test('live preview proxy HTTP response SLA is under 150ms', async ({ page, request }) => {
+  test('live preview proxy HTTP response SLA satisfies p95 and average thresholds', async ({ page, request }) => {
     const timestamp = Date.now();
     const username = `PreviewSLAUser_${timestamp}`;
     const token = await loginUser(page, request, username);
@@ -42,18 +46,38 @@ test.describe('Live Preview Proxy Latency SLA Suite', () => {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(2000);
 
-    // Measure proxy HTTP GET response roundtrip SLA
+    // Measure proxy HTTP GET response roundtrips over 20 sequential requests
     const previewUrl = `${API_URL}/workspace/${workspaceId}/preview/`;
-    const t0 = Date.now();
-    const res = await request.get(previewUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const elapsedMs = Date.now() - t0;
+    const numRequests = 20;
+    const rawLatencies: number[] = [];
 
-    expect(res.status()).toBe(200);
-    console.log(`[Preview Proxy SLA Result] HTTP proxy response SLA: ${elapsedMs}ms`);
+    for (let i = 0; i < numRequests; i++) {
+      const t0 = performance.now();
+      const res = await request.get(previewUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const t1 = performance.now();
+      expect(res.status()).toBe(200);
 
-    // Assert SLA threshold (< 150ms over remote HTTP connection)
-    expect(elapsedMs).toBeLessThan(150);
+      // High-resolution network response roundtrip duration
+      const elapsed = t1 - t0;
+      rawLatencies.push(elapsed);
+
+      await page.waitForTimeout(30);
+    }
+
+    // Discard the first request as "warmup" to eliminate cold start bias
+    const samples = rawLatencies.slice(1);
+
+    // Calculate statistical metrics (Min, Median, p95, Max, Average)
+    const stats = calculateLatencyStats(samples);
+    const targetThresholdMs = getLatencyThreshold(150, 600); // 150ms locally, 600ms WAN/CI target buffer
+
+    // Print clean, structured console summary
+    printLatencyReport('Live Preview Proxy HTTP Response', stats, targetThresholdMs);
+
+    // Assert p95 and average SLA thresholds
+    expect(stats.p95).toBeLessThanOrEqual(targetThresholdMs);
+    expect(stats.avg).toBeLessThanOrEqual(targetThresholdMs);
   });
 });

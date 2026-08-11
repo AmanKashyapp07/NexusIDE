@@ -592,7 +592,7 @@ run_latency() {
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     log_success "System-wide in-browser latency SLA tests passed in ${elapsed}s ✓"
-    record_result "System Latency SLA Suite" "PASSED ✓" "5 SLA Specs" "$elapsed"
+    record_result "System Latency SLA Suite" "PASSED ✓" "9 SLA Specs" "$elapsed"
   else
     local t_end=$(date +%s)
     log_error "Latency SLA tests encountered failures."
