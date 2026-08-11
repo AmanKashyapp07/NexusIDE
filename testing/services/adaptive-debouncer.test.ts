@@ -4,17 +4,15 @@ import { AdaptivePersistenceDebouncer } from '../../backend/src/services/adaptiv
 function createSpyCallback() {
   let count = 0;
   const calls: any[][] = [];
-  const fn = Object.assign(
-    (...args: any[]) => {
-      count++;
-      calls.push(args);
-    },
-    {
-      get callCount() { return count; },
-      calls
-    }
-  );
-  return fn;
+  const fn = (...args: any[]) => {
+    count++;
+    calls.push(args);
+  };
+  Object.defineProperty(fn, 'callCount', {
+    get() { return count; }
+  });
+  (fn as any).calls = calls;
+  return fn as any;
 }
 
 describe('Adaptive Velocity-Based Save Debouncer', () => {
