@@ -1,19 +1,21 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
 
 describe('Frontend Collaborative Engine & IDE Optimizations (Features 1, 2, 5)', () => {
    describe('Feature 1: Direct Native Monaco deltaDecorations (Zero-React Re-Render)', () => {
       it('creates and applies native Monaco decorations directly on cursor updates', () => {
+         let deltaCalls = 0;
          const mockDecorations: any[] = [];
          const mockEditor = {
-            getModel: vi.fn().mockReturnValue({
-               getPositionAt: vi.fn().mockReturnValue({ lineNumber: 42, column: 15 })
+            getModel: () => ({
+               getPositionAt: () => ({ lineNumber: 42, column: 15 })
             }),
-            deltaDecorations: vi.fn().mockImplementation((oldDecs, newDecs) => {
+            deltaDecorations: (oldDecs: any[], newDecs: any[]) => {
+               deltaCalls++;
                mockDecorations.length = 0;
                mockDecorations.push(...newDecs);
                return ['dec_1', 'dec_2'];
-            })
+            }
          };
 
          const monacoInstance: any = {
@@ -33,7 +35,7 @@ describe('Frontend Collaborative Engine & IDE Optimizations (Features 1, 2, 5)',
 
          const applied = mockEditor.deltaDecorations([], newDecorations);
          expect(applied).toEqual(['dec_1', 'dec_2']);
-         expect(mockEditor.deltaDecorations).toHaveBeenCalledTimes(1);
+         expect(deltaCalls).toBe(1);
          expect(mockDecorations[0].options.className).toBe('remote-cursor-user1');
       });
    });

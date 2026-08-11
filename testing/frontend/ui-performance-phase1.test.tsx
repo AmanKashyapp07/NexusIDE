@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import Sidebar, { AppFile } from '../../frontend/src/components/Sidebar/Sidebar';
@@ -58,9 +58,9 @@ describe('Phase 1 Frontend Performance & Render Isolation Suite', () => {
       { id: 'f-1', name: 'App.tsx', type: 'file', parent_id: null, language: 'typescript' }
     ];
 
-    const handleSelect = vi.fn();
-    const handleCreate = vi.fn();
-    const handleDelete = vi.fn();
+    const handleSelect = () => {};
+    const handleCreate = () => {};
+    const handleDelete = () => {};
 
     const { rerender } = render(
       <Sidebar

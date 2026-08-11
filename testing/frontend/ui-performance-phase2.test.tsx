@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 describe('Phase 2 Terminal Output Queue & WebGL Acceleration Suite', () => {
   it('1. queues incoming WebSocket binary stdout packets and flushes in animation frame batches', async () => {
@@ -46,11 +46,14 @@ describe('Phase 2 Terminal Output Queue & WebGL Acceleration Suite', () => {
 
   it('2. instantiates WebGL addon with context loss fallback listener', () => {
     let contextLostListener: (() => void) | null = null;
+    let disposeCount = 0;
     const fakeWebglAddon = {
       onContextLoss: (cb: () => void) => {
         contextLostListener = cb;
       },
-      dispose: vi.fn()
+      dispose: () => {
+        disposeCount++;
+      }
     };
 
     fakeWebglAddon.onContextLoss(() => {
@@ -62,6 +65,6 @@ describe('Phase 2 Terminal Output Queue & WebGL Acceleration Suite', () => {
       (contextLostListener as () => void)();
     }
 
-    expect(fakeWebglAddon.dispose).toHaveBeenCalledTimes(1);
+    expect(disposeCount).toBe(1);
   });
 });

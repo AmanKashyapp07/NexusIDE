@@ -993,6 +993,182 @@ run_disaster_recovery() {
   fi
 }
 
+run_container_escape() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Container Escape & Sandbox Isolation Security Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/security/container-escape.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Container Escape & Sandbox Isolation tests passed in ${elapsed}s ✓"
+    record_result "Container Escape Security Suite" "PASSED ✓" "4 Escape Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Container Escape & Sandbox Isolation tests encountered failures."
+    record_result "Container Escape Security Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_resource_exhaustion() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Resource Exhaustion & cgroup Protection Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/security/resource-exhaustion.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Resource Exhaustion & cgroup Protection tests passed in ${elapsed}s ✓"
+    record_result "Resource Exhaustion Suite" "PASSED ✓" "3 Exhaustion Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Resource Exhaustion & cgroup Protection tests encountered failures."
+    record_result "Resource Exhaustion Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_path_traversal() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Path Traversal Security SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/security/path-traversal.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Path Traversal Security SLA tests passed in ${elapsed}s ✓"
+    record_result "Path Traversal Security Suite" "PASSED ✓" "4 Traversal Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Path Traversal Security SLA tests encountered failures."
+    record_result "Path Traversal Security Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_terminal_injection() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Terminal ANSI/OSC Injection Protection Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/security/terminal-injection.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Terminal ANSI/OSC Injection Protection tests passed in ${elapsed}s ✓"
+    record_result "Terminal Injection Protection Suite" "PASSED ✓" "3 PTY Injection Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Terminal ANSI/OSC Injection Protection tests encountered failures."
+    record_result "Terminal Injection Protection Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_idor() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing IDOR & Multi-Tenant Data Isolation Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/security/idor-tenant-isolation.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "IDOR & Multi-Tenant Data Isolation tests passed in ${elapsed}s ✓"
+    record_result "IDOR & Multi-Tenant Isolation Suite" "PASSED ✓" "3 IDOR Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "IDOR & Multi-Tenant Data Isolation tests encountered failures."
+    record_result "IDOR & Multi-Tenant Isolation Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_dr_resilience() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Disaster Recovery RTO SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/resilience/disaster-recovery.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Disaster Recovery RTO SLA tests passed in ${elapsed}s ✓"
+    record_result "Disaster Recovery RTO Suite" "PASSED ✓" "1 DR Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Disaster Recovery RTO SLA tests encountered failures."
+    record_result "Disaster Recovery RTO Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_region_failover() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Multi-Region Failover & RPO SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/resilience/region-failover.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Multi-Region Failover & RPO SLA tests passed in ${elapsed}s ✓"
+    record_result "Multi-Region Failover RPO Suite" "PASSED ✓" "1 Failover Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Multi-Region Failover & RPO SLA tests encountered failures."
+    record_result "Multi-Region Failover RPO Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_lsp_fuzzing() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing LSP Protocol JSON-RPC Fuzzing Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/lsp/lsp-protocol-fuzzing.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "LSP Protocol JSON-RPC Fuzzing tests passed in ${elapsed}s ✓"
+    record_result "LSP JSON-RPC Fuzzing Suite" "PASSED ✓" "3 Fuzzing Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "LSP Protocol JSON-RPC Fuzzing tests encountered failures."
+    record_result "LSP JSON-RPC Fuzzing Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_gdpr_deletion() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing GDPR Cascade Data Deletion Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/observability/gdpr-data-deletion.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "GDPR Cascade Data Deletion tests passed in ${elapsed}s ✓"
+    record_result "GDPR Cascade Deletion Suite" "PASSED ✓" "1 Cascade Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "GDPR Cascade Data Deletion tests encountered failures."
+    record_result "GDPR Cascade Deletion Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_load_bench() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Production-Scale Concurrent Load & WS Hydration Benchmark...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/production-scale-load.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Production-Scale Concurrent Load tests passed in ${elapsed}s ✓"
+    record_result "Production Concurrent Load Suite" "PASSED ✓" "1 Load Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Production-Scale Concurrent Load tests encountered failures."
+    record_result "Production Concurrent Load Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_ci_security_gate() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Production CI Gate: Dependency Audit & Secrets Scanner SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/security/ci-audit-secrets-gate.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Production CI Security Gate tests passed in ${elapsed}s ✓"
+    record_result "CI Secrets Scanner Gate Suite" "PASSED ✓" "2 CI Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Production CI Security Gate tests encountered failures."
+    record_result "CI Secrets Scanner Gate Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
 
 
 
@@ -1098,6 +1274,17 @@ while [[ $# -gt 0 ]]; do
     --version-skew)     MODE="version_skew"; shift ;;
     --quotas)           MODE="quotas"; shift ;;
     --disaster-recovery) MODE="disaster_recovery"; shift ;;
+    --container-escape) MODE="container_escape"; shift ;;
+    --resource-exhaustion) MODE="resource_exhaustion"; shift ;;
+    --path-traversal)   MODE="path_traversal"; shift ;;
+    --terminal-injection) MODE="terminal_injection"; shift ;;
+    --idor)             MODE="idor"; shift ;;
+    --dr-resilience)    MODE="dr_resilience"; shift ;;
+    --region-failover)  MODE="region_failover"; shift ;;
+    --lsp-fuzzing)      MODE="lsp_fuzzing"; shift ;;
+    --gdpr-deletion)    MODE="gdpr_deletion"; shift ;;
+    --load-bench)       MODE="load_bench"; shift ;;
+    --ci-security-gate) MODE="ci_security_gate"; shift ;;
     --include-flaky)   INCLUDE_FLAKY="true"; shift ;;
     --skip-collab-terminal) INCLUDE_FLAKY="false"; MODE="e2e"; shift ;;
     --all)            MODE="all"; shift ;;
@@ -1318,6 +1505,50 @@ case "$MODE" in
     step_header "1" "1" "Disaster Recovery & Buffer-to-DB WAL SLA Suite"
     run_disaster_recovery
     ;;
+  container_escape)
+    step_header "1" "1" "Container Escape Security Suite"
+    run_container_escape
+    ;;
+  resource_exhaustion)
+    step_header "1" "1" "Resource Exhaustion Suite"
+    run_resource_exhaustion
+    ;;
+  path_traversal)
+    step_header "1" "1" "Path Traversal Security Suite"
+    run_path_traversal
+    ;;
+  terminal_injection)
+    step_header "1" "1" "Terminal Injection Protection Suite"
+    run_terminal_injection
+    ;;
+  idor)
+    step_header "1" "1" "IDOR & Multi-Tenant Isolation Suite"
+    run_idor
+    ;;
+  dr_resilience)
+    step_header "1" "1" "Disaster Recovery RTO Suite"
+    run_dr_resilience
+    ;;
+  region_failover)
+    step_header "1" "1" "Multi-Region Failover RPO Suite"
+    run_region_failover
+    ;;
+  lsp_fuzzing)
+    step_header "1" "1" "LSP JSON-RPC Fuzzing Suite"
+    run_lsp_fuzzing
+    ;;
+  gdpr_deletion)
+    step_header "1" "1" "GDPR Cascade Deletion Suite"
+    run_gdpr_deletion
+    ;;
+  load_bench)
+    step_header "1" "1" "Production-Scale Concurrent Load Benchmark"
+    run_load_bench
+    ;;
+  ci_security_gate)
+    step_header "1" "1" "Production CI Gate: Dependency Audit & Secrets Scanner SLA"
+    run_ci_security_gate
+    ;;
   e2e)
     step_header "1" "1" "Playwright E2E Browser Specs"
     run_e2e
@@ -1393,8 +1624,30 @@ case "$MODE" in
     run_version_skew || true
     step_header "35" "36" "Resource Quotas & Isolation SLA Suite"
     run_quotas || true
-    step_header "36" "36" "Disaster Recovery & WAL SLA Suite"
+    step_header "36" "45" "Disaster Recovery & WAL SLA Suite"
     run_disaster_recovery || true
+    step_header "37" "45" "Container Escape Security Suite"
+    run_container_escape || true
+    step_header "38" "45" "Resource Exhaustion Suite"
+    run_resource_exhaustion || true
+    step_header "39" "45" "Path Traversal Security Suite"
+    run_path_traversal || true
+    step_header "40" "45" "Terminal Injection Protection Suite"
+    run_terminal_injection || true
+    step_header "41" "45" "IDOR & Multi-Tenant Isolation Suite"
+    run_idor || true
+    step_header "42" "45" "Disaster Recovery RTO Suite"
+    run_dr_resilience || true
+    step_header "43" "45" "Multi-Region Failover RPO Suite"
+    run_region_failover || true
+    step_header "44" "45" "LSP JSON-RPC Fuzzing Suite"
+    run_lsp_fuzzing || true
+    step_header "45" "47" "GDPR Cascade Deletion Suite"
+    run_gdpr_deletion || true
+    step_header "46" "47" "Production-Scale Concurrent Load Benchmark"
+    run_load_bench || true
+    step_header "47" "47" "Production CI Gate: Dependency Audit & Secrets Scanner SLA"
+    run_ci_security_gate || true
     ;;
   all)
     step_header "1" "40" "Property-Based CRDT Fuzzing & Invariant Proofs"

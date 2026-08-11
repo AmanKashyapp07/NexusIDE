@@ -39,7 +39,8 @@ describe('Phase 1 Network Waste Elimination: AbortController & Socket Heartbeats
 
   it('2. emits WebSocket heartbeat events without triggering HTTP POST network polling requests', () => {
     const sentWsMessages: string[] = [];
-    const httpFetchSpy = vi.fn();
+    let httpFetchCalls = 0;
+    const httpFetchSpy = () => { httpFetchCalls++; };
 
     const fakeWs = {
       readyState: 1, // OPEN
@@ -63,6 +64,6 @@ describe('Phase 1 Network Waste Elimination: AbortController & Socket Heartbeats
 
     expect(sentWsMessages.length).toBe(1);
     expect(JSON.parse(sentWsMessages[0])).toEqual({ type: 'heartbeat', workspaceId: 'ws-123' });
-    expect(httpFetchSpy).not.toHaveBeenCalled(); // 0 HTTP POST requests
+    expect(httpFetchCalls).toBe(0); // 0 HTTP polling requests
   });
 });

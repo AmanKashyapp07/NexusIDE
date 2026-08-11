@@ -10,7 +10,7 @@ describe('Jepsen-Style Chaos & Network Partition Resiliency Suite', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    // Clean up
   });
 
   it('1. Jepsen Split-Brain: achieves Strong Eventual Convergence (SEC) after Redis Pub/Sub partition heal', () => {

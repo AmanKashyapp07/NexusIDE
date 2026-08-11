@@ -1,83 +1,84 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import jwt from 'jsonwebtoken';
+import { server } from '../../backend/src/server.js';
+import { getPool } from '../../backend/src/db.js';
+import { userRepository } from '../../backend/src/repositories/user.repository.js';
+import { workspaceRepository } from '../../backend/src/repositories/workspace.repository.js';
 import { fetchWorkspaceFiles, createFile, deleteFile } from '../../frontend/src/api/workspace';
 import { fetchFileHistory } from '../../frontend/src/api/history';
-import { createSnapshot } from '../../frontend/src/api/snapshots';
 import { fetchCurrentUser } from '../../frontend/src/api/auth';
 
-describe('API Services', () => {
-  const mockFetch = vi.fn();
-  let originalFetch: any;
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    originalFetch = global.fetch;
-    global.fetch = mockFetch;
-  });
+describe('API Services (Live Integration)', () => {
+  let httpListener: any;
+  let testUser: any;
+  let testWorkspace: any;
+  let validToken: string;
 
-  afterEach(() => {
-    global.fetch = originalFetch;
-  });
-
-  it('fetchWorkspaceFiles includes Bearer token and returns JSON', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ([{ id: 'f1', name: 'index.js' }])
+  beforeAll(async () => {
+    await new Promise<void>((resolve) => {
+      httpListener = server.listen(4000, () => resolve());
     });
 
-    const result = await fetchWorkspaceFiles('token123', 'ws1');
+    const ts = Date.now();
+    testUser = await userRepository.createUser(`api_usr_${ts}`.slice(0, 30), `api_${ts}@example.com`);
+    testWorkspace = await workspaceRepository.createWorkspace(testUser.id, `API_WS_${ts}`);
+    validToken = jwt.sign({ id: testUser.id, username: testUser.username }, JWT_SECRET, { expiresIn: '1h' });
+  });
+
+  afterAll(async () => {
+    const pool = getPool();
+    if (testWorkspace?.id) {
+      await pool.query('DELETE FROM workspaces WHERE id = $1', [testWorkspace.id]);
+    }
+    if (testUser?.id) {
+      await pool.query('DELETE FROM users WHERE id = $1', [testUser.id]);
+    }
+    if (httpListener) {
+      await new Promise<void>((resolve) => httpListener.close(() => resolve()));
+    }
+  });
+
+  it('fetchWorkspaceFiles includes Bearer token and returns JSON from live API', async () => {
+    const result = await fetchWorkspaceFiles(validToken, testWorkspace.id);
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  it('createFile constructs POST request correctly to live API', async () => {
+    const newFile = await createFile(validToken, testWorkspace.id, {
+      name: 'test_app.js',
+      type: 'file',
+      parent_id: null,
+      language: 'javascript'
+    });
     
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/workspace/ws1/files'),
-      expect.objectContaining({
-        headers: { Authorization: 'Bearer token123' }
-      })
-    );
-    expect(result).toEqual([{ id: 'f1', name: 'index.js' }]);
+    expect(newFile).toBeDefined();
+    expect(newFile.name).toBe('test_app.js');
+
+    if (newFile.id) {
+      await deleteFile(validToken, testWorkspace.id, newFile.id);
+    }
   });
 
-  it('createFile constructs POST request correctly', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ fileId: 'f2' })
-    });
-
-    await createFile('token123', 'ws1', { name: 'app.js', type: 'file', parent_id: '', language: 'javascript' });
-    
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/workspace/ws1/files'),
-      expect.objectContaining({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer token123'
-        },
-        body: JSON.stringify({ name: 'app.js', type: 'file', parent_id: '', language: 'javascript' })
-      })
-    );
+  it('API functions throw error when response is not ok (unauthorized)', async () => {
+    await expect(fetchCurrentUser('invalid-bearer-token')).rejects.toThrow();
   });
 
-  it('API functions throw error when response is not ok', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      text: async () => 'Unauthorized'
+  it('fetchFileHistory queries live History API correctly', async () => {
+    const createdFile = await createFile(validToken, testWorkspace.id, {
+      name: 'history_test.js',
+      type: 'file',
+      parent_id: null,
+      language: 'javascript'
     });
 
-    await expect(fetchCurrentUser('bad-token')).rejects.toThrow('Unauthorized');
-  });
+    const history = await fetchFileHistory(validToken, testWorkspace.id, createdFile.id);
+    expect(history).toBeDefined();
+    expect(history.authorMap).toBeDefined();
+    expect(Array.isArray(history.steps)).toBe(true);
 
-  it('fetchFileHistory uses History API correctly', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ updates: [], authorMap: {} })
-    });
-
-    const result = await fetchFileHistory('token123', 'ws1', 'f1');
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/workspace/ws1/files/f1/history'),
-      expect.objectContaining({
-        headers: { Authorization: 'Bearer token123' }
-      })
-    );
-    expect(result).toEqual({ updates: [], authorMap: {} });
+    await deleteFile(validToken, testWorkspace.id, createdFile.id);
   });
 });
+

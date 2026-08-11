@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 describe('Phase 3 Network Optimization: Optimistic UI & ETag 304 Caching Suite', () => {
   interface AppFile {
@@ -43,7 +43,10 @@ describe('Phase 3 Network Optimization: Optimistic UI & ETag 304 Caching Suite',
     expect(files.length).toBe(2);
 
     // 2. Failure rollback simulation
-    const apiCall = vi.fn().mockRejectedValue(new Error('Permission denied'));
+    const apiCall = async () => {
+      throw new Error('Permission denied');
+    };
+
     try {
       await apiCall();
     } catch {

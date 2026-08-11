@@ -54,8 +54,8 @@ export async function compactFileCrdtDeltas(fileId: string): Promise<CompactionR
       return { fileId, updatesCompacted: 0, compactedSizeBytes: 0 };
    }
 
-   const updatesRes = await pool.query<{ id: number; update: Buffer }>(
-      'SELECT id, update FROM file_updates WHERE file_id = $1 ORDER BY id ASC',
+   const updatesRes = await pool.query<{ seq: number; update: Buffer }>(
+      'SELECT seq, update FROM file_updates WHERE file_id = $1 ORDER BY seq ASC',
       [fileId]
    );
 

@@ -3,13 +3,17 @@ import { TerminalStreamBuffer } from '../../backend/src/terminal/terminalStreamB
 
 describe('TerminalStreamBuffer & Micro-Batching Engine', () => {
    let mockWs: any;
+   let sentCalls: any[];
 
    beforeEach(() => {
       vi.useFakeTimers();
+      sentCalls = [];
       mockWs = {
          readyState: 1, // WebSocket.OPEN
          bufferedAmount: 0,
-         send: vi.fn(),
+         send: (payload: any) => {
+            sentCalls.push(payload);
+         },
       };
    });
 
@@ -24,26 +28,26 @@ describe('TerminalStreamBuffer & Micro-Batching Engine', () => {
       buffer.push(Buffer.from('World!'));
 
       // Before timer fires, send has not been called yet
-      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(sentCalls.length).toBe(0);
 
       // Fast-forward 10ms
       vi.advanceTimersByTime(10);
 
-      expect(mockWs.send).toHaveBeenCalledTimes(1);
-      expect(mockWs.send.mock.calls[0][0].toString()).toBe('Hello World!');
+      expect(sentCalls.length).toBe(1);
+      expect(sentCalls[0].toString()).toBe('Hello World!');
    });
 
    it('flushes immediately when accumulated bytes reach maxBatchBytes threshold', () => {
       const buffer = new TerminalStreamBuffer(mockWs, { maxBatchMs: 10, maxBatchBytes: 10 });
 
       buffer.push(Buffer.from('012345'));
-      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(sentCalls.length).toBe(0);
 
       // Push 5 more bytes (total 11 >= 10 bytes) -> triggers immediate flush
       buffer.push(Buffer.from('67890'));
 
-      expect(mockWs.send).toHaveBeenCalledTimes(1);
-      expect(mockWs.send.mock.calls[0][0].toString()).toBe('01234567890');
+      expect(sentCalls.length).toBe(1);
+      expect(sentCalls[0].toString()).toBe('01234567890');
    });
 
    it('respects socket backpressure when bufferedAmount exceeds maxBufferedAmount threshold', () => {
@@ -54,14 +58,14 @@ describe('TerminalStreamBuffer & Micro-Batching Engine', () => {
       vi.advanceTimersByTime(10);
 
       // Backpressure prevents immediate send
-      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(sentCalls.length).toBe(0);
 
       // Simulate socket drain
       mockWs.bufferedAmount = 0;
       vi.advanceTimersByTime(20);
 
-      expect(mockWs.send).toHaveBeenCalledTimes(1);
-      expect(mockWs.send.mock.calls[0][0].toString()).toBe('High velocity burst payload');
+      expect(sentCalls.length).toBe(1);
+      expect(sentCalls[0].toString()).toBe('High velocity burst payload');
    });
 
    it('clears internal buffer cleanly on socket disconnect', () => {
@@ -72,6 +76,6 @@ describe('TerminalStreamBuffer & Micro-Batching Engine', () => {
 
       vi.advanceTimersByTime(20);
 
-      expect(mockWs.send).not.toHaveBeenCalled();
+      expect(sentCalls.length).toBe(0);
    });
 });
