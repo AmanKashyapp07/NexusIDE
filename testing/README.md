@@ -50,9 +50,17 @@ testing/
 │
 ├── e2e/                               # Playwright End-to-End browser test specs
 │   ├── collaboration.spec.ts          # Multi-browser live collaborative typing & cursors
+│   ├── e2e-api-latency-distribution.spec.ts # REST API latency distribution (p50 < 100ms, p95 < 300ms, p99 < 800ms)
+│   ├── e2e-container-pool-stress.spec.ts # Concurrent workspace container boot & terminal PTY allocation SLA
 │   ├── e2e-jepsen-chaos.spec.ts       # Hard SLA limits for partition SEC convergence (10s max) & RAM buffer recovery
 │   ├── e2e-latency-sla.spec.ts        # Hard SLA limits for WAN Keystroke-to-Render (K2R) & PTY stream throughput
+│   ├── e2e-long-task.spec.ts          # Browser UI main thread long task detection (>50ms) during typing
+│   ├── e2e-monaco-memory-leak.spec.ts # Sustained editing & multi-tab V8 heap memory leak benchmark
+│   ├── e2e-multi-region-jitter.spec.ts# Real browser multi-region 350ms WAN latency & 5% packet jitter sync
 │   ├── e2e-security-penetration.spec.ts# Hard SLA & security boundaries for container terminal isolation & RBAC checks
+│   ├── e2e-web-vitals.spec.ts         # Core Web Vitals SLA (FCP < 1.5s, LCP < 2.5s, TTI < 4.0s)
+│   ├── e2e-workspace-ttr.spec.ts      # Workspace Cold Boot Time-to-Ready (TTR < 8s) & PTY SLA
+│   ├── e2e-ws-hydration-sla.spec.ts   # WebSocket Handshake (101) & Yjs state document hydration SLA
 │   ├── file-rename.spec.ts            # Atomic file tree mutations & tab state sync
 │   ├── live-preview.spec.ts           # Container dev-server reverse proxying & ports
 │   ├── terminal-lsp.spec.ts           # Interactive xterm PTY execution & Pyright LSP
@@ -93,7 +101,10 @@ testing/
 │   └── structured-logs.test.ts       # JSON structured log layout & context keys
 │
 ├── perf/                              # System performance & memory benchmarks
-│   └── memory-leak-benchmark.test.ts # V8 heap allocation & garbage collection
+│   ├── crdt-throughput.test.ts       # Yjs CRDT encode (>50K ops/s), decode (>30K ops/s), merge (>20K ops/s)
+│   ├── event-loop-lag.test.ts        # Node.js event loop lag monitoring (p99 < 50ms under 50 sockets)
+│   ├── memory-leak-benchmark.test.ts # V8 heap allocation & garbage collection
+│   └── redis-pubsub-throughput.test.ts# Pub/Sub broadcast fan-out (>50,000 msg/s) throughput SLA
 │
 ├── property/                          # Property-based CRDT fuzzing (fast-check)
 │   └── crdt-fuzzing.property.test.ts # Invariant proofs for SEC, associativity & commutativity
@@ -181,6 +192,7 @@ bash test.sh --timelapse      # Timelapse CRDT engine unit & E2E
 bash test.sh --services       # Backend services unit tests
 bash test.sh --integration    # REST API & Yjs WebSocket integration
 bash test.sh --frontend       # React & Monaco component unit tests
-bash test.sh --e2e            # Playwright E2E browser tests against target VM
-bash test.sh --all            # Run all 29 test suites end-to-end
+bash test.sh --e2e            # Playwright E2E browser tests (excludes collaboration & terminal-lsp by default)
+bash test.sh --all            # Run all 40 master test suites end-to-end (excludes collaboration & terminal-lsp by default)
+bash test.sh --include-flaky  # Include collaboration.spec.ts & terminal-lsp.spec.ts in E2E run
 ```

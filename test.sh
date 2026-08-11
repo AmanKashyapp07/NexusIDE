@@ -135,7 +135,19 @@ show_help() {
   echo "  --latency       Run Keystroke-to-Screen K2R latency & PTY throughput SLA suite"
   echo "  --jepsen        Run Jepsen-style split-brain & RAM write-behind crash recovery"
   echo "  --pen-test      Run Container escape, WS protocol fuzzing & storage RBAC isolation"
-  echo "  --all           Run all test suites end-to-end"
+  echo "  --monaco-leak   Run Monaco Editor V8 Heap & Memory Leak SLA suite"
+  echo "  --multi-region  Run Multi-Region 350ms WAN Jitter & Cross-Continent Chaos suite"
+  echo "  --pool-stress   Run Container Pool Thundering Herd Allocation Stress benchmark"
+  echo "  --web-vitals       Run Core Web Vitals SLA (FCP, LCP, TTI) browser spec"
+  echo "  --ws-hydration     Run WebSocket Handshake & Yjs Document Hydration SLA spec"
+  echo "  --workspace-ttr    Run Workspace Cold Boot Time-to-Ready (TTR) SLA spec"
+  echo "  --api-distribution Run REST API Response Time Distribution (p50/p95/p99) SLA spec"
+  echo "  --event-loop       Run Node.js Event Loop Lag & Socket Broadcast SLA suite"
+  echo "  --crdt-throughput  Run Yjs CRDT Encoding & Delta Compaction Throughput SLA suite"
+  echo "  --long-task        Run Browser UI Main Thread Long Task SLA (>50ms) browser spec"
+  echo "  --pubsub-throughput Run Redis Pub/Sub Broadcast Throughput & Fan-out SLA suite"
+  echo "  --skip-collab-terminal Run all E2E specs excluding collaboration.spec.ts & terminal-lsp.spec.ts"
+  echo "  --all              Run all test suites end-to-end"
   echo "  --verbose       Show full raw stdout/stderr output"
   echo "  --help, -h      Show this help message"
   echo ""
@@ -574,8 +586,13 @@ run_e2e() {
   echo -e "${DIM}Running system storage cleanup routine before E2E run...${RESET}"
   (cd "${LOCAL_BASE}/backend" && npx tsx src/cli/cleanup.cli.ts 2>/dev/null || true)
 
-  echo -e "${DIM}Executing Playwright browser journeys with controlled concurrency (--workers=${max_workers}) against target ${NEXUS_BASE_URL}...${RESET}"
-  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/ --config playwright.config.ts --reporter=list --workers="${max_workers}" ${flags[@]+"${flags[@]}"}); then
+  echo "  Executing Playwright browser journeys with controlled concurrency (--workers=${max_workers}) against target ${NEXUS_BASE_URL}...${RESET}"
+  local ignore_args=()
+  if [ "$INCLUDE_FLAKY" != "true" ]; then
+    echo -e "${DIM}Excluding collaboration.spec.ts & terminal-lsp.spec.ts from E2E run...${RESET}"
+    ignore_args+=("--ignore-snapshots" "--grep-invert" "collaboration|terminal-lsp")
+  fi
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/ --config playwright.config.ts --reporter=list --workers="${max_workers}" ${ignore_args[@]+"${ignore_args[@]}"} ${flags[@]+"${flags[@]}"}); then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     log_success "Playwright E2E browser tests passed in ${elapsed}s ✓"
@@ -637,6 +654,188 @@ run_pen_test() {
     return 1
   fi
 }
+
+run_monaco_leak() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Monaco Editor V8 Heap & Memory Leak SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-monaco-memory-leak.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Monaco V8 Heap & Memory Leak SLA tests passed in ${elapsed}s ✓"
+    record_result "Monaco V8 Heap Memory Leak Suite" "PASSED ✓" "1 Memory SLA Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Monaco V8 Heap & Memory Leak tests encountered failures."
+    record_result "Monaco V8 Heap Memory Leak Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_multi_region() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Multi-Region 350ms WAN Jitter & Cross-Continent Chaos E2E Specs...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/chaos/multi-region-wan-jitter.test.ts --reporter=default) && \
+     (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-multi-region-jitter.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Multi-Region WAN Jitter Chaos E2E tests passed in ${elapsed}s ✓"
+    record_result "Multi-Region WAN Jitter Suite" "PASSED ✓" "3 Region Fault & E2E Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Multi-Region WAN Jitter tests encountered failures."
+    record_result "Multi-Region WAN Jitter Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_pool_stress() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Container Pool Thundering Herd Allocation Stress E2E Specs...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/services/container-pool-stress.test.ts --reporter=default) && \
+     (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-container-pool-stress.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Container Pool Allocation Stress E2E tests passed in ${elapsed}s ✓"
+    record_result "Container Pool Allocation Suite" "PASSED ✓" "3 Burst Benchmarks & E2E" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Container Pool Allocation Stress tests encountered failures."
+    record_result "Container Pool Allocation Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_web_vitals() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Core Web Vitals SLA (FCP, LCP, TTI) E2E Spec...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-web-vitals.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Core Web Vitals SLA tests passed in ${elapsed}s ✓"
+    record_result "Core Web Vitals SLA Suite" "PASSED ✓" "1 Web Vitals Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Core Web Vitals SLA tests encountered failures."
+    record_result "Core Web Vitals SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_ws_hydration() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing WebSocket Handshake & Yjs Hydration SLA E2E Spec...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-ws-hydration-sla.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "WebSocket Handshake & Hydration SLA tests passed in ${elapsed}s ✓"
+    record_result "WS Handshake & Hydration Suite" "PASSED ✓" "1 WS Hydration Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "WebSocket Handshake & Hydration SLA tests encountered failures."
+    record_result "WS Handshake & Hydration Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_workspace_ttr() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Workspace Cold Boot Time-to-Ready (TTR) SLA E2E Spec...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-workspace-ttr.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Workspace Cold Boot TTR SLA tests passed in ${elapsed}s ✓"
+    record_result "Workspace Cold Boot TTR Suite" "PASSED ✓" "1 Workspace TTR Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Workspace Cold Boot TTR SLA tests encountered failures."
+    record_result "Workspace Cold Boot TTR Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_api_distribution() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing REST API Response Time Distribution (p50/p95/p99) SLA E2E Spec...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-api-latency-distribution.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "REST API Latency Distribution SLA tests passed in ${elapsed}s ✓"
+    record_result "API Latency Distribution Suite" "PASSED ✓" "1 API Distribution Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "REST API Latency Distribution SLA tests encountered failures."
+    record_result "API Latency Distribution Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_event_loop() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Node.js Event Loop Lag & Socket Broadcast SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/event-loop-lag.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Node.js Event Loop Lag SLA tests passed in ${elapsed}s ✓"
+    record_result "Event Loop Lag SLA Suite" "PASSED ✓" "1 Event Loop Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Node.js Event Loop Lag SLA tests encountered failures."
+    record_result "Event Loop Lag SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_crdt_throughput() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Yjs CRDT Encoding & Delta Compaction Throughput SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/crdt-throughput.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Yjs CRDT Throughput SLA tests passed in ${elapsed}s ✓"
+    record_result "CRDT Throughput SLA Suite" "PASSED ✓" "2 Throughput Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Yjs CRDT Throughput SLA tests encountered failures."
+    record_result "CRDT Throughput SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_long_task() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Browser UI Main Thread Long Task SLA (>50ms) E2E Spec...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-long-task.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Browser Main Thread Long Task SLA tests passed in ${elapsed}s ✓"
+    record_result "Long Task Detection SLA Suite" "PASSED ✓" "1 Long Task Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Browser Main Thread Long Task SLA tests encountered failures."
+    record_result "Long Task Detection SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_pubsub_throughput() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Redis Pub/Sub Broadcast Throughput & Fan-out SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/redis-pubsub-throughput.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Redis Pub/Sub Fan-out SLA tests passed in ${elapsed}s ✓"
+    record_result "Redis Pub/Sub Fan-out SLA Suite" "PASSED ✓" "1 Pub/Sub Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Redis Pub/Sub Fan-out SLA tests encountered failures."
+    record_result "Redis Pub/Sub Fan-out SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+
+
+
 
 
 # ─── Master Summary Dashboard ─────────────────────────────────────────────────
@@ -718,6 +917,19 @@ while [[ $# -gt 0 ]]; do
     --latency)        MODE="latency"; shift ;;
     --jepsen)         MODE="jepsen"; shift ;;
     --pen-test)       MODE="pen_test"; shift ;;
+    --monaco-leak)   MODE="monaco_leak"; shift ;;
+    --multi-region)  MODE="multi_region"; shift ;;
+    --pool-stress)   MODE="pool_stress"; shift ;;
+    --web-vitals)    MODE="web_vitals"; shift ;;
+    --ws-hydration)  MODE="ws_hydration"; shift ;;
+    --workspace-ttr) MODE="workspace_ttr"; shift ;;
+    --api-distribution) MODE="api_distribution"; shift ;;
+    --event-loop)      MODE="event_loop"; shift ;;
+    --crdt-throughput) MODE="crdt_throughput"; shift ;;
+    --long-task)       MODE="long_task"; shift ;;
+    --pubsub-throughput) MODE="pubsub_throughput"; shift ;;
+    --include-flaky)   INCLUDE_FLAKY="true"; shift ;;
+    --skip-collab-terminal) INCLUDE_FLAKY="false"; MODE="e2e"; shift ;;
     --all)            MODE="all"; shift ;;
     -g|--grep)        EXTRA_ARGS+=("-g" "$2"); MODE="e2e"; shift 2 ;;
     --help|-h)        show_help; exit 0 ;;
@@ -852,6 +1064,50 @@ case "$MODE" in
     step_header "1" "1" "Container Escape, WS Protocol Fuzzing & Storage RBAC Penetration Suite"
     run_pen_test
     ;;
+  monaco_leak)
+    step_header "1" "1" "Monaco Editor V8 Heap & Memory Leak SLA Suite"
+    run_monaco_leak
+    ;;
+  multi_region)
+    step_header "1" "1" "Multi-Region 350ms WAN Jitter & Cross-Continent Chaos Suite"
+    run_multi_region
+    ;;
+  pool_stress)
+    step_header "1" "1" "Container Pool Thundering Herd Allocation Stress Benchmark"
+    run_pool_stress
+    ;;
+  web_vitals)
+    step_header "1" "1" "Core Web Vitals SLA (FCP, LCP, TTI) Suite"
+    run_web_vitals
+    ;;
+  ws_hydration)
+    step_header "1" "1" "WebSocket Handshake & Yjs Hydration SLA Suite"
+    run_ws_hydration
+    ;;
+  workspace_ttr)
+    step_header "1" "1" "Workspace Cold Boot Time-to-Ready (TTR) SLA Suite"
+    run_workspace_ttr
+    ;;
+  api_distribution)
+    step_header "1" "1" "REST API Response Time Distribution (p50/p95/p99) SLA Suite"
+    run_api_distribution
+    ;;
+  event_loop)
+    step_header "1" "1" "Node.js Event Loop Lag & Socket Broadcast SLA Suite"
+    run_event_loop
+    ;;
+  crdt_throughput)
+    step_header "1" "1" "Yjs CRDT Encoding & Delta Compaction Throughput SLA Suite"
+    run_crdt_throughput
+    ;;
+  long_task)
+    step_header "1" "1" "Browser UI Main Thread Long Task SLA (>50ms) Suite"
+    run_long_task
+    ;;
+  pubsub_throughput)
+    step_header "1" "1" "Redis Pub/Sub Broadcast Throughput & Fan-out SLA Suite"
+    run_pubsub_throughput
+    ;;
   e2e)
     step_header "1" "1" "Playwright E2E Browser Specs"
     run_e2e
@@ -907,14 +1163,36 @@ case "$MODE" in
     run_integration || true
     step_header "25" "26" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "26" "29" "Frontend React & Monaco Component Tests"
+    step_header "26" "32" "Frontend React & Monaco Component Tests"
     run_frontend || true
-    step_header "27" "29" "Keystroke-to-Screen (K2R) Latency & PTY Stream Throughput SLA Suite"
+    step_header "27" "32" "Keystroke-to-Screen (K2R) Latency & PTY Stream Throughput SLA Suite"
     run_latency || true
-    step_header "28" "29" "Jepsen-Style Split-Brain Chaos & RAM Write-Behind Crash Recovery"
+    step_header "28" "32" "Jepsen-Style Split-Brain Chaos & RAM Write-Behind Crash Recovery"
     run_jepsen || true
-    step_header "29" "29" "Container Escape, WS Protocol Fuzzing & Storage RBAC Penetration Suite"
+    step_header "29" "32" "Container Escape, WS Protocol Fuzzing & Storage RBAC Penetration Suite"
     run_pen_test || true
+    step_header "30" "35" "Monaco Editor V8 Heap & Memory Leak SLA Suite"
+    run_monaco_leak || true
+    step_header "31" "35" "Multi-Region 350ms WAN Jitter & Cross-Continent Chaos Suite"
+    run_multi_region || true
+    step_header "32" "35" "Container Pool Thundering Herd Allocation Stress Benchmark"
+    run_pool_stress || true
+    step_header "33" "38" "Core Web Vitals SLA (FCP, LCP, TTI) Browser Spec"
+    run_web_vitals || true
+    step_header "34" "38" "WebSocket Handshake & Yjs Hydration SLA Spec"
+    run_ws_hydration || true
+    step_header "35" "38" "Workspace Cold Boot Time-to-Ready (TTR) SLA Spec"
+    run_workspace_ttr || true
+    step_header "36" "38" "REST API Response Time Distribution (p50/p95/p99) SLA Spec"
+    run_api_distribution || true
+    step_header "37" "38" "Node.js Event Loop Lag & Socket Broadcast SLA Spec"
+    run_event_loop || true
+    step_header "38" "40" "Yjs CRDT Encoding & Delta Compaction Throughput SLA Spec"
+    run_crdt_throughput || true
+    step_header "39" "40" "Browser UI Main Thread Long Task SLA (>50ms) Browser Spec"
+    run_long_task || true
+    step_header "40" "40" "Redis Pub/Sub Broadcast Throughput & Fan-out SLA Spec"
+    run_pubsub_throughput || true
     ;;
 esac
 

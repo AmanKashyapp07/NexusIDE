@@ -121,11 +121,23 @@ export async function login(page: Page, username: string, password?: string): Pr
 export async function loginUser(page: Page, arg2: APIRequestContext | string, arg3?: string): Promise<string> {
   const username = typeof arg2 === 'string' ? arg2 : arg3!;
   const apiReq = page.request;
-  const loginRes = await apiReq.post(`${API_URL}/auth/test-login`, {
-    data: { username, password: 'test' },
-  });
-  if (!loginRes.ok()) {
-    throw new Error(`Login API failed for "${username}": ${loginRes.status()} ${await loginRes.text()}`);
+  
+  let loginRes: any = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      loginRes = await apiReq.post(`${API_URL}/auth/test-login`, {
+        data: { username, password: 'test' },
+        timeout: 15000,
+      });
+      if (loginRes.ok()) break;
+    } catch (err) {
+      if (attempt === 3) throw err;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  if (!loginRes || !loginRes.ok()) {
+    throw new Error(`Login API failed for "${username}": ${loginRes ? loginRes.status() : 'No response'}`);
   }
   const { token } = await loginRes.json();
   await page.goto(`${APP_BASE_URL}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 });
