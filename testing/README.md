@@ -192,7 +192,13 @@ bash test.sh --timelapse      # Timelapse CRDT engine unit & E2E
 bash test.sh --services       # Backend services unit tests
 bash test.sh --integration    # REST API & Yjs WebSocket integration
 bash test.sh --frontend       # React & Monaco component unit tests
-bash test.sh --e2e            # Playwright E2E browser tests (excludes collaboration & terminal-lsp by default)
-bash test.sh --all            # Run all 40 master test suites end-to-end (excludes collaboration & terminal-lsp by default)
-bash test.sh --include-flaky  # Include collaboration.spec.ts & terminal-lsp.spec.ts in E2E run
+bash test.sh --secrets-security # Secrets redaction & environment isolation
+bash test.sh --data-privacy     # GDPR Article 17 hard erasure & Article 20 export
+bash test.sh --version-skew     # Zero-downtime deployment & CRDT version skew
+bash test.sh --quotas           # Container cgroup quotas, inodes & egress caps
+bash test.sh --disaster-recovery # Redis Write-Behind WAL & PITR restore verification
+# Master Orchestrator Commands:
+bash test.sh              # Fast mode: Runs only fast unit, service & micro-benchmark suites (36 suites in ~5s)
+bash test.sh --e2e        # E2E mode: Runs Playwright browser specs against VM
+bash test.sh --all        # Full mode: Runs all master test suites end-to-end
 ```

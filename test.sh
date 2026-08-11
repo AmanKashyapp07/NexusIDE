@@ -833,6 +833,166 @@ run_pubsub_throughput() {
   fi
 }
 
+run_cas_dedup() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing CAS Storage Deduplication Ratio SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/cas-dedup-ratio.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "CAS Storage Deduplication SLA tests passed in ${elapsed}s ✓"
+    record_result "CAS Storage Dedup SLA Suite" "PASSED ✓" "1 CAS Dedup Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "CAS Storage Deduplication SLA tests encountered failures."
+    record_result "CAS Storage Dedup SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_ansi_throughput() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Terminal PTY ANSI Parser Throughput SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/pty-ansi-throughput.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Terminal PTY ANSI Parser Throughput SLA tests passed in ${elapsed}s ✓"
+    record_result "PTY ANSI Parser Throughput Suite" "PASSED ✓" "1 ANSI Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Terminal PTY ANSI Parser Throughput SLA tests encountered failures."
+    record_result "PTY ANSI Parser Throughput Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_cswsh() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Cross-Origin WebSocket Hijacking (CSWSH) Security SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/ws/ws-cswsh-security.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "CSWSH Origin Security SLA tests passed in ${elapsed}s ✓"
+    record_result "CSWSH Origin Security Suite" "PASSED ✓" "1 CSWSH Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "CSWSH Origin Security SLA tests encountered failures."
+    record_result "CSWSH Origin Security Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_offline_sync() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Playwright Offline Edit Queue & Reconnection SLA Spec...${RESET}"
+  if (cd "${LOCAL_BASE}/testing" && npx playwright test e2e/e2e-offline-reconnect-sync.spec.ts --config playwright.config.ts --reporter=list); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Offline Edit Queue & Reconnection SLA tests passed in ${elapsed}s ✓"
+    record_result "Offline Reconnection Sync Suite" "PASSED ✓" "1 Reconnect Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Offline Edit Queue & Reconnection SLA tests encountered failures."
+    record_result "Offline Reconnection Sync Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_export_sla() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Workspace ZIP Archive Export & Checksum SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/workspace-export-sla.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Workspace ZIP Archive Export SLA tests passed in ${elapsed}s ✓"
+    record_result "Workspace ZIP Export SLA Suite" "PASSED ✓" "1 Export Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Workspace ZIP Archive Export SLA tests encountered failures."
+    record_result "Workspace ZIP Export SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_secrets_security() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Secrets Security & Redaction Filter SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/secrets-security/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Secrets Security & Redaction SLA tests passed in ${elapsed}s ✓"
+    record_result "Secrets Security & Redaction Suite" "PASSED ✓" "5 Redaction Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Secrets Security & Redaction SLA tests encountered failures."
+    record_result "Secrets Security & Redaction Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_data_privacy() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing GDPR Data Privacy & Erasure SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/data-privacy/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "GDPR Data Privacy & Erasure SLA tests passed in ${elapsed}s ✓"
+    record_result "GDPR Data Privacy & Erasure Suite" "PASSED ✓" "2 GDPR Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "GDPR Data Privacy & Erasure SLA tests encountered failures."
+    record_result "GDPR Data Privacy & Erasure Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_version_skew() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Protocol Version Skew & Zero-Downtime Deployment SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/version-skew/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Version Skew Compatibility SLA tests passed in ${elapsed}s ✓"
+    record_result "Version Skew Compatibility Suite" "PASSED ✓" "2 Skew Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Version Skew Compatibility SLA tests encountered failures."
+    record_result "Version Skew Compatibility Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_quotas() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Resource Quotas & Noisy Neighbor Throttling SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/quotas/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Resource Quotas & Throttling SLA tests passed in ${elapsed}s ✓"
+    record_result "Resource Quotas & Isolation Suite" "PASSED ✓" "3 Quota Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Resource Quotas & Throttling SLA tests encountered failures."
+    record_result "Resource Quotas & Isolation Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_disaster_recovery() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Disaster Recovery & Buffer-to-DB WAL SLA Suite...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/disaster-recovery/ --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Disaster Recovery & WAL SLA tests passed in ${elapsed}s ✓"
+    record_result "Disaster Recovery & WAL Suite" "PASSED ✓" "2 DR Specs" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Disaster Recovery & WAL SLA tests encountered failures."
+    record_result "Disaster Recovery & WAL Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
 
 
 
@@ -928,6 +1088,16 @@ while [[ $# -gt 0 ]]; do
     --crdt-throughput) MODE="crdt_throughput"; shift ;;
     --long-task)       MODE="long_task"; shift ;;
     --pubsub-throughput) MODE="pubsub_throughput"; shift ;;
+    --cas-dedup)        MODE="cas_dedup"; shift ;;
+    --ansi-throughput)  MODE="ansi_throughput"; shift ;;
+    --cswsh)            MODE="cswsh"; shift ;;
+    --offline-sync)     MODE="offline_sync"; shift ;;
+    --export-sla)       MODE="export_sla"; shift ;;
+    --secrets-security) MODE="secrets_security"; shift ;;
+    --data-privacy)     MODE="data_privacy"; shift ;;
+    --version-skew)     MODE="version_skew"; shift ;;
+    --quotas)           MODE="quotas"; shift ;;
+    --disaster-recovery) MODE="disaster_recovery"; shift ;;
     --include-flaky)   INCLUDE_FLAKY="true"; shift ;;
     --skip-collab-terminal) INCLUDE_FLAKY="false"; MODE="e2e"; shift ;;
     --all)            MODE="all"; shift ;;
@@ -1108,62 +1278,176 @@ case "$MODE" in
     step_header "1" "1" "Redis Pub/Sub Broadcast Throughput & Fan-out SLA Suite"
     run_pubsub_throughput
     ;;
+  cas_dedup)
+    step_header "1" "1" "CAS Storage Deduplication Ratio SLA Suite"
+    run_cas_dedup
+    ;;
+  ansi_throughput)
+    step_header "1" "1" "Terminal PTY ANSI Parser Throughput SLA Suite"
+    run_ansi_throughput
+    ;;
+  cswsh)
+    step_header "1" "1" "Cross-Origin WebSocket Hijacking (CSWSH) Security SLA Suite"
+    run_cswsh
+    ;;
+  offline_sync)
+    step_header "1" "1" "Offline Edit Queue & Reconnection SLA Suite"
+    run_offline_sync
+    ;;
+  export_sla)
+    step_header "1" "1" "Workspace ZIP Archive Export SLA Suite"
+    run_export_sla
+    ;;
+  secrets_security)
+    step_header "1" "1" "Secrets Security & Redaction Filter SLA Suite"
+    run_secrets_security
+    ;;
+  data_privacy)
+    step_header "1" "1" "GDPR Data Privacy & Erasure SLA Suite"
+    run_data_privacy
+    ;;
+  version_skew)
+    step_header "1" "1" "Protocol Version Skew & Zero-Downtime Deployment SLA Suite"
+    run_version_skew
+    ;;
+  quotas)
+    step_header "1" "1" "Resource Quotas & Noisy Neighbor Throttling SLA Suite"
+    run_quotas
+    ;;
+  disaster_recovery)
+    step_header "1" "1" "Disaster Recovery & Buffer-to-DB WAL SLA Suite"
+    run_disaster_recovery
+    ;;
   e2e)
     step_header "1" "1" "Playwright E2E Browser Specs"
     run_e2e
     ;;
-  default|all)
-    step_header "1" "26" "Property-Based CRDT Fuzzing & Invariant Proofs"
+  default)
+    step_header "1" "28" "Property-Based CRDT Fuzzing & Invariant Proofs"
     run_property || true
-    step_header "2" "26" "Idempotency & Replay Attack Suite"
+    step_header "2" "28" "Idempotency & Replay Attack Suite"
     run_idempotency || true
-    step_header "3" "26" "Chaos Fault Injection & Infrastructure Recovery"
+    step_header "3" "28" "Chaos Fault Injection & Infrastructure Recovery"
     run_chaos || true
-    step_header "4" "26" "API Schema & Compatibility Contract Suite"
+    step_header "4" "28" "API Schema & Compatibility Contract Suite"
     run_contracts || true
-    step_header "5" "26" "Heap Memory Leak & Allocation Benchmarks"
+    step_header "5" "28" "Heap Memory Leak & Allocation Benchmarks"
     run_memory || true
-    step_header "6" "26" "OAuth & JWT Security Boundary Suite"
+    step_header "6" "28" "OAuth & JWT Security Boundary Suite"
     run_auth || true
-    step_header "7" "26" "WebSocket Protocol Conformance Suite"
+    step_header "7" "28" "WebSocket Protocol Conformance Suite"
     run_ws || true
-    step_header "8" "26" "Merkle DAG Integrity & Snapshot Restore Suite"
+    step_header "8" "28" "Merkle DAG Integrity & Snapshot Restore Suite"
     run_snapshot || true
-    step_header "9" "26" "Database Schema & Rollback Safety Suite"
+    step_header "9" "28" "Database Schema & Rollback Safety Suite"
     run_migration || true
-    step_header "10" "26" "API Rate Limiting & DDoS Protection Suite"
+    step_header "10" "28" "API Rate Limiting & DDoS Protection Suite"
     run_rate_limiting || true
-    step_header "11" "26" "Large Document CRDT Stress Suite"
+    step_header "11" "28" "Large Document CRDT Stress Suite"
     run_crdt_stress || true
-    step_header "12" "26" "PTY Buffer Overflow & ANSI Parser Suite"
+    step_header "12" "28" "PTY Buffer Overflow & ANSI Parser Suite"
     run_pty_stress || true
-    step_header "13" "26" "Exhaustive 3x12 RBAC Permissions Matrix"
+    step_header "13" "28" "Exhaustive 3x12 RBAC Permissions Matrix"
     run_rbac_matrix || true
-    step_header "14" "26" "Multi-Peer Collaboration & Convergence Suite"
+    step_header "14" "28" "Multi-Peer Collaboration & Convergence Suite"
     run_collab || true
-    step_header "15" "26" "LSP Protocol Lifecycle Suite"
+    step_header "15" "28" "LSP Protocol Lifecycle Suite"
     run_lsp || true
-    step_header "16" "26" "Observability & Audit Trail Suite"
+    step_header "16" "28" "Observability & Audit Trail Suite"
     run_observability || true
-    step_header "17" "26" "Git Integration Edge Cases Suite"
+    step_header "17" "28" "Git Integration Edge Cases Suite"
     run_git || true
-    step_header "18" "26" "Accessibility WCAG 2.1 AA Suite"
+    step_header "18" "28" "Accessibility WCAG 2.1 AA Suite"
     run_accessibility || true
-    step_header "19" "26" "Data Integrity & Tenant Isolation Suite"
+    step_header "19" "28" "Data Integrity & Tenant Isolation Suite"
     run_data_integrity || true
-    step_header "20" "26" "Backend Services & Algorithmic Unit Tests"
+    step_header "20" "28" "Backend Services & Algorithmic Unit Tests"
     run_services || true
-    step_header "21" "26" "Container Security & RBAC Guardrail Tests"
+    step_header "21" "28" "Container Security & RBAC Guardrail Tests"
     run_security || true
-    step_header "22" "26" "Network Resilience & Redis Failover Tests"
+    step_header "22" "28" "Network Resilience & Redis Failover Tests"
     run_resilience || true
-    step_header "23" "26" "Timelapse CRDT Engine Unit & Isolated Suites"
+    step_header "23" "28" "Timelapse CRDT Engine Unit & Isolated Suites"
     run_timelapse || true
-    step_header "24" "26" "REST API & WebSocket Integration Tests"
+    step_header "24" "28" "REST API & WebSocket Integration Tests"
     run_integration || true
-    step_header "25" "26" "PostgreSQL & Redis Performance Benchmarks"
+    step_header "25" "28" "PostgreSQL & Redis Performance Benchmarks"
     run_db || true
-    step_header "26" "32" "Frontend React & Monaco Component Tests"
+    step_header "26" "28" "Frontend React & Monaco Component Tests"
+    run_frontend || true
+    step_header "27" "31" "Node.js Event Loop Lag & Socket Broadcast SLA Spec"
+    run_event_loop || true
+    step_header "28" "31" "Yjs CRDT Encoding & Delta Compaction Throughput SLA Spec"
+    run_crdt_throughput || true
+    step_header "29" "31" "CAS Storage Deduplication Ratio SLA Suite"
+    run_cas_dedup || true
+    step_header "30" "31" "Terminal PTY ANSI Parser Throughput SLA Suite"
+    run_ansi_throughput || true
+    step_header "31" "33" "Workspace ZIP Archive Export SLA Suite"
+    run_export_sla || true
+    step_header "32" "33" "Secrets Security & Redaction Filter SLA Suite"
+    run_secrets_security || true
+    step_header "33" "36" "GDPR Data Privacy & Erasure SLA Suite"
+    run_data_privacy || true
+    step_header "34" "36" "Protocol Version Skew SLA Suite"
+    run_version_skew || true
+    step_header "35" "36" "Resource Quotas & Isolation SLA Suite"
+    run_quotas || true
+    step_header "36" "36" "Disaster Recovery & WAL SLA Suite"
+    run_disaster_recovery || true
+    ;;
+  all)
+    step_header "1" "40" "Property-Based CRDT Fuzzing & Invariant Proofs"
+    run_property || true
+    step_header "2" "40" "Idempotency & Replay Attack Suite"
+    run_idempotency || true
+    step_header "3" "40" "Chaos Fault Injection & Infrastructure Recovery"
+    run_chaos || true
+    step_header "4" "40" "API Schema & Compatibility Contract Suite"
+    run_contracts || true
+    step_header "5" "40" "Heap Memory Leak & Allocation Benchmarks"
+    run_memory || true
+    step_header "6" "40" "OAuth & JWT Security Boundary Suite"
+    run_auth || true
+    step_header "7" "40" "WebSocket Protocol Conformance Suite"
+    run_ws || true
+    step_header "8" "40" "Merkle DAG Integrity & Snapshot Restore Suite"
+    run_snapshot || true
+    step_header "9" "40" "Database Schema & Rollback Safety Suite"
+    run_migration || true
+    step_header "10" "40" "API Rate Limiting & DDoS Protection Suite"
+    run_rate_limiting || true
+    step_header "11" "40" "Large Document CRDT Stress Suite"
+    run_crdt_stress || true
+    step_header "12" "40" "PTY Buffer Overflow & ANSI Parser Suite"
+    run_pty_stress || true
+    step_header "13" "40" "Exhaustive 3x12 RBAC Permissions Matrix"
+    run_rbac_matrix || true
+    step_header "14" "40" "Multi-Peer Collaboration & Convergence Suite"
+    run_collab || true
+    step_header "15" "40" "LSP Protocol Lifecycle Suite"
+    run_lsp || true
+    step_header "16" "40" "Observability & Audit Trail Suite"
+    run_observability || true
+    step_header "17" "40" "Git Integration Edge Cases Suite"
+    run_git || true
+    step_header "18" "40" "Accessibility WCAG 2.1 AA Suite"
+    run_accessibility || true
+    step_header "19" "40" "Data Integrity & Tenant Isolation Suite"
+    run_data_integrity || true
+    step_header "20" "40" "Backend Services & Algorithmic Unit Tests"
+    run_services || true
+    step_header "21" "40" "Container Security & RBAC Guardrail Tests"
+    run_security || true
+    step_header "22" "40" "Network Resilience & Redis Failover Tests"
+    run_resilience || true
+    step_header "23" "40" "Timelapse CRDT Engine Unit & Isolated Suites"
+    run_timelapse || true
+    step_header "24" "40" "REST API & WebSocket Integration Tests"
+    run_integration || true
+    step_header "25" "40" "PostgreSQL & Redis Performance Benchmarks"
+    run_db || true
+    step_header "26" "40" "Frontend React & Monaco Component Tests"
     run_frontend || true
     step_header "27" "32" "Keystroke-to-Screen (K2R) Latency & PTY Stream Throughput SLA Suite"
     run_latency || true
