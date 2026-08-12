@@ -865,6 +865,94 @@ run_ansi_throughput() {
   fi
 }
 
+run_spike_burst() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Spike / Burst Connection Surge SLA Benchmark...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/spike-burst-connection-surge.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Spike / Burst Connection Surge SLA tests passed in ${elapsed}s ✓"
+    record_result "Spike Surge Connection SLA Suite" "PASSED ✓" "1 Spike Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Spike / Burst Connection Surge SLA tests encountered failures."
+    record_result "Spike Surge Connection SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_fanout() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Micro-Burst Fan-Out Amplification SLA Benchmark...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/collab/microburst-fanout-amplification.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Micro-Burst Fan-Out Amplification SLA tests passed in ${elapsed}s ✓"
+    record_result "Micro-Burst Fan-Out SLA Suite" "PASSED ✓" "1 Fan-Out Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Micro-Burst Fan-Out Amplification SLA tests encountered failures."
+    record_result "Micro-Burst Fan-Out SLA Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_step_load() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Step-Load Breaking Point SLA Benchmark...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/step-load-breaking-point.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Step-Load Breaking Point SLA tests passed in ${elapsed}s ✓"
+    record_result "Step-Load Breaking Point Suite" "PASSED ✓" "1 Step Load Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Step-Load Breaking Point SLA tests encountered failures."
+    record_result "Step-Load Breaking Point Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_reconnect_herd() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Chaos & Reconnection Thundering Herd SLA Benchmark...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/chaos/reconnection-thundering-herd.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Chaos & Reconnection Thundering Herd SLA tests passed in ${elapsed}s ✓"
+    record_result "Reconnection Thundering Herd Suite" "PASSED ✓" "1 Reconnect Herd Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Chaos & Reconnection Thundering Herd SLA tests encountered failures."
+    record_result "Reconnection Thundering Herd Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_pty_flood() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Multi-Container PTY Terminal & Buffer Flood SLA Benchmark...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/pty-stress/multi-container-buffer-flood.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Multi-Container PTY Buffer Flood SLA tests passed in ${elapsed}s ✓"
+    record_result "Multi-Container PTY Flood Suite" "PASSED ✓" "1 PTY Flood Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Multi-Container PTY Buffer Flood SLA tests encountered failures."
+    record_result "Multi-Container PTY Flood Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_fast_load_all() {
+  run_spike_burst
+  run_fanout
+  run_step_load
+  run_reconnect_herd
+  run_pty_flood
+}
+
 run_cswsh() {
   local t_start=$(date +%s)
   echo -e "${DIM}Executing Cross-Origin WebSocket Hijacking (CSWSH) Security SLA Suite...${RESET}"
@@ -1285,6 +1373,12 @@ while [[ $# -gt 0 ]]; do
     --gdpr-deletion)    MODE="gdpr_deletion"; shift ;;
     --load-bench)       MODE="load_bench"; shift ;;
     --ci-security-gate) MODE="ci_security_gate"; shift ;;
+    --spike-burst)     MODE="spike_burst"; shift ;;
+    --fanout)          MODE="fanout"; shift ;;
+    --step-load)       MODE="step_load"; shift ;;
+    --reconnect-herd)  MODE="reconnect_herd"; shift ;;
+    --pty-flood)       MODE="pty_flood"; shift ;;
+    --fast-load-all)   MODE="fast_load_all"; shift ;;
     --include-flaky)   INCLUDE_FLAKY="true"; shift ;;
     --skip-collab-terminal) INCLUDE_FLAKY="false"; MODE="e2e"; shift ;;
     --all)            MODE="all"; shift ;;
@@ -1648,6 +1742,38 @@ case "$MODE" in
     run_load_bench || true
     step_header "47" "47" "Production CI Gate: Dependency Audit & Secrets Scanner SLA"
     run_ci_security_gate || true
+    ;;
+  spike_burst)
+    step_header "1" "1" "Spike / Burst Connection Surge SLA Benchmark"
+    run_spike_burst
+    ;;
+  fanout)
+    step_header "1" "1" "Micro-Burst Fan-Out Amplification SLA Benchmark"
+    run_fanout
+    ;;
+  step_load)
+    step_header "1" "1" "Step-Load Breaking Point SLA Benchmark"
+    run_step_load
+    ;;
+  reconnect_herd)
+    step_header "1" "1" "Chaos & Reconnection Thundering Herd SLA Benchmark"
+    run_reconnect_herd
+    ;;
+  pty_flood)
+    step_header "1" "1" "Multi-Container PTY Buffer Flood SLA Benchmark"
+    run_pty_flood
+    ;;
+  fast_load_all)
+    step_header "1" "5" "Spike / Burst Connection Surge SLA Benchmark"
+    run_spike_burst || true
+    step_header "2" "5" "Micro-Burst Fan-Out Amplification SLA Benchmark"
+    run_fanout || true
+    step_header "3" "5" "Step-Load Breaking Point SLA Benchmark"
+    run_step_load || true
+    step_header "4" "5" "Chaos & Reconnection Thundering Herd SLA Benchmark"
+    run_reconnect_herd || true
+    step_header "5" "5" "Multi-Container PTY Buffer Flood SLA Benchmark"
+    run_pty_flood || true
     ;;
   all)
     step_header "1" "40" "Property-Based CRDT Fuzzing & Invariant Proofs"
