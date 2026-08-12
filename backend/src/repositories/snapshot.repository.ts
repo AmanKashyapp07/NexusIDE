@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { getPool } from '../db.js';
 import type { PoolClient } from 'pg';
 import { CASService } from '../services/cas.service.js';
@@ -88,11 +89,12 @@ export class SnapshotRepository {
          // A single unnest query is 1 round-trip regardless of file count, cutting latency ~8×.
          if (blobsToInsert.length > 0) {
             await runner.query(
-               `INSERT INTO git_blobs (hash, content, size_bytes)
-                SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::int[])
+               `INSERT INTO git_blobs (hash, data, content, size_bytes)
+                SELECT unnest($1::text[]), unnest($2::bytea[]), unnest($3::text[]), unnest($4::int[])
                 ON CONFLICT (hash) DO NOTHING`,
                [
                   blobsToInsert.map(b => b.hash),
+                  blobsToInsert.map(b => Buffer.from(b.content)),
                   blobsToInsert.map(b => b.content),
                   blobsToInsert.map(b => b.sizeBytes),
                ]
@@ -120,11 +122,12 @@ export class SnapshotRepository {
          const parentCommitId = parentRes.rows[0]?.id || null;
 
          // 6. Insert Commit Milestone
+         const commitHash = crypto.createHash('sha256').update(`${workspaceId}:${rootTreeHash}:${Date.now()}:${Math.random()}`).digest('hex');
          const commitRes = await runner.query<SnapshotEntity>(
-            `INSERT INTO git_commits (workspace_id, parent_commit_id, root_tree_hash, label, created_by)
-             VALUES ($1, $2, $3, $4, $5)
+            `INSERT INTO git_commits (workspace_id, parent_commit_id, root_tree_hash, label, created_by, hash, message)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id, workspace_id, root_tree_hash, label, created_at`,
-            [workspaceId, parentCommitId, rootTreeHash, label, userId]
+            [workspaceId, parentCommitId, rootTreeHash, label, userId, commitHash, label]
          );
 
          // 7. Enforce max 10 snapshots per workspace — evict oldest beyond the cap

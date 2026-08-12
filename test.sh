@@ -953,6 +953,196 @@ run_fast_load_all() {
   run_pty_flood
 }
 
+run_file_write_race() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Concurrent File Write Race & Redlock Saturation SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/concurrent-file-write-race.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Concurrent File Write Race SLA tests passed in ${elapsed}s ✓"
+    record_result "Concurrent File Write Race Suite" "PASSED ✓" "1 Race Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Concurrent File Write Race SLA tests encountered failures."
+    record_result "Concurrent File Write Race Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_pool_drain() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Container Cold-Start Thundering Herd & Pool Drain SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/container-pool-drain.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Container Pool Drain SLA tests passed in ${elapsed}s ✓"
+    record_result "Container Pool Drain Suite" "PASSED ✓" "1 Pool Drain Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Container Pool Drain SLA tests encountered failures."
+    record_result "Container Pool Drain Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_presence_flood() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Presence Awareness Cursor Flood SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/collab/presence-cursor-flood.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Presence Awareness Cursor Flood SLA tests passed in ${elapsed}s ✓"
+    record_result "Presence Cursor Flood Suite" "PASSED ✓" "1 Cursor Flood Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Presence Awareness Cursor Flood SLA tests encountered failures."
+    record_result "Presence Cursor Flood Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_checkpoint_flood() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Snapshot Checkpoint Flood CAS Merkle DAG Throughput SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/snapshot-checkpoint-flood.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Snapshot Checkpoint Flood SLA tests passed in ${elapsed}s ✓"
+    record_result "Snapshot Checkpoint Flood Suite" "PASSED ✓" "1 Checkpoint Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Snapshot Checkpoint Flood SLA tests encountered failures."
+    record_result "Snapshot Checkpoint Flood Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_ip_saturation() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Rate Limiter IP Saturation & Sliding Window SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/rate-limiting/ip-saturation.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Rate Limiter IP Saturation SLA tests passed in ${elapsed}s ✓"
+    record_result "Rate Limiter IP Saturation Suite" "PASSED ✓" "1 IP Saturation Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Rate Limiter IP Saturation SLA tests encountered failures."
+    record_result "Rate Limiter IP Saturation Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_lsp_flood() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing LSP Diagnostic Flood & Language Server Saturation SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/lsp/lsp-diagnostic-flood.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "LSP Diagnostic Flood SLA tests passed in ${elapsed}s ✓"
+    record_result "LSP Diagnostic Flood Suite" "PASSED ✓" "1 LSP Flood Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "LSP Diagnostic Flood SLA tests encountered failures."
+    record_result "LSP Diagnostic Flood Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_write_behind_overflow() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Write-Behind Buffer Overflow & DB Flush Latency SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/db/write-behind-overflow.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Write-Behind Buffer Overflow SLA tests passed in ${elapsed}s ✓"
+    record_result "Write-Behind Overflow Suite" "PASSED ✓" "1 Overflow Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Write-Behind Buffer Overflow SLA tests encountered failures."
+    record_result "Write-Behind Overflow Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_export_concurrency() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Concurrent Workspace Export SLA & Memory Pressure...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/concurrent-export-sla.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Concurrent Workspace Export SLA tests passed in ${elapsed}s ✓"
+    record_result "Concurrent Workspace Export Suite" "PASSED ✓" "1 Export Concurrency Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Concurrent Workspace Export SLA tests encountered failures."
+    record_result "Concurrent Workspace Export Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_pool_starvation() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing DB Connection Pool Starvation Probe SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/db/pool-starvation-probe.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "DB Pool Starvation Probe SLA tests passed in ${elapsed}s ✓"
+    record_result "DB Pool Starvation Probe Suite" "PASSED ✓" "1 Pool Starvation Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "DB Pool Starvation Probe SLA tests encountered failures."
+    record_result "DB Pool Starvation Probe Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_subscriber_ceiling() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Redis Subscriber Channel Ceiling Probe SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/redis-subscriber-ceiling.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Redis Subscriber Channel Ceiling SLA tests passed in ${elapsed}s ✓"
+    record_result "Redis Subscriber Ceiling Suite" "PASSED ✓" "1 Subscriber Ceiling Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Redis Subscriber Channel Ceiling SLA tests encountered failures."
+    record_result "Redis Subscriber Ceiling Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_crdt_compaction() {
+  local t_start=$(date +%s)
+  echo -e "${DIM}Executing Multi-Workspace Concurrent CRDT Compaction SLA...${RESET}"
+  if (cd "${LOCAL_BASE}/backend" && npx vitest run ../testing/perf/concurrent-crdt-compaction.test.ts --reporter=default); then
+    local t_end=$(date +%s)
+    local elapsed=$((t_end - t_start))
+    log_success "Concurrent CRDT Compaction SLA tests passed in ${elapsed}s ✓"
+    record_result "Concurrent CRDT Compaction Suite" "PASSED ✓" "1 Compaction Spec" "$elapsed"
+  else
+    local t_end=$(date +%s)
+    log_error "Concurrent CRDT Compaction SLA tests encountered failures."
+    record_result "Concurrent CRDT Compaction Suite" "FAILED ✗" "Failures" "$((t_end - t_start))"
+    return 1
+  fi
+}
+
+run_deep_stress_all() {
+  run_file_write_race
+  run_pool_drain
+  run_presence_flood
+  run_checkpoint_flood
+  run_ip_saturation
+  run_lsp_flood
+  run_write_behind_overflow
+  run_export_concurrency
+  run_pool_starvation
+  run_subscriber_ceiling
+  run_crdt_compaction
+}
+
 run_cswsh() {
   local t_start=$(date +%s)
   echo -e "${DIM}Executing Cross-Origin WebSocket Hijacking (CSWSH) Security SLA Suite...${RESET}"
@@ -1379,6 +1569,18 @@ while [[ $# -gt 0 ]]; do
     --reconnect-herd)  MODE="reconnect_herd"; shift ;;
     --pty-flood)       MODE="pty_flood"; shift ;;
     --fast-load-all)   MODE="fast_load_all"; shift ;;
+    --write-race)      MODE="write_race"; shift ;;
+    --pool-drain)      MODE="pool_drain"; shift ;;
+    --presence-flood)  MODE="presence_flood"; shift ;;
+    --checkpoint-flood) MODE="checkpoint_flood"; shift ;;
+    --ip-saturation)   MODE="ip_saturation"; shift ;;
+    --lsp-flood)       MODE="lsp_flood"; shift ;;
+    --write-behind-overflow) MODE="write_behind_overflow"; shift ;;
+    --export-concurrency) MODE="export_concurrency"; shift ;;
+    --pool-starvation) MODE="pool_starvation"; shift ;;
+    --subscriber-ceiling) MODE="subscriber_ceiling"; shift ;;
+    --crdt-compaction) MODE="crdt_compaction"; shift ;;
+    --deep-stress-all) MODE="deep_stress_all"; shift ;;
     --include-flaky)   INCLUDE_FLAKY="true"; shift ;;
     --skip-collab-terminal) INCLUDE_FLAKY="false"; MODE="e2e"; shift ;;
     --all)            MODE="all"; shift ;;
@@ -1774,6 +1976,74 @@ case "$MODE" in
     run_reconnect_herd || true
     step_header "5" "5" "Multi-Container PTY Buffer Flood SLA Benchmark"
     run_pty_flood || true
+    ;;
+  write_race)
+    step_header "1" "1" "Concurrent File Write Race & Redlock Saturation SLA"
+    run_file_write_race
+    ;;
+  pool_drain)
+    step_header "1" "1" "Container Cold-Start Thundering Herd & Pool Drain SLA"
+    run_pool_drain
+    ;;
+  presence_flood)
+    step_header "1" "1" "Presence Awareness Cursor Flood SLA"
+    run_presence_flood
+    ;;
+  checkpoint_flood)
+    step_header "1" "1" "Snapshot Checkpoint Flood CAS Merkle DAG Throughput SLA"
+    run_checkpoint_flood
+    ;;
+  ip_saturation)
+    step_header "1" "1" "Rate Limiter IP Saturation & Sliding Window SLA"
+    run_ip_saturation
+    ;;
+  lsp_flood)
+    step_header "1" "1" "LSP Diagnostic Flood & Language Server Saturation SLA"
+    run_lsp_flood
+    ;;
+  write_behind_overflow)
+    step_header "1" "1" "Write-Behind Buffer Overflow & DB Flush Latency SLA"
+    run_write_behind_overflow
+    ;;
+  export_concurrency)
+    step_header "1" "1" "Concurrent Workspace Export SLA & Memory Pressure"
+    run_export_concurrency
+    ;;
+  pool_starvation)
+    step_header "1" "1" "DB Connection Pool Starvation Probe SLA"
+    run_pool_starvation
+    ;;
+  subscriber_ceiling)
+    step_header "1" "1" "Redis Subscriber Channel Ceiling Probe SLA"
+    run_subscriber_ceiling
+    ;;
+  crdt_compaction)
+    step_header "1" "1" "Multi-Workspace Concurrent CRDT Compaction SLA"
+    run_crdt_compaction
+    ;;
+  deep_stress_all)
+    step_header "1" "11" "Concurrent File Write Race & Redlock Saturation SLA"
+    run_file_write_race || true
+    step_header "2" "11" "Container Cold-Start Thundering Herd & Pool Drain SLA"
+    run_pool_drain || true
+    step_header "3" "11" "Presence Awareness Cursor Flood SLA"
+    run_presence_flood || true
+    step_header "4" "11" "Snapshot Checkpoint Flood CAS Merkle DAG Throughput SLA"
+    run_checkpoint_flood || true
+    step_header "5" "11" "Rate Limiter IP Saturation & Sliding Window SLA"
+    run_ip_saturation || true
+    step_header "6" "11" "LSP Diagnostic Flood & Language Server Saturation SLA"
+    run_lsp_flood || true
+    step_header "7" "11" "Write-Behind Buffer Overflow & DB Flush Latency SLA"
+    run_write_behind_overflow || true
+    step_header "8" "11" "Concurrent Workspace Export SLA & Memory Pressure"
+    run_export_concurrency || true
+    step_header "9" "11" "DB Connection Pool Starvation Probe SLA"
+    run_pool_starvation || true
+    step_header "10" "11" "Redis Subscriber Channel Ceiling Probe SLA"
+    run_subscriber_ceiling || true
+    step_header "11" "11" "Multi-Workspace Concurrent CRDT Compaction SLA"
+    run_crdt_compaction || true
     ;;
   all)
     step_header "1" "40" "Property-Based CRDT Fuzzing & Invariant Proofs"

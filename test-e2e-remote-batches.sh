@@ -4,15 +4,21 @@
 # Target: Deployed Oracle Cloud VM (http://129.154.39.198/ide)
 # =============================================================================
 # Usage:
-#   bash test-e2e-remote-batches.sh --1    # Batch 1: Collab Core Engine (8 tests)
-#   bash test-e2e-remote-batches.sh --2    # Batch 2: Collab Advanced Sync (8 tests)
-#   bash test-e2e-remote-batches.sh --3    # Batch 3: Git Merge & Monaco Editor (10 tests)
-#   bash test-e2e-remote-batches.sh --4    # Batch 4: Collab Security & RBAC Complete Suite (16 tests)
-#   bash test-e2e-remote-batches.sh --5    # Batch 5: Terminal Core & Signals (8 tests)
-#   bash test-e2e-remote-batches.sh --6    # Batch 6: Terminal File System & Pipes (7 tests)
-#   bash test-e2e-remote-batches.sh --7    # Batch 7: Terminal History, Environment & LSP (17 tests)
-#   bash test-e2e-remote-batches.sh --8    # Batch 8: Timelapse Engine Suite (9 tests)
-#   bash test-e2e-remote-batches.sh --all  # Run all 8 batches sequentially with VM cleanup
+#   bash test-e2e-remote-batches.sh --1        # Batch 1: Collab Core Engine (8 tests)
+#   bash test-e2e-remote-batches.sh --2        # Batch 2: Collab Advanced Sync (8 tests)
+#   bash test-e2e-remote-batches.sh --3        # Batch 3: Git Merge & Monaco Editor (10 tests)
+#   bash test-e2e-remote-batches.sh --4        # Batch 4: Collab Security & RBAC Complete Suite (16 tests)
+#   bash test-e2e-remote-batches.sh --5        # Batch 5: Terminal Core & Signals (8 tests)
+#   bash test-e2e-remote-batches.sh --6        # Batch 6: Terminal File System & Pipes (7 tests)
+#   bash test-e2e-remote-batches.sh --7        # Batch 7: Terminal History, Environment & LSP (17 tests)
+#   bash test-e2e-remote-batches.sh --8        # Batch 8: Timelapse Engine Suite (9 tests)
+#   bash test-e2e-remote-batches.sh --9        # Batch 9: Live Preview & Multi-Port Proxy Engine (5 tests)
+#   bash test-e2e-remote-batches.sh --10       # Batch 10: File Tree Rename & Offline Sync
+#   bash test-e2e-remote-batches.sh --11       # Batch 11: E2E SLA & Infrastructure Resilience Specs
+#   bash test-e2e-remote-batches.sh --latency  # Batch Latency: WAN Keystroke K2R & PTY Throughput SLA
+#   bash test-e2e-remote-batches.sh --jepsen   # Batch Jepsen: Remote Split-Brain & RAM Write-Behind Recovery
+#   bash test-e2e-remote-batches.sh --security # Batch Security: Remote Sandbox Security Isolation
+#   bash test-e2e-remote-batches.sh --all      # Run all batches sequentially with VM cleanup
 # =============================================================================
 
 set -euo pipefail
@@ -60,10 +66,12 @@ run_playwright_batch() {
   cd "$SCRIPT_DIR/testing"
   
   local max_workers="${PLAYWRIGHT_WORKERS:-1}"
+  local retries="${PLAYWRIGHT_RETRIES:-1}"
+
   if [ -n "$grep_pattern" ]; then
-    npx playwright test $spec_file -g "$grep_pattern" --workers="${max_workers}"
+    npx playwright test $spec_file -g "$grep_pattern" --workers="${max_workers}" --retries="${retries}" --reporter=list
   else
-    npx playwright test $spec_file --workers="${max_workers}"
+    npx playwright test $spec_file --workers="${max_workers}" --retries="${retries}" --reporter=list
   fi
 
   success "Batch completed: $title 🚀"
@@ -113,6 +121,14 @@ case "$BATCH_FLAG" in
     run_vm_cleanup
     run_playwright_batch "Batch 9: Live Preview & Multi-Port Proxy Engine (5 tests)" "e2e/live-preview.spec.ts"
     ;;
+  10)
+    run_vm_cleanup
+    run_playwright_batch "Batch 10: File Tree Rename & Offline Sync" "e2e/file-rename.spec.ts e2e/e2e-offline-reconnect-sync.spec.ts"
+    ;;
+  11)
+    run_vm_cleanup
+    run_playwright_batch "Batch 11: E2E SLA & Infrastructure Resilience Specs" "e2e/e2e-web-vitals.spec.ts e2e/e2e-ws-hydration-sla.spec.ts e2e/e2e-workspace-ttr.spec.ts e2e/e2e-api-latency-distribution.spec.ts e2e/e2e-long-task.spec.ts e2e/e2e-monaco-memory-leak.spec.ts e2e/e2e-multi-region-jitter.spec.ts e2e/e2e-container-pool-stress.spec.ts e2e/e2e-security-penetration.spec.ts e2e/e2e-jepsen-chaos.spec.ts"
+    ;;
   latency|batch-latency)
     run_vm_cleanup
     run_playwright_batch "Batch Latency: WAN Keystroke K2R & PTY Throughput SLA" "e2e/e2e-latency-sla.spec.ts"
@@ -126,13 +142,13 @@ case "$BATCH_FLAG" in
     (cd "$SCRIPT_DIR/backend" && npx vitest run ../testing/services/remote-security-isolation.test.ts)
     ;;
   all)
-    for b in 1 2 3 4 5 6 7 8 9 latency jepsen security; do
+    for b in 1 2 3 4 5 6 7 8 9 10 11 latency jepsen security; do
       bash "$SCRIPT_DIR/test-e2e-remote-batches.sh" "--$b"
     done
     ;;
   *)
     error "Unknown batch flag: $RAW_FLAG"
-    echo "Available flags: --1, --2, --3, --4, --5, --6, --7, --8, --9, --latency, --jepsen, --security, --all"
+    echo "Available flags: --1, --2, --3, --4, --5, --6, --7, --8, --9, --10, --11, --latency, --jepsen, --security, --all"
     exit 1
     ;;
 esac

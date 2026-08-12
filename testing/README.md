@@ -132,6 +132,10 @@ testing/
 │
 ├── perf/                              # System performance & memory benchmarks
 │   ├── cas-dedup-ratio.test.ts       # Content-addressable storage deduplication
+│   ├── concurrent-export-sla.test.ts # 50 concurrent workspace export ZIP stream memory SLA
+│   ├── concurrent-file-write-race.test.ts # 100 client file write race & Redlock saturation
+│   ├── concurrent-crdt-compaction.test.ts # Multi-workspace concurrent CRDT compactor SLA
+│   ├── container-pool-drain.test.ts  # Container cold-start thundering herd pool drain SLA
 │   ├── crdt-throughput.test.ts       # Yjs CRDT encode (>50K ops/s), decode (>30K ops/s), merge (>20K ops/s)
 │   ├── event-loop-lag.test.ts        # Node.js event loop lag monitoring (p99 < 50ms under 50 sockets)
 │   ├── k6-concurrent-load-simulation.test.ts # High-concurrency raw load & latency percentile SLA
@@ -139,6 +143,8 @@ testing/
 │   ├── production-scale-load.test.ts # 50 concurrent workspace load benchmark
 │   ├── pty-ansi-throughput.test.ts   # PTY stream ANSI parsing throughput
 │   ├── redis-pubsub-throughput.test.ts# Pub/Sub broadcast fan-out (>50,000 msg/s) throughput SLA
+│   ├── redis-subscriber-ceiling.test.ts # 50-channel Redis subscriber handle ceiling SLA
+│   ├── snapshot-checkpoint-flood.test.ts # 100 concurrent snapshot CAS Merkle DAG write SLA
 │   └── workspace-export-sla.test.ts  # Workspace ZIP archiving SLA
 │
 ├── property/                          # Property-based CRDT fuzzing (fast-check)
