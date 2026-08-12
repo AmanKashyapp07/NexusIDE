@@ -372,7 +372,7 @@ NexusIDE provisions an isolated backend Linux environment per workspace.
 </details>
 
 <details>
-<summary><b>Single Shared Container per Workspace & Multi-User PTY Isolation (`workspaceContainer.ts`)</b></summary>
+<summary><b>Single Shared Container per Workspace & Multi-User PTY Isolation</b></summary>
 <br/>
 
 NexusIDE operates on **1 Docker container per workspace (`workspaceId`)**, enabling real-time co-presence with independent terminal sessions.
@@ -385,7 +385,7 @@ NexusIDE operates on **1 Docker container per workspace (`workspaceId`)**, enabl
 </details>
 
 <details>
-<summary><b>PostgreSQL Database Optimizations (`db.ts` & Repositories)</b></summary>
+<summary><b>PostgreSQL Database Optimizations</b></summary>
 <br/>
 
 NexusIDE applies database engineering optimizations to maintain query execution performance:
@@ -398,7 +398,7 @@ NexusIDE applies database engineering optimizations to maintain query execution 
 </details>
 
 <details>
-<summary><b>Frontend Collaborative Engine & IDE Optimizations (`useCodeEditorSetup.ts` & `IdePage.tsx`)</b></summary>
+<summary><b>Frontend Collaborative Engine & IDE Optimizations</b></summary>
 <br/>
 
 NexusIDE implements frontend rendering optimizations for collaborative editing:
