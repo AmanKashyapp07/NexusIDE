@@ -15,7 +15,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOCAL_BASE="${LOCAL_BASE:-$PROJECT_ROOT}"
 SSH_KEY="${SSH_KEY:-$LOCAL_BASE/ssh-key-2022-12-01.key}"
 REMOTE="${REMOTE:-ubuntu@129.154.39.198}"
 REMOTE_BASE="${REMOTE_BASE:-/home/ubuntu/sandbox-ide}"
@@ -153,10 +154,10 @@ success "SSH Connection Multiplexed (0ms subsequent latency)."
 # ─── Optional VM Cleanup Step ─────────────────────────────────────────
 if [ "$CLEANUP_FIRST" = true ] || [ "${RUN_VM_CLEANUP:-false}" = true ]; then
   section "Executing VM Deep Cleanup Routine"
-  if [ -f "$LOCAL_BASE/vm-cleanup.sh" ]; then
-    bash "$LOCAL_BASE/vm-cleanup.sh" || warn "VM Cleanup encountered warnings, continuing deployment..."
+  if [ -f "$SCRIPT_DIR/vm-cleanup.sh" ]; then
+    bash "$SCRIPT_DIR/vm-cleanup.sh" || warn "VM Cleanup encountered warnings, continuing deployment..."
   else
-    warn "vm-cleanup.sh script not found at $LOCAL_BASE/vm-cleanup.sh, skipping cleanup."
+    warn "vm-cleanup.sh script not found at $SCRIPT_DIR/vm-cleanup.sh, skipping cleanup."
   fi
 fi
 

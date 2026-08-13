@@ -25,7 +25,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOCAL_BASE="${LOCAL_BASE:-$PROJECT_ROOT}"
 SSH_KEY="${SSH_KEY:-$LOCAL_BASE/ssh-key-2022-12-01.key}"
 REMOTE_HOST="${REMOTE_HOST:-ubuntu@129.154.39.198}"
 REMOTE_BASE="${REMOTE_BASE:-/home/ubuntu/sandbox-ide}"

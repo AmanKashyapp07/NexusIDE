@@ -38,7 +38,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_BASE="${LOCAL_BASE:-$SCRIPT_DIR}"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOCAL_BASE="${LOCAL_BASE:-$PROJECT_ROOT}"
 DEFAULT_TARGET="http://129.154.39.198/ide"
 NEXUS_BASE_URL="${NEXUS_BASE_URL:-$DEFAULT_TARGET}"
 export NEXUS_BASE_URL
@@ -542,7 +543,7 @@ run_integration() {
 run_db() {
   local t_start=$(date +%s)
   echo -e "${DIM}Running database covering indexes, Redis L2, Write-Behind & Presence suites...${RESET}"
-  if bash "${LOCAL_BASE}/test-db.sh"; then
+  if bash "${SCRIPT_DIR}/test-db.sh"; then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     record_result "PostgreSQL & Redis DB Suite" "PASSED ✓" "38 Tests" "$elapsed"

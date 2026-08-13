@@ -19,7 +19,7 @@ CYAN='\033[0;36m'
 RESET='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEPLOY_SCRIPT="$SCRIPT_DIR/deploy.sh"
+DEPLOY_SCRIPT="$SCRIPT_DIR/scripts/deploy.sh"
 
 # Read push arguments: remote name and URL are passed by git as env/stdin
 # Only deploy on pushes to main or master
