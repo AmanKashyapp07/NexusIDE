@@ -6,7 +6,7 @@
 
 **Real-time Collaboration** • **Docker Sandboxing** • **Persistent Terminals** • **Language Server Protocol** • **Stateless Redis Clustering**
 
-[View Repository](https://github.com/AmanKashyapp07/NexusIDE) · [Live Demo](http://129.154.39.198/ide/login) · [Report Issue](https://github.com/AmanKashyapp07/NexusIDE/issues)
+[View Repository](https://github.com/AmanKashyapp07/NexusIDE) · [Interactive Showcase](https://amankashyapp07.github.io/NexusIDE/) · [Live Cloud VM](http://129.154.39.198/ide/login) · [Report Issue](https://github.com/AmanKashyapp07/NexusIDE/issues)
 
 
 ---
