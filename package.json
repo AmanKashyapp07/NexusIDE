@@ -13,6 +13,8 @@
     "test:db": "bash scripts/test-db.sh",
     "test:db:tunnel": "bash scripts/test-db.sh --tunnel",
     "test:all": "npm run test:backend && npm run test:frontend && npm run test:e2e",
+    "showcase:dev": "npx -y serve website -l 4173",
+    "showcase:deploy": "bash scripts/deploy-showcase.sh",
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
     "typecheck:backend": "backend/node_modules/.bin/tsc -p backend/tsconfig.json --noEmit",
     "typecheck:frontend": "frontend/node_modules/.bin/tsc -p frontend/tsconfig.app.json --noEmit"
