@@ -100,7 +100,7 @@ function initHeroIDE() {
   const lineNumbersEl = document.getElementById('heroLineNumbers');
   const fileTabs = document.querySelectorAll('.file-tab');
   const cursorAman = document.getElementById('cursorAman');
-  const cursorSarah = document.getElementById('cursorSarah');
+  const cursorTushar = document.getElementById('cursorTushar');
   const terminalStream = document.getElementById('heroTerminalStream');
 
   let currentFile = 'main.py';
@@ -137,11 +137,11 @@ function initHeroIDE() {
       cursorAman.style.top = `${topPos}px`;
       cursorAman.style.left = `${Math.max(50, leftPos)}px`;
     }
-    if (cursorSarah) {
+    if (cursorTushar) {
       const topPos = 36 + (((step + 2) * 26) % 220);
       const leftPos = 110 + Math.cos(step * 0.5) * 140;
-      cursorSarah.style.top = `${topPos}px`;
-      cursorSarah.style.left = `${Math.max(70, leftPos)}px`;
+      cursorTushar.style.top = `${topPos}px`;
+      cursorTushar.style.left = `${Math.max(70, leftPos)}px`;
     }
   }, 2200);
 
@@ -345,7 +345,7 @@ const timelapseKeyframes = [
   {
     step: 50,
     commit: '9b1f7e3 (Integrate Yjs CRDTs)',
-    author: 'Sarah Chen (Collaborator)',
+    author: 'Tushar (Collaborator)',
     code: 'from nexus.crdt import YDocSync\n# Synchronized document initialized\ndoc = YDocSync("ws-alpha")'
   },
   {
@@ -491,7 +491,7 @@ const archViews = {
         </div>
         <div class="node-box">
           <div class="node-name">PTY Exec Session 2 (/dev/pts/2)</div>
-          <div class="node-spec">User B (Editor) &middot; Private bash history &amp; GIT_AUTHOR="Sarah"</div>
+          <div class="node-spec">User B (Editor) &middot; Private bash history &amp; GIT_AUTHOR="Tushar"</div>
         </div>
       </div>
       <div class="node-box" style="background:var(--bg-card);">
