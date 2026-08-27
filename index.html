@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>NexusIDE — Collaborative Cloud IDE</title>
+  <meta name="description" content="A self-hosted collaborative cloud IDE featuring real-time Yjs CRDTs, isolated Docker PTY sandboxes, and stateless Redis clustering. Built by Aman Kashyap.">
+  <meta name="keywords" content="Cloud IDE, CRDT, Yjs, Docker, WebSockets, Redis, Redlock, Monaco Editor, PTY, Distributed Systems">
+  <meta name="author" content="Aman Kashyap">
+
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://github.com/AmanKashyapp07/NexusIDE">
+  <meta property="og:title" content="NexusIDE — Collaborative Cloud IDE">
+  <meta property="og:description" content="Real-time multi-user editing, persistent Linux Docker containers, and horizontal Redis clustering.">
+
+  <link rel="icon" type="image/svg+xml" href="./assets/nexus-logo.svg">
+  <link rel="stylesheet" href="./css/animations.css">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header class="navbar" id="navbar">
+    <div class="container nav-content">
+      <a href="#hero" class="nav-brand">
+        <div class="brand-icon">N</div>
+        <span class="brand-title">NexusIDE</span>
+        <span class="version-tag">v2.4</span>
+      </a>
+
+      <nav>
+        <ul class="nav-links">
+          <li><a href="#hero" class="nav-link active">Overview</a></li>
+          <li><a href="#stack" class="nav-link">Stack</a></li>
+          <li><a href="#labs" class="nav-link">Labs</a></li>
+          <li><a href="#architecture" class="nav-link">Architecture</a></li>
+          <li><a href="#postmortems" class="nav-link">Postmortems</a></li>
+          <li><a href="#testing" class="nav-link">Verification</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-actions">
+        <a href="https://github.com/AmanKashyapp07/NexusIDE" target="_blank" rel="noopener" class="nav-github-link">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          GitHub
+        </a>
+        <a href="http://129.154.39.198/ide/login" target="_blank" rel="noopener" class="btn-primary">
+          Live Demo →
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section id="hero" class="hero">
+    <div class="container">
+
+      <div class="hero-eyebrow">
+        <span class="eyebrow-dot"></span>
+        Distributed Systems · Cloud Infrastructure
+      </div>
+
+      <h1 class="hero-title">
+        A collaborative cloud IDE,<br>
+        <span class="hero-title-accent">built from the ground up.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Production-grade development environment combining CRDT conflict-free editing,
+        isolated Docker PTY sandboxes, and horizontally-scalable Redis clustering —
+        no vendor lock-in, deployed on Oracle Cloud VM.
+      </p>
+
+      <div class="hero-actions">
+        <a href="http://129.154.39.198/ide/login" target="_blank" rel="noopener" class="btn-primary btn-large">
+          Open Live Demo →
+        </a>
+        <a href="https://github.com/AmanKashyapp07/NexusIDE" target="_blank" rel="noopener" class="btn-outline btn-large">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          View Source
+        </a>
+      </div>
+
+      <!-- Key Metrics -->
+      <div class="metrics-strip">
+        <div class="metric-item">
+          <span class="metric-value">&lt; 50ms</span>
+          <span class="metric-label">Warm container claim</span>
+        </div>
+        <div class="metric-divider"></div>
+        <div class="metric-item">
+          <span class="metric-value">609 KB</span>
+          <span class="metric-label">Vite bundle (−87%)</span>
+        </div>
+        <div class="metric-divider"></div>
+        <div class="metric-item">
+          <span class="metric-value">20 Tiers</span>
+          <span class="metric-label">Automated verification</span>
+        </div>
+        <div class="metric-divider"></div>
+        <div class="metric-item">
+          <span class="metric-value">0% CPU</span>
+          <span class="metric-label">Idle hibernation</span>
+        </div>
+        <div class="metric-divider"></div>
+        <div class="metric-item">
+          <span class="metric-value">&lt; 0.8ms</span>
+          <span class="metric-label">Event loop lag (p99)</span>
+        </div>
+      </div>
+
+      <!-- IDE Mockup -->
+      <div class="hero-mockup">
+        <div class="ide-window">
+          <div class="window-header">
+            <div class="window-dots">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+            </div>
+            <div class="file-tabs">
+              <div class="file-tab active" data-file="main.py">main.py</div>
+              <div class="file-tab" data-file="yjsSyncEngine.ts">yjsSyncEngine.ts</div>
+              <div class="file-tab" data-file="redisAdapter.ts">redisAdapter.ts</div>
+            </div>
+            <div class="collab-presence">
+              <div class="avatar avatar-blue" title="Aman Kashyap (Owner)">AK</div>
+              <div class="avatar avatar-orange" title="Sarah Chen (Collaborator)">SC</div>
+              <div class="sync-pill">
+                <span class="sync-dot"></span>
+                Mesh Synchronized
+              </div>
+            </div>
+          </div>
+
+          <div class="ide-body">
+            <div class="ide-sidebar">
+              <div class="sidebar-label">WORKSPACE</div>
+              <div class="tree-item active">main.py</div>
+              <div class="tree-item">yjsSyncEngine.ts</div>
+              <div class="tree-item">redisAdapter.ts</div>
+              <div class="tree-item dim">services/</div>
+              <div class="tree-item dim">sandbox/</div>
+              <div class="tree-item dim">database/</div>
+            </div>
+
+            <div class="ide-editor">
+              <div class="code-canvas">
+                <div class="line-numbers" id="heroLineNumbers"></div>
+                <div class="code-lines" id="heroCodeLines"></div>
+                <div class="remote-cursor cursor-blue" id="cursorAman">
+                  <div class="cursor-label">Aman</div>
+                </div>
+                <div class="remote-cursor cursor-orange" id="cursorSarah">
+                  <div class="cursor-label">Sarah</div>
+                </div>
+              </div>
+
+              <div class="ide-terminal">
+                <div class="terminal-header">
+                  <span class="term-dim">/dev/pts/1 — Sandbox Container</span>
+                  <span class="term-dim">bash · 80×24</span>
+                </div>
+                <div class="terminal-stream" id="heroTerminalStream">
+                  <div><span class="term-blue">[dockerode]</span> PTY session established on /dev/pts/1 (UID=1001)</div>
+                  <div><span class="term-green">[yjs:engine]</span> Subscribed to room "ws-a9f2" with StructStore gc=false</div>
+                  <div><span class="term-purple">[redis:mesh]</span> Pub/Sub listener active on yjs:update:ws-a9f2</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Tech Stack -->
+  <section id="stack" class="section section-alt">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">Built With</div>
+        <h2 class="section-title">The full technology stack</h2>
+        <p class="section-desc">Every library and tool was chosen deliberately — favoring composability, performance, and production correctness over convenience.</p>
+      </div>
+
+      <div class="stack-groups">
+
+        <div class="stack-group">
+          <div class="stack-group-label">Frontend &amp; Editor</div>
+          <div class="stack-chips">
+            <div class="stack-chip chip-blue">
+              <div class="chip-icon">
+                <img src="./assets/icons/react.svg" alt="React" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">React</div>
+                <div class="chip-role">UI framework &middot; Awareness protocol</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-blue">
+              <div class="chip-icon">
+                <img src="./assets/icons/typescript.svg" alt="TypeScript" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">TypeScript</div>
+                <div class="chip-role">Type-safe backend &amp; frontend</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-blue">
+              <div class="chip-icon">
+                <img src="./assets/icons/vscode.svg" alt="Monaco Editor" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Monaco Editor</div>
+                <div class="chip-role">VS Code engine &middot; LSP client</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-purple">
+              <div class="chip-icon">
+                <img src="./assets/icons/vite.svg" alt="Vite" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Vite</div>
+                <div class="chip-role">Build tool &middot; 609KB chunk (-87%)</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-blue">
+              <div class="chip-icon">
+                <img src="./assets/icons/tailwindcss.svg" alt="Tailwind CSS" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Tailwind CSS</div>
+                <div class="chip-role">Utility styling &middot; Modern design tokens</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-gray">
+              <div class="chip-icon">
+                <img src="./assets/icons/bash.svg" alt="xterm.js" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">xterm.js</div>
+                <div class="chip-role">Browser PTY terminal emulator</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack-group">
+          <div class="stack-group-label">Backend &amp; Real-Time</div>
+          <div class="stack-chips">
+            <div class="stack-chip chip-green">
+              <div class="chip-icon">
+                <img src="./assets/icons/nodejs.svg" alt="Node.js" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Node.js</div>
+                <div class="chip-role">Async gateway &middot; worker_threads</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-gray">
+              <div class="chip-icon">
+                <img src="./assets/icons/express.svg" alt="Express.js" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Express.js</div>
+                <div class="chip-role">REST API &middot; JWT middleware</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-gray">
+              <div class="chip-icon">
+                <img src="./assets/icons/socketio.svg" alt="Socket.io" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Socket.io</div>
+                <div class="chip-role">WebSocket upgrade &middot; backpressure</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-orange">
+              <div class="chip-icon">
+                <img src="./assets/icons/yjs.svg" alt="Yjs CRDTs" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Yjs CRDTs</div>
+                <div class="chip-role">Conflict-free document sync</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack-group">
+          <div class="stack-group-label">Data &amp; State Mesh</div>
+          <div class="stack-chips">
+            <div class="stack-chip chip-blue">
+              <div class="chip-icon">
+                <img src="./assets/icons/postgresql.svg" alt="PostgreSQL" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">PostgreSQL 16</div>
+                <div class="chip-role">BYTEA CRDT blobs &middot; Covering B-Tree</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-red">
+              <div class="chip-icon">
+                <img src="./assets/icons/redis.svg" alt="Redis" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Redis 7</div>
+                <div class="chip-role">Pub/Sub mesh &middot; Redlock &middot; L2 cache</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack-group">
+          <div class="stack-group-label">Infrastructure &amp; Observability</div>
+          <div class="stack-chips">
+            <div class="stack-chip chip-blue">
+              <div class="chip-icon">
+                <img src="./assets/icons/docker.svg" alt="Docker" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Docker</div>
+                <div class="chip-role">Container sandboxing &middot; cgroups v2</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-orange">
+              <div class="chip-icon">
+                <img src="./assets/icons/linux.svg" alt="Linux" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Linux Kernel</div>
+                <div class="chip-role">cgroups v2 limits &middot; /dev/pts/X</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-green">
+              <div class="chip-icon">
+                <img src="./assets/icons/nginx.svg" alt="Nginx" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Nginx</div>
+                <div class="chip-role">Reverse proxy &middot; WS upgrades</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-red">
+              <div class="chip-icon">
+                <img src="./assets/icons/prometheus.svg" alt="Prometheus" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Prometheus</div>
+                <div class="chip-role">Event loop p50/p90/p99 metrics</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-purple">
+              <div class="chip-icon">
+                <img src="./assets/icons/pm2.svg" alt="PM2" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">PM2</div>
+                <div class="chip-role">Process supervision &middot; clustering</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack-group">
+          <div class="stack-group-label">Testing &amp; Quality</div>
+          <div class="stack-chips">
+            <div class="stack-chip chip-green">
+              <div class="chip-icon">
+                <img src="./assets/icons/vitest.svg" alt="Vitest" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Vitest</div>
+                <div class="chip-role">Unit &amp; property-based fuzzing</div>
+              </div>
+            </div>
+
+            <div class="stack-chip chip-green">
+              <div class="chip-icon">
+                <img src="./assets/icons/playwright.svg" alt="Playwright" width="22" height="22">
+              </div>
+              <div class="chip-info">
+                <div class="chip-name">Playwright</div>
+                <div class="chip-role">Multi-browser E2E &middot; cursor tests</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Labs -->
+  <section id="labs" class="section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">01 / Interactive Labs</div>
+        <h2 class="section-title">Inspect the distributed state engine live</h2>
+        <p class="section-desc">
+          Test CRDT convergence across simulated server pods, execute fault-injection commands in a live terminal, and scrub through historical commits with the Merkle DAG time-travel engine.
+        </p>
+      </div>
+
+      <div class="lab-container">
+        <div class="lab-tabs">
+          <button class="lab-tab-btn active" onclick="switchLabTab('crdtLab', this)">CRDT Convergence & Redis Mesh</button>
+          <button class="lab-tab-btn" onclick="switchLabTab('terminalLab', this)">Terminal & Fault Runner</button>
+          <button class="lab-tab-btn" onclick="switchLabTab('timelapseLab', this)">Merkle DAG Time-Travel</button>
+        </div>
+
+        <!-- Lab 1: CRDT Simulator -->
+        <div id="crdtLab" class="lab-panel active">
+          <div class="crdt-sim-grid">
+            <div class="peer-box">
+              <div class="peer-header">
+                <div class="peer-title">
+                  <span class="peer-dot dot-blue"></span>
+                  User A · Pod 1
+                </div>
+                <span class="label-pill">Client 149</span>
+              </div>
+              <textarea id="peerAText" class="peer-textarea" spellcheck="false"># Collaborative Python Workspace
+def calculate_metrics():
+    return {"status": "ok", "latency_ms": 1.2}</textarea>
+              <div class="peer-footer">
+                <span>Origin: Client A</span>
+                <span>Yjs Clock: v12</span>
+              </div>
+            </div>
+
+            <div class="mesh-broker">
+              <div class="mesh-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+              </div>
+              <div class="mesh-title">Redis Pub/Sub Mesh</div>
+              <div class="mesh-status" id="syncStatusPill">Convergence Guaranteed</div>
+              <div class="sim-actions">
+                <button id="simBurstBtn" class="btn-sim">Simulate Concurrent Edits</button>
+                <button id="simLatencyBtn" class="btn-sim">Toggle Latency (40ms)</button>
+              </div>
+            </div>
+
+            <div class="peer-box">
+              <div class="peer-header">
+                <div class="peer-title">
+                  <span class="peer-dot dot-orange"></span>
+                  User B · Pod 2
+                </div>
+                <span class="label-pill">Client 284</span>
+              </div>
+              <textarea id="peerBText" class="peer-textarea" spellcheck="false"># Collaborative Python Workspace
+def calculate_metrics():
+    return {"status": "ok", "latency_ms": 1.2}</textarea>
+              <div class="peer-footer">
+                <span>Origin: Client B</span>
+                <span>Yjs Clock: v12</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lab 2: Terminal -->
+        <div id="terminalLab" class="lab-panel">
+          <div class="terminal-interactive">
+            <div class="term-topbar">
+              <div class="term-commands">
+                <span class="term-dim">Run preset:</span>
+                <button class="cmd-pill" data-cmd="bash test.sh --chaos">--chaos</button>
+                <button class="cmd-pill" data-cmd="bash test.sh --property">--property</button>
+                <button class="cmd-pill" data-cmd="bash test.sh --security">--security</button>
+                <button class="cmd-pill" data-cmd="docker ps">docker ps</button>
+                <button class="cmd-pill" data-cmd="curl /api/metrics">curl /api/metrics</button>
+              </div>
+              <button id="termClearBtn" class="btn-sim btn-sm">Clear</button>
+            </div>
+            <div class="term-output-view" id="termOutputView">
+              <div class="term-dim">NexusIDE sandbox terminal ready. Select a verification command above.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lab 3: Merkle DAG -->
+        <div id="timelapseLab" class="lab-panel">
+          <div class="merkle-dag-container">
+            <div class="dag-tree-visual">
+              <div class="dag-node dag-commit">
+                <div class="dag-node-label">Commit: <span id="timelapseCommit">f7e2c9a — Docker PTY Exec</span></div>
+                <div class="dag-node-sub">Author: <span id="timelapseAuthor">Aman Kashyap</span></div>
+              </div>
+              <div class="dag-connector"></div>
+              <div class="dag-node dag-tree">
+                <div class="dag-node-label">Root Tree: 8b29f0a</div>
+                <div class="dag-node-sub">SHA-256 CAS Deduplicated</div>
+              </div>
+              <div class="dag-connector"></div>
+              <div class="dag-blobs">
+                <div class="dag-node dag-blob">main.py (324 B)</div>
+                <div class="dag-node dag-blob">server.ts (1.2 KB)</div>
+                <div class="dag-node dag-blob">schema.sql (840 B)</div>
+              </div>
+            </div>
+
+            <div class="timelapse-scrubber">
+              <h4 class="scrubber-title">Full-Fidelity Timelapse Engine</h4>
+              <p class="scrubber-desc">
+                Reconstruct document history keystroke-by-keystroke. Deterministic StructStore reader with K=25 sparse checkpoints, zero data loss.
+              </p>
+              <input type="range" min="0" max="100" value="0" step="25" class="scrubber-slider" id="timelapseSlider">
+              <div class="timelapse-editor-view" id="timelapseEditor"># Workspace initialized
+print("Hello World")</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section id="architecture" class="section section-alt">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">02 / Systems Architecture</div>
+        <h2 class="section-title">Horizontally scalable, stateless gateway pods</h2>
+        <p class="section-desc">
+          Inspect how browser clients, edge proxies, stateless gateway pods, Redis Pub/Sub meshes, and sandboxed Docker containers interconnect.
+        </p>
+      </div>
+
+      <div class="arch-card">
+        <div class="arch-nav">
+          <button class="arch-nav-btn active" data-view="topology">End-to-End Topology</button>
+          <button class="arch-nav-btn" data-view="mesh">CRDT Sync & Redis Mesh</button>
+          <button class="arch-nav-btn" data-view="container">Container & Multi-PTY</button>
+        </div>
+        <div class="arch-diagram-frame" id="archFrame"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Capabilities -->
+  <section id="features" class="section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">03 / Core Capabilities</div>
+        <h2 class="section-title">Six architectural pillars</h2>
+        <p class="section-desc">
+          Every component eliminates a single point of failure, guarantees sub-millisecond responsiveness, or enforces multi-tenant integrity.
+        </p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-num">01</div>
+          <h3 class="feature-title">Real-Time CRDT Collaboration</h3>
+          <p class="feature-desc">Conflict-free concurrent editing powered by Yjs data types. Binary state vectors over WebSockets, 60fps render-batched remote cursor awareness, and deterministic convergence.</p>
+          <div class="feature-tags">
+            <span class="ftag">Yjs CRDTs</span>
+            <span class="ftag">Binary Framing</span>
+            <span class="ftag">Awareness Protocol</span>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-num">02</div>
+          <h3 class="feature-title">Stateless Redis Clustering</h3>
+          <p class="feature-desc">Horizontally scaled Node.js gateways with no sticky sessions. Redis Pub/Sub fans out CRDT updates across pods, Redlock Lua scripts prevent concurrent save races.</p>
+          <div class="feature-tags">
+            <span class="ftag">Redis 7</span>
+            <span class="ftag">Redlock Lua</span>
+            <span class="ftag">Stateless Pods</span>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-num">03</div>
+          <h3 class="feature-title">Shared Container & Multi-PTY</h3>
+          <p class="feature-desc">One shared Docker container per workspace with multiplexed /dev/pts/X sessions. Collaborators share a filesystem while maintaining private bash histories and Git identities.</p>
+          <div class="feature-tags">
+            <span class="ftag">Docker PTY</span>
+            <span class="ftag">xterm.js</span>
+            <span class="ftag">cgroups v2</span>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-num">04</div>
+          <h3 class="feature-title">Merkle DAG Snapshots (CAS)</h3>
+          <p class="feature-desc">Git-style Content-Addressable Storage with SHA-256 blob deduplication. Identical files across snapshots share one record — 92% storage savings at scale.</p>
+          <div class="feature-tags">
+            <span class="ftag">Merkle Trees</span>
+            <span class="ftag">SHA-256 CAS</span>
+            <span class="ftag">PostgreSQL 16</span>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-num">05</div>
+          <h3 class="feature-title">Worker Pool Compute Offloading</h3>
+          <p class="feature-desc">CPU-bound Merkle hashing and CRDT compaction offloaded to dedicated worker_threads, keeping the main event loop lag strictly under 0.8ms p99.</p>
+          <div class="feature-tags">
+            <span class="ftag">worker_threads</span>
+            <span class="ftag">CAS Hashing</span>
+            <span class="ftag">Event Loop p99</span>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-num">06</div>
+          <h3 class="feature-title">Granular RBAC & Security</h3>
+          <p class="feature-desc">Owner / Editor / Viewer permissions enforced at REST endpoints and raw WebSocket frames. cgroups v2 PID caps, non-root UID execution, isolated bridge networks.</p>
+          <div class="feature-tags">
+            <span class="ftag">RBAC</span>
+            <span class="ftag">JWT</span>
+            <span class="ftag">Docker Isolation</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Postmortems -->
+  <section id="postmortems" class="section section-alt">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">04 / Engineering Postmortems</div>
+        <h2 class="section-title">Four real-world production incidents</h2>
+        <p class="section-desc">
+          The hardest bugs appear at system boundaries. These are forensic breakdowns of the challenges NexusIDE encountered and the precise solutions that resolved them.
+        </p>
+      </div>
+
+      <div class="postmortem-container">
+        <div class="postmortem-nav">
+          <button class="pm-nav-btn active" data-target="pmWriteAmp">CRDT Write Amplification</button>
+          <button class="pm-nav-btn" data-target="pmBufferBug">Node Buffer Offset Bug</button>
+          <button class="pm-nav-btn" data-target="pmRedisLoop">Redis Feedback Storm</button>
+          <button class="pm-nav-btn" data-target="pmBackpressure">WebSocket Backpressure</button>
+        </div>
+
+        <div class="postmortem-content">
+          <!-- Case 1 -->
+          <div id="pmWriteAmp" class="pm-panel active">
+            <div class="pm-grid">
+              <div class="pm-text">
+                <div class="pm-tags">
+                  <span class="pm-badge badge-red">Database I/O</span>
+                  <span class="pm-badge badge-gray">AdaptivePersistenceDebouncer</span>
+                </div>
+                <h3 class="pm-heading">Hot CRDTs vs. Disk Write Amplification</h3>
+                <p class="pm-para">
+                  <strong>Incident:</strong> Persisting every binary Yjs keystroke directly to PostgreSQL caused massive SQL write amplification — saturating connection pools and creating disk I/O bottlenecks under multi-user typing bursts.
+                </p>
+                <p class="pm-para">
+                  <strong>Resolution:</strong> A dynamic typing-velocity debouncer with Redis write-behind buffers decouples fast in-memory WebSocket sync from disk persistence, scaling save windows from 500ms to 5,000ms based on edit velocity.
+                </p>
+              </div>
+              <div class="code-diff-window">
+                <div class="diff-header">adaptiveDebouncer.service.ts</div>
+                <div class="diff-body">
+<span class="diff-del">- // NAIVE: Persisting every incoming binary delta to SQL</span>
+<span class="diff-del">- await db.query('UPDATE files SET content=$1 WHERE id=$2', [c, id]);</span>
+<br>
+<span class="diff-add">+ // FIXED: Velocity-scaled write-behind debouncing</span>
+<span class="diff-add">+ const velocity = this.calculateKeystrokeVelocity(fileId);</span>
+<span class="diff-add">+ const delayMs = Math.min(Math.max(500, velocity * 250), 5000);</span>
+<span class="diff-add">+ this.scheduleDebouncedSave(fileId, delayMs);</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Case 2 -->
+          <div id="pmBufferBug" class="pm-panel">
+            <div class="pm-grid">
+              <div class="pm-text">
+                <div class="pm-tags">
+                  <span class="pm-badge badge-red">Memory Pool Bug</span>
+                  <span class="pm-badge badge-gray">TypedArray Offset Fix</span>
+                </div>
+                <h3 class="pm-heading">Node.js Buffer Slicing & TypedArray Offset Corruption</h3>
+                <p class="pm-para">
+                  <strong>Incident:</strong> Passing a sliced Node.js Buffer to <code>new Uint8Array(buffer)</code> silently ignores <code>buf.byteOffset</code> because Node allocates small buffers from a shared 8KB internal ArrayBuffer pool. The CRDT decoder read from index 0, causing subtle state corruption.
+                </p>
+                <p class="pm-para">
+                  <strong>Resolution:</strong> Enforced defensive TypedArray offset construction across all binary CRDT decoders: <code>new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)</code>.
+                </p>
+              </div>
+              <div class="code-diff-window">
+                <div class="diff-header">yjsSyncEngine.service.ts</div>
+                <div class="diff-body">
+<span class="diff-del">- // BUG: Ignores Node.js shared 8KB pool byteOffset</span>
+<span class="diff-del">- const update = new Uint8Array(redisBuffer);</span>
+<br>
+<span class="diff-add">+ // FIXED: Explicit offset — respects pooled buffer slices</span>
+<span class="diff-add">+ const update = new Uint8Array(</span>
+<span class="diff-add">+   redisBuffer.buffer,</span>
+<span class="diff-add">+   redisBuffer.byteOffset,</span>
+<span class="diff-add">+   redisBuffer.byteLength</span>
+<span class="diff-add">+ );</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Case 3 -->
+          <div id="pmRedisLoop" class="pm-panel">
+            <div class="pm-grid">
+              <div class="pm-text">
+                <div class="pm-tags">
+                  <span class="pm-badge badge-red">Network Storm</span>
+                  <span class="pm-badge badge-gray">'redis' Origin Gating</span>
+                </div>
+                <h3 class="pm-heading">Stateless Redis Mesh & Recursive Feedback Prevention</h3>
+                <p class="pm-para">
+                  <strong>Incident:</strong> In a multi-pod cluster, pods relay Yjs updates to peers via Redis Pub/Sub. Without origin isolation, pods re-broadcast incoming Pub/Sub messages back to Redis — triggering an exponential message loop that crashed all gateway instances.
+                </p>
+                <p class="pm-para">
+                  <strong>Resolution:</strong> Tagging every Redis-sourced message with <code>origin === 'redis'</code> and gating publication on <code>if (origin !== 'redis')</code> cleanly eliminated recursive cluster storms.
+                </p>
+              </div>
+              <div class="code-diff-window">
+                <div class="diff-header">redisAdapter.service.ts</div>
+                <div class="diff-body">
+<span class="diff-del">- // RECURSIVE: Re-publishes messages received from peers</span>
+<span class="diff-del">- doc.on('update', (update) =&gt; redisClient.publish(ch, update));</span>
+<br>
+<span class="diff-add">+ // FIXED: Gated publication breaks recursive feedback</span>
+<span class="diff-add">+ doc.on('update', (update, origin) =&gt; {</span>
+<span class="diff-add">+   if (origin !== 'redis') {</span>
+<span class="diff-add">+     redisClient.publish(channel, update);</span>
+<span class="diff-add">+   }</span>
+<span class="diff-add">+ });</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Case 4 -->
+          <div id="pmBackpressure" class="pm-panel">
+            <div class="pm-grid">
+              <div class="pm-text">
+                <div class="pm-tags">
+                  <span class="pm-badge badge-red">I/O Queue</span>
+                  <span class="pm-badge badge-gray">ws.bufferedAmount Checks</span>
+                </div>
+                <h3 class="pm-heading">WebSocket Backpressure & Terminal Micro-Batching</h3>
+                <p class="pm-para">
+                  <strong>Incident:</strong> High-velocity terminal stdout streams flooded client socket buffers, driving browser CPU to 100% and freezing the editor UI during heavy build outputs.
+                </p>
+                <p class="pm-para">
+                  <strong>Resolution:</strong> Inspecting <code>ws.bufferedAmount</code> against soft (1MB) and hard (5MB) thresholds, combined with a 50ms terminal stdout micro-coalescing buffer (<code>TerminalStreamBuffer</code>).
+                </p>
+              </div>
+              <div class="code-diff-window">
+                <div class="diff-header">terminalHandler.ts</div>
+                <div class="diff-body">
+<span class="diff-del">- // UNCONSTRAINED: Emits stdout chunks instantly</span>
+<span class="diff-del">- ptyStream.on('data', (chunk) =&gt; ws.send(chunk));</span>
+<br>
+<span class="diff-add">+ // FIXED: Backpressure gates + 50ms micro-batching</span>
+<span class="diff-add">+ if (ws.bufferedAmount &gt; 1024 * 1024) {</span>
+<span class="diff-add">+   this.dropNonCriticalFrames(ws);</span>
+<span class="diff-add">+ }</span>
+<span class="diff-add">+ this.microBatchBuffer.push(chunk);</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Verification -->
+  <section id="testing" class="section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">05 / Verification</div>
+        <h2 class="section-title">20-tier automated verification suite</h2>
+        <p class="section-desc">
+          Rigorous tests validating mathematical CRDT correctness, Netflix-style chaos fault injection, Stripe-grade idempotency, and container isolation boundaries.
+        </p>
+      </div>
+
+      <div class="test-suite-box">
+        <div class="test-filter-bar">
+          <div class="filter-pills">
+            <button class="filter-btn active" data-filter="all">All (20)</button>
+            <button class="filter-btn" data-filter="crdt">CRDT & Sync</button>
+            <button class="filter-btn" data-filter="chaos">Chaos</button>
+            <button class="filter-btn" data-filter="security">Security</button>
+            <button class="filter-btn" data-filter="perf">Performance</button>
+            <button class="filter-btn" data-filter="e2e">E2E</button>
+          </div>
+          <span class="coverage-badge">98.4% coverage</span>
+        </div>
+
+        <div class="test-grid">
+          <div class="test-card" data-cat="crdt">
+            <div class="test-header">
+              <span class="test-name">Property-Based CRDT Fuzzing</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --property</div>
+            <div class="test-desc">fast-check generated edit vectors proving Strong Eventual Consistency.</div>
+          </div>
+
+          <div class="test-card" data-cat="chaos">
+            <div class="test-header">
+              <span class="test-name">Chaos & Fault Injection</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --chaos</div>
+            <div class="test-desc">Mid-transaction Redis kills, PTY SIGKILL, and zero-drop recovery paths.</div>
+          </div>
+
+          <div class="test-card" data-cat="crdt">
+            <div class="test-header">
+              <span class="test-name">Idempotency & Replay</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --idempotency</div>
+            <div class="test-desc">Replays identical Yjs update vectors and corrupted snapshot recovery.</div>
+          </div>
+
+          <div class="test-card" data-cat="security">
+            <div class="test-header">
+              <span class="test-name">Container cgroups Boundary</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --security</div>
+            <div class="test-desc">Docker cgroup PID limits against fork-bombs and memory starvation.</div>
+          </div>
+
+          <div class="test-card" data-cat="security">
+            <div class="test-header">
+              <span class="test-name">OAuth & JWT Boundaries</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --auth</div>
+            <div class="test-desc">Rejects alg:none attacks, expired tokens, and enforces CSRF state nonces.</div>
+          </div>
+
+          <div class="test-card" data-cat="perf">
+            <div class="test-header">
+              <span class="test-name">PostgreSQL Covering Indexes</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --db</div>
+            <div class="test-desc">B-Tree index-only scans and vectorized bulk UNNEST insert validation.</div>
+          </div>
+
+          <div class="test-card" data-cat="crdt">
+            <div class="test-header">
+              <span class="test-name">Merkle DAG Integrity</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --snapshot</div>
+            <div class="test-desc">Deterministic SHA-256 root hash verification across arbitrary file orderings.</div>
+          </div>
+
+          <div class="test-card" data-cat="e2e">
+            <div class="test-header">
+              <span class="test-name">Playwright Multi-Browser E2E</span>
+              <span class="test-status">Verified</span>
+            </div>
+            <div class="test-cmd">bash test.sh --e2e</div>
+            <div class="test-desc">Multi-browser concurrent typing, cursor awareness, and PTY streaming.</div>
+          </div>
+        </div>
+
+        <div class="master-test-bar">
+          <button id="runMasterTestBtn" class="btn-primary">Run 20-Tier Suite Simulation</button>
+          <div class="test-progress-track">
+            <div class="test-progress-bar" id="testProgressBar"></div>
+          </div>
+          <span id="testProgressText" class="coverage-badge">20 / 20 Suites Passed</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quickstart -->
+  <section id="setup" class="section section-alt">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">06 / Quickstart</div>
+        <h2 class="section-title">Get it running locally</h2>
+        <p class="section-desc">
+          Spin up the full NexusIDE cluster locally with PostgreSQL, Redis, and Docker — or try the live Oracle Cloud VM deployment directly.
+        </p>
+      </div>
+
+      <div class="setup-box">
+        <div class="setup-tabs">
+          <button class="setup-tab-btn active" data-tab="local">Local Dev</button>
+          <button class="setup-tab-btn" data-tab="docker">Docker</button>
+          <button class="setup-tab-btn" data-tab="tests">Test Suites</button>
+        </div>
+        <div class="code-snippet-box">
+          <button id="copySnippetBtn" class="copy-btn">Copy</button>
+          <pre class="snippet-pre" id="setupSnippet"># 1. Clone NexusIDE
+git clone https://github.com/AmanKashyapp07/NexusIDE.git
+cd NexusIDE
+
+# 2. Install dependencies
+npm --prefix backend install
+npm --prefix frontend install
+
+# 3. Initialize PostgreSQL schema
+psql -U postgres -d sandbox -f database/schema.sql
+
+# 4. Start dev servers
+npm --prefix backend run dev    # Express + WebSocket on :3000
+npm --prefix frontend run dev   # Vite client on :5173</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- About Builder -->
+  <section class="builder-section">
+    <div class="container">
+      <div class="builder-card">
+        <div class="builder-info">
+          <div class="builder-avatar">AK</div>
+          <div class="builder-bio">
+            <div class="builder-name">Aman Kashyap</div>
+            <div class="builder-desc">
+              Built NexusIDE to deeply understand distributed systems — real-time CRDT synchronization, Docker container lifecycle management, and production-grade WebSocket infrastructure. Every architectural decision is documented with trade-off analysis in the postmortems above.
+            </div>
+            <div class="builder-links">
+              <a href="https://github.com/AmanKashyapp07" target="_blank" rel="noopener" class="builder-link">
+                GitHub →
+              </a>
+              <a href="https://github.com/AmanKashyapp07/NexusIDE" target="_blank" rel="noopener" class="builder-link">
+                NexusIDE Repository →
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <div class="brand-icon">N</div>
+          <span class="brand-title">NexusIDE</span>
+        </div>
+        <div class="footer-links-row">
+          <a href="#hero">Overview</a>
+          <a href="#stack">Stack</a>
+          <a href="#labs">Labs</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#postmortems">Postmortems</a>
+          <a href="#testing">Verification</a>
+        </div>
+        <div class="footer-actions">
+          <a href="https://github.com/AmanKashyapp07/NexusIDE" target="_blank" rel="noopener" class="btn-outline btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+            Star on GitHub
+          </a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 NexusIDE &mdash; built by <strong>Aman Kashyap</strong>. MIT License.</span>
+        <a href="#hero" class="back-to-top">↑ Top</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    function switchLabTab(labId, btn) {
+      document.querySelectorAll('.lab-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.lab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const target = document.getElementById(labId);
+      if (target) target.classList.add('active');
+    }
+  </script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
