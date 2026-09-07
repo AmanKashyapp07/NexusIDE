@@ -11,23 +11,9 @@ if [ ! -d "website" ]; then
   exit 1
 fi
 
-# Option 1: Git subtree push to gh-pages branch
-echo "📦 Pushing website/ folder to origin/gh-pages via git subtree..."
-git subtree push --prefix website origin gh-pages 2>/dev/null || {
-  echo "ℹ️ Subtree push note: If this is the first push or branch exists, creating clean orphan branch..."
-  TMP_DIR=$(mktemp -d)
-  cp -r website/* "$TMP_DIR/"
-  
-  CURRENT_BRANCH=$(git branch --show-current)
-  git checkout -B gh-pages
-  rm -rf *
-  cp -r "$TMP_DIR"/* .
-  git add .
-  git commit -m "Deploy showcase site to GitHub Pages" || true
-  git push -u origin gh-pages --force
-  git checkout "$CURRENT_BRANCH"
-  rm -rf "$TMP_DIR"
-}
+echo "📦 Extracting website/ subtree and pushing to origin/gh-pages..."
+SUBTREE_COMMIT=$(git subtree split --prefix website HEAD)
+git push origin "$SUBTREE_COMMIT":refs/heads/gh-pages --force
 
 echo "✔ Deployment complete! Your showcase is live on GitHub Pages."
-echo "👉 Check: Settings -> Pages -> Source: Deploy from branch -> 'gh-pages' / (root)"
+echo "👉 URL: https://amankashyapp07.github.io/NexusIDE/"
