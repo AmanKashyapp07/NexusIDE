@@ -223,7 +223,7 @@
         </div>
 
         <button id="btnToggleSpeakerCues" class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 rounded-md shadow-subtle hover:bg-slate-50 transition whitespace-nowrap">
-          <span>Speaker Cues</span>
+          <span>System Invariants</span>
           <kbd class="px-1 py-0.2 bg-slate-100 border border-slate-200 rounded text-[10px] font-mono text-slate-500">P</kbd>
         </button>
       </div>
@@ -285,7 +285,7 @@
             <div class="text-xs font-mono font-semibold text-brand-500 mb-1">03 / ISOLATION</div>
             <div class="text-sm font-bold text-slate-900 mb-1">cgroups v2 Freezer</div>
             <p class="text-xs text-slate-500 leading-relaxed">
-              container.pause() freezes CPU scheduler cycles while keeping process state warm in DRAM for 20ms wakeups.
+              cgroups v2 freezer halts kernel task scheduling (0.00% CPU) while preserving active processes and PTY state in DRAM.
             </p>
           </div>
 
@@ -696,7 +696,7 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
 
               <div>
                 <button id="btnHibernateToggle" class="w-full py-2.5 bg-slate-900 text-white font-semibold rounded-lg hover:bg-slate-800 transition shadow-subtle mb-3 text-sm">
-                  Pause workspace (SIGSTOP)
+                  Freeze cgroup (cgroup.freeze)
                 </button>
                 <div class="bg-amber-50 border border-amber-200/80 text-amber-900 text-xs p-3 rounded-lg leading-relaxed">
                   <strong>Why this matters:</strong> Cold-booting a container takes ~45s. Resuming a frozen cgroup takes ~20ms, eliminating cold-start churn while preserving host resources.
@@ -875,7 +875,7 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
       <div class="h-14 flex items-center justify-between px-6 border-b border-slate-200 bg-slate-50 shrink-0">
         <div class="flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-brand-500"></span>
-          <h3 class="font-bold text-slate-900 text-sm">Interview Presentation Track</h3>
+          <h3 class="font-bold text-slate-900 text-sm">Architectural Invariants & RFC Specifications</h3>
         </div>
         <button id="btnCloseCue" class="p-1 hover:bg-slate-200 rounded text-slate-500 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -885,7 +885,7 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
         <!-- Javascript dynamically injects cues here -->
       </div>
       <div class="p-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 text-center shrink-0 font-mono">
-        Sections auto-sync. Press <kbd class="px-1 py-0.2 bg-white border rounded font-mono text-[10px]">P</kbd> to toggle.
+        Real-time architectural specification matrix. Press <kbd class="px-1 py-0.2 bg-white border rounded font-mono text-[10px]">P</kbd> to toggle overlay.
       </div>
     </div>
   </div>
@@ -961,78 +961,76 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
         },
         postgres: {
           title: "TIER 4: POSTGRESQL 16",
-          text: "Tier 4: PostgreSQL 16 — Git-style Content-Addressable Storage (CAS) with CasObject (BYTEA blobs, 92% deduplication), CasTree, and CasCommit. B-Tree index scan in < 0.5ms."
+          text: "Tier 4: PostgreSQL 16 — Git-style Content-Addressable Storage (CAS) with git_blobs (SHA-256 deduplicated content), git_trees (canonical JSONB directory hierarchy), and git_commits (immutable DAG parent chain). Covering B-Tree index scans execute in < 0.5ms (idx_file_updates_ordered, idx_collab_auth)."
         }
       };
 
       const CUES = {
         0: [
           {
-            title: "Opening Hook (0:00 - 0:45)",
-            quote: "Building a collaborative cloud IDE isn't a frontend challenge at all — it is a distributed systems problem wearing an editor's clothing.",
+            title: "Architecture Thesis & RFC 001",
+            quote: "A collaborative cloud IDE is a distributed state synchronization and container isolation engine wrapped in a terminal and code editor.",
             bullets: [
-              "Hook the interviewer with the infrastructure realities of daily Codespaces or VS Code Web use.",
-              "Introduce the 4 pillars: Compute Density, CRDT Convergence, Sandboxing, Event Loop Health.",
-              "Frame this as real production trade-offs, not academic toys."
+              "Four core pillars: Multi-tenant compute density, state convergence, multi-tenant kernel isolation, and event loop predictability.",
+              "Designed against real-world cloud economics: amortizing container overhead across shared session runtimes."
             ]
           }
         ],
         1: [
           {
-            title: "The Density Dilemma (0:45 - 1:15)",
-            quote: "The naive approach — a dedicated VM per seat — exhausts host RAM in minutes and costs $1.80/hour for 10 users.",
+            title: "RFC 002: Compute Density & Resource Amortization",
+            quote: "Dedicated VM provisioning scales linearly at O(N) cost and exhausts hypervisor memory pools within minutes for low-activity sessions.",
             bullets: [
-              "Contrast 10 dedicated VMs with 1 shared Docker container ($0.0033/hr).",
-              "Explain how collaborators share the disk volume while keeping isolated PTYs (/dev/pts/X)."
+              "Single shared Docker container with cgroups v2 resource ceilings cuts per-seat compute from $0.18/hr to $0.0033/hr.",
+              "Collaborators share the workspace filesystem bind-mount while allocating dedicated pseudo-terminal devices (/dev/pts/X)."
             ]
           }
         ],
         2: [
           {
-            title: "The Stateless Mandate (1:15 - 2:00)",
-            quote: "Every Node.js WebSocket pod had to be independently disposable and horizontally scalable behind a reverse proxy, with zero sticky sessions.",
+            title: "RFC 003: Stateless Mesh & Ingress Guarantees",
+            quote: "WebSocket gateway nodes remain strictly stateless; ephemeral socket state is decoupled from durable document models and Pub/Sub routing.",
             bullets: [
-              "Walk through the 4 tiers: Client (609 KB) -> Nginx -> Stateless Pods -> Tier 4.",
-              "Emphasize that the stateless constraint ruled out simple in-memory session servers."
+              "Ingress layer terminates TLS and establishes HTTP/1.1 WebSocket handshakes without sticky session affinity.",
+              "Decoupled state allows instantaneous rolling pod deploys without tearing down active editing sessions."
             ]
           }
         ],
         3: [
           {
-            title: "Pillar 1: CRDT State Mesh (2:00 - 3:50)",
-            quote: "Every keystroke becomes an immutable Lamport-timestamped item. Because the merge is commutative and associative, every replica converges mathematically.",
+            title: "RFC 004: State Mesh & Commutative Convergence",
+            quote: "Client updates generate binary state vectors evaluated as Lamport-sequenced items; concurrent mutations converge without central coordination.",
             bullets: [
-              "Explain why OT was ruled out (quadratic centralized coordinator).",
-              "Walk through the Redis loop-breaker: only locally-originated edits get published outward."
+              "Eliminated centralized Operational Transformation serialization locks in favor of Yjs CRDT binary updates.",
+              "Origin tagging invariant: Outbound Redis fanout suppresses reflection of updates received from peer gateway pods."
             ]
           },
           {
-            title: "Pillar 2: Container Sandboxing (3:50 - 5:40)",
-            quote: "container.pause() suspends execution at the Linux kernel scheduler level. CPU drops to zero, but active vim sessions and terminal history resume in under 20 milliseconds.",
+            title: "RFC 005: Kernel Task Suspension & cgroups v2",
+            quote: "cgroup.freeze halts thread scheduling across the container process hierarchy without POSIX signal overhead or PTY termination.",
             bullets: [
-              "Explain PTY isolation (/dev/pts/X) via container.exec().",
-              "Highlight pre-warmed container pooling in RAM (< 50ms cold starts)."
+              "container.pause() zeroes out host CPU utilization while keeping memory resident in DRAM for < 20ms resumption.",
+              "Pre-warmed Alpine Linux pool eliminates Docker daemon image pull and container boot latency."
             ]
           }
         ],
         4: [
           {
-            title: "Hard Verified Numbers (7:30 - 8:50)",
-            quote: "Vite Rollup chunking cut bundle size from 4.68MB to 609KB. Worker threads brought event loop lag from 320ms spikes down to 0.8ms p99.",
+            title: "RFC 006: Empirical Telemetry & Invariant Verification",
+            quote: "All performance claims are backed by automated benchmarks executed inside a 20-tier CI regression suite.",
             bullets: [
-              "Cite exact contrast metrics: 87% bundle shrink, < 50ms cold boot, -92% CAS dedup.",
-              "Mention 20-tier test orchestrator: fast-check property fuzzing + chaos fault injection."
+              "Manual Rollup code-splitting reduced initial client bundle payload from 4.68MB to 609KB (87% reduction).",
+              "Offloading SHA-256 CAS Merkle tree computations to worker_threads dropped event loop p99 latency from 320ms to 0.8ms."
             ]
           }
         ],
         5: [
           {
-            title: "Production Reality & Roadmap (8:50 - 10:00)",
-            quote: "The next architectural step is migrating to AWS Firecracker microVMs for true hardware-virtualized guest kernels, matching the problems solved by Codespaces and Azure.",
+            title: "RFC 007: Defense In Depth & MicroVM Roadmap",
+            quote: "Production security boundaries require defense-in-depth: migrating from container cgroup boundaries to hardware-enforced microVM isolation.",
             bullets: [
-              "Acknowledge Docker shared-kernel boundary honestly.",
-              "Point out live deployment on Oracle Cloud Linux VM.",
-              "Open the floor for technical deep-dive questions."
+              "Shared Linux kernel model carries inherent attack surface: next iteration migrates to AWS Firecracker microVMs.",
+              "Complete system runs continuously in production on Oracle Cloud Infrastructure Linux compute."
             ]
           }
         ]
@@ -1380,21 +1378,21 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
         isPaused = !isPaused;
 
         if (isPaused) {
-          btnHibernateToggle.textContent = 'Resume workspace (SIGCONT)';
+          btnHibernateToggle.textContent = 'Thaw cgroup (cgroup.freeze = 0)';
           cpuBigStat.textContent = '0.00%';
           cpuBigStat.className = 'text-5xl font-bold text-slate-400 font-mono';
           cpuAnnot.textContent = 'Frozen via Linux cgroups v2 freezer • Process tree suspended';
-          cStateBadge.textContent = 'State: Frozen in DRAM (0% CPU)';
+          cStateBadge.textContent = 'State: Frozen in DRAM (0.00% CPU)';
           cStateBadge.className = 'text-yellow-400 text-xs mb-1 font-mono font-semibold';
-          hibernationNote.innerHTML = '<code>container.pause()</code> executed: Kernel froze scheduler execution via SIGSTOP. CPU is 0.00%; RAM and uncommitted terminal state are 100% preserved in DRAM.';
+          hibernationNote.innerHTML = '<code>container.pause()</code> invoked: Linux cgroups v2 freezer subsystem halted task scheduling without POSIX signal delivery. Host CPU drops to 0.00%; RAM, active vim sessions, and PTY file descriptors remain 100% resident in DRAM.';
         } else {
-          btnHibernateToggle.textContent = 'Pause workspace (SIGSTOP)';
+          btnHibernateToggle.textContent = 'Freeze cgroup (cgroup.freeze)';
           cpuBigStat.textContent = '15.4%';
           cpuBigStat.className = 'text-5xl font-bold text-emerald-400 font-mono';
           cpuAnnot.textContent = 'Normal background dev-server compilation';
           cStateBadge.textContent = 'State: Running';
           cStateBadge.className = 'text-slate-300 text-xs mb-1 font-mono';
-          hibernationNote.innerHTML = '<code>container.unpause()</code> executed: Resumed instantly in &lt; 20ms with active vim sessions and terminal history intact.';
+          hibernationNote.innerHTML = '<code>container.unpause()</code> invoked: Linux kernel resumes task scheduling in &lt; 20ms with active pseudo-terminals (/dev/pts/X) and process memory intact.';
         }
       }
 
