@@ -217,11 +217,6 @@
 
       <!-- Right Actions: Status & Speaker Cues -->
       <div class="flex items-center gap-3 shrink-0">
-        <div class="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600 whitespace-nowrap">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span id="headerVmStatus">VM 129.154.39.198 online</span>
-        </div>
-
         <button id="btnToggleSpeakerCues" class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 rounded-md shadow-subtle hover:bg-slate-50 transition whitespace-nowrap">
           <span>System Invariants</span>
           <kbd class="px-1 py-0.2 bg-slate-100 border border-slate-200 rounded text-[10px] font-mono text-slate-500">P</kbd>
@@ -252,14 +247,16 @@
           Real-time CRDT synchronization, Docker sandboxing, stateless Redis clustering, and persistent Unix pseudo-terminals.
         </p>
 
-        <div class="flex justify-center items-center gap-3 mb-8">
+        <div class="flex flex-wrap justify-center items-center gap-3 mb-8">
           <a href="https://github.com/AmanKashyapp07/NexusIDE" target="_blank" rel="noopener" class="px-5 py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 transition shadow-card text-sm flex items-center gap-2">
             <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
             View Repository
           </a>
-          <a href="http://129.154.39.198/ide/login" target="_blank" rel="noopener" class="px-5 py-2.5 bg-white text-slate-800 font-medium rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition shadow-subtle text-sm flex items-center gap-1.5">
-            Live Cloud VM <span class="text-slate-400">↗</span>
-          </a>
+          <button id="heroVmBtn" class="px-5 py-2.5 bg-white text-slate-800 font-medium rounded-lg border border-amber-300 hover:border-amber-400 hover:bg-amber-50/60 transition shadow-subtle text-sm flex items-center gap-2 cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span>Live Cloud VM</span>
+            <span class="text-[11px] font-mono text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded font-medium">Offline (Maintenance)</span>
+          </button>
         </div>
 
         <!-- 4-Pillar Architectural Matrix (Fills Empty Space With Technical Value) -->
@@ -829,22 +826,44 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
             </a>
           </div>
 
-          <div class="p-5 rounded-xl bg-white border border-slate-200 shadow-card flex flex-col justify-between">
+          <div class="p-5 rounded-xl bg-amber-50/40 border border-amber-200/90 shadow-card flex flex-col justify-between relative">
             <div>
-              <div class="text-xs font-mono font-semibold text-brand-500 mb-1">LIVE CLOUD VM</div>
-              <h3 class="text-base font-bold text-slate-900 mb-1">Production Sandbox</h3>
-              <p class="text-xs text-slate-500 leading-relaxed mb-4">
-                Deployed on Oracle Cloud Linux VM (4 OCPU, 24 GB RAM) running the multi-tier container cluster.
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-mono font-semibold text-amber-700">CLOUD DEMO VM</span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  Temporarily Down
+                </span>
+              </div>
+              <h3 class="text-base font-bold text-slate-900 mb-1">Production Sandbox (Offline)</h3>
+              <p class="text-xs text-slate-600 leading-relaxed mb-3">
+                The deployed Oracle Cloud compute instance (<code class="font-mono text-slate-800 bg-amber-100/60 px-1 py-0.5 rounded">129.154.39.198</code>) is unfortunately down at this time. It will need some time to revive the instance, configure networking, and bring the multi-tier container orchestrator back online.
               </p>
+              <div class="bg-white/90 border border-amber-200/80 rounded-lg p-2.5 mb-3 text-[11px] font-mono text-slate-700">
+                <div class="text-[10px] uppercase font-bold text-slate-500 mb-1 flex items-center justify-between">
+                  <span>Run Complete Stack Locally:</span>
+                  <span id="copyFeedback" class="text-emerald-600 font-semibold hidden">Copied!</span>
+                </div>
+                <div class="flex items-center justify-between gap-2 bg-slate-900 text-slate-100 p-2 rounded">
+                  <span class="truncate select-all text-[11px]" id="dockerCmdText">git clone https://github.com/AmanKashyapp07/NexusIDE &amp;&amp; cd NexusIDE &amp;&amp; docker compose up</span>
+                  <button id="btnCopyDockerCmd" class="hover:text-amber-300 text-slate-400 shrink-0 p-0.5 transition cursor-pointer" title="Copy Docker Command">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                  </button>
+                </div>
+              </div>
             </div>
-            <a href="http://129.154.39.198/ide/login" target="_blank" rel="noopener" class="w-full py-2.5 bg-white text-slate-800 font-medium rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition shadow-subtle flex items-center justify-center gap-1.5 text-xs">
-              Launch Sandbox <span class="text-slate-400">↗</span>
-            </a>
+            <button id="btnVmStatusDetails" class="w-full py-2.5 bg-white text-slate-800 font-medium rounded-lg border border-amber-300 hover:bg-amber-50 hover:border-amber-400 transition shadow-subtle flex items-center justify-center gap-1.5 text-xs cursor-pointer">
+              <svg class="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              View Infrastructure Status &amp; Recovery Plan
+            </button>
           </div>
 
         </div>
 
-        <div class="text-xs text-slate-400 font-mono mb-4" id="livePingStatus">Reachability: Verifying...</div>
+        <div class="text-xs text-slate-500 font-mono mb-4 flex items-center justify-center gap-2" id="livePingStatus">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          <span>Reachability: Offline &bull; Cloud VM undergoing maintenance and re-provisioning</span>
+        </div>
         
         <div class="text-xs text-slate-400">
           <p>Aman Kashyap &bull; Systems Architecture &amp; Engineering Case Study</p>
@@ -856,7 +875,7 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
   </main>
 
   <!-- ==================== PPT SLIDE CONTROLLER (BOTTOM-RIGHT) ==================== -->
-  <div class="fixed bottom-6 right-6 z-40 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-card rounded-full px-4 py-2 flex items-center gap-3 text-xs font-mono text-slate-700 select-none">
+  <div class="hidden fixed bottom-6 right-6 z-40 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-card rounded-full px-4 py-2 items-center gap-3 text-xs font-mono text-slate-700 select-none" style="display: none !important;">
     <button id="btnPrevSlide" class="hover:text-brand-500 p-1 font-bold transition flex items-center gap-1" title="Previous Slide (Left Arrow)">
       <span>←</span> <span class="hidden sm:inline text-[11px] font-sans">Prev</span>
     </button>
@@ -886,6 +905,66 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
       </div>
       <div class="p-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 text-center shrink-0 font-mono">
         Real-time architectural specification matrix. Press <kbd class="px-1 py-0.2 bg-white border rounded font-mono text-[10px]">P</kbd> to toggle overlay.
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CLOUD VM STATUS & MAINTENANCE MODAL ==================== -->
+  <div id="vmStatusModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-lg w-full p-6 relative animate-in fade-in zoom-in-95 duration-150">
+      <button id="btnCloseVmModal" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer" title="Close modal (Esc)">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <div class="flex items-center gap-3.5 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-lg font-bold text-slate-900">Demonstration VM Status</h3>
+          <div class="flex items-center gap-2 text-xs font-mono text-amber-800">
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span>Target: 129.154.39.198 · Oracle Cloud Infrastructure</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-3.5 text-xs sm:text-sm text-slate-600 leading-relaxed mb-6">
+        <div class="p-3 bg-amber-50/90 rounded-xl border border-amber-200/90 text-amber-950 font-medium">
+          The deployed demonstration VM is unfortunately down right now, and will require some time to be revived, re-provisioned, and brought back online.
+        </div>
+
+        <div>
+          <h4 class="font-semibold text-slate-800 mb-1 text-xs uppercase tracking-wider text-slate-400">Current Infrastructure Status</h4>
+          <p class="text-xs text-slate-600 mb-2">
+            The remote cloud VM instance has been decommissioned / taken offline. Bringing it back requires re-provisioning compute resources, re-deploying the multi-tier container topology (Nginx Ingress, Stateless Node.js Pods, Redis 7 Pub/Sub mesh, and Alpine PTY sandboxes), and re-verifying SSL certificates.
+          </p>
+        </div>
+
+        <div>
+          <h4 class="font-semibold text-slate-800 mb-1 text-xs uppercase tracking-wider text-slate-400">Run the Complete System Locally</h4>
+          <p class="text-xs text-slate-600 mb-2">
+            The entire NexusIDE environment is 100% containerized and can be launched immediately on your machine:
+          </p>
+          <div class="bg-slate-900 text-slate-100 p-2.5 rounded-lg font-mono text-xs flex items-center justify-between gap-2">
+            <code class="truncate select-all" id="modalCmdText">git clone https://github.com/AmanKashyapp07/NexusIDE &amp;&amp; cd NexusIDE &amp;&amp; docker compose up</code>
+            <button id="modalCopyCmdBtn" class="text-slate-300 hover:text-amber-300 transition text-[11px] font-sans px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded cursor-pointer shrink-0">
+              Copy
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+        <a href="https://github.com/AmanKashyapp07/NexusIDE" target="_blank" rel="noopener" class="px-3.5 py-2 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          Repository Setup Guide ↗
+        </a>
+        <button id="modalOkBtn" class="px-4 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition cursor-pointer">
+          Close
+        </button>
       </div>
     </div>
   </div>
@@ -1140,6 +1219,14 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
       // PPT Keyboard Navigation: Left/Right keys slide up/down like PPT slides!
       window.addEventListener('keydown', (e) => {
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+        const vmModal = document.getElementById('vmStatusModal');
+        if (vmModal && !vmModal.classList.contains('hidden')) {
+          if (e.key === 'Escape') {
+            closeVmModal();
+          }
+          return;
+        }
 
         if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
           e.preventDefault();
@@ -1403,29 +1490,150 @@ redisAdapter.subscribe(`workspace:${id}`, (update, origin) => {
       function checkVmReachability() {
         const pingStatus = document.getElementById('livePingStatus');
         const headerVmStatus = document.getElementById('headerVmStatus');
+
+        const setOfflineNotice = () => {
+          if (pingStatus) {
+            pingStatus.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500 inline-block"></span> <span>Reachability: <strong class="text-amber-600 font-semibold">Offline</strong> &bull; Cloud VM undergoing maintenance and re-provisioning</span>';
+          }
+          if (headerVmStatus) {
+            headerVmStatus.textContent = 'VM 129.154.39.198 · Offline (Maintenance)';
+          }
+        };
+
+        // Initialize with explicit graceful offline notice
+        setOfflineNotice();
+
         const start = performance.now();
         const img = new Image();
-        img.src = 'http://129.154.39.198/favicon.ico?' + Date.now();
+        let resolved = false;
+
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            setOfflineNotice();
+          }
+        }, 2500);
 
         img.onload = () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
           const ms = Math.round(performance.now() - start);
-          if (pingStatus) pingStatus.textContent = `Reachability: Online (${ms}ms ping to OCI compute)`;
+          if (pingStatus) pingStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> <span>Reachability: Online (${ms}ms ping to OCI compute)</span>`;
           if (headerVmStatus) headerVmStatus.textContent = `VM 129.154.39.198 active (${ms}ms)`;
         };
 
         img.onerror = () => {
-          const ms = Math.round(performance.now() - start);
-          if (ms < 1500) {
-            if (pingStatus) pingStatus.textContent = `Reachability: Online (${ms}ms ping to OCI compute)`;
-            if (headerVmStatus) headerVmStatus.textContent = `VM 129.154.39.198 active (${ms}ms)`;
-          } else {
-            if (pingStatus) pingStatus.textContent = 'Reachability: Standby (verified via test.sh sandbox mock)';
-            if (headerVmStatus) headerVmStatus.textContent = `VM 129.154.39.198 standby`;
-          }
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
+          setOfflineNotice();
         };
+
+        img.src = 'http://129.154.39.198/favicon.ico?' + Date.now();
       }
 
       checkVmReachability();
+
+      // Modal & Clipboard Controllers
+      const vmModal = document.getElementById('vmStatusModal');
+      const btnCloseVmModal = document.getElementById('btnCloseVmModal');
+      const modalOkBtn = document.getElementById('modalOkBtn');
+      const heroVmBtn = document.getElementById('heroVmBtn');
+      const btnHeaderVmStatus = document.getElementById('btnHeaderVmStatus');
+      const btnVmStatusDetails = document.getElementById('btnVmStatusDetails');
+      const heroLearnMoreBtn = document.getElementById('heroLearnMoreBtn');
+      const btnCopyDockerCmd = document.getElementById('btnCopyDockerCmd');
+      const modalCopyCmdBtn = document.getElementById('modalCopyCmdBtn');
+
+      function openVmModal() {
+        if (vmModal) {
+          vmModal.classList.remove('hidden');
+          document.body.style.overflow = 'hidden';
+        }
+      }
+
+      function closeVmModal() {
+        if (vmModal) {
+          vmModal.classList.add('hidden');
+          document.body.style.overflow = '';
+        }
+      }
+
+      function copyText(text, btnEl, originalText) {
+        const onSuccess = () => {
+          if (btnEl) {
+            btnEl.textContent = 'Copied!';
+            setTimeout(() => { btnEl.textContent = originalText || 'Copy'; }, 2000);
+          }
+          const copyFeedback = document.getElementById('copyFeedback');
+          if (copyFeedback) {
+            copyFeedback.classList.remove('hidden');
+            setTimeout(() => { copyFeedback.classList.add('hidden'); }, 2000);
+          }
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+            fallbackCopy(text, onSuccess);
+          });
+        } else {
+          fallbackCopy(text, onSuccess);
+        }
+      }
+
+      function fallbackCopy(text, cb) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          if (cb) cb();
+        } catch (e) {
+          console.error(e);
+        }
+        document.body.removeChild(ta);
+      }
+
+      if (heroVmBtn) heroVmBtn.addEventListener('click', openVmModal);
+      if (btnHeaderVmStatus) btnHeaderVmStatus.addEventListener('click', openVmModal);
+      if (btnVmStatusDetails) btnVmStatusDetails.addEventListener('click', openVmModal);
+      if (btnCloseVmModal) btnCloseVmModal.addEventListener('click', closeVmModal);
+      if (modalOkBtn) modalOkBtn.addEventListener('click', closeVmModal);
+
+      if (heroLearnMoreBtn) {
+        heroLearnMoreBtn.addEventListener('click', () => {
+          const s5 = document.getElementById('section5');
+          if (s5) {
+            s5.scrollIntoView({ behavior: 'smooth' });
+          } else {
+            openVmModal();
+          }
+        });
+      }
+
+      if (vmModal) {
+        vmModal.addEventListener('click', (e) => {
+          if (e.target === vmModal) closeVmModal();
+        });
+      }
+
+      const DOCKER_RUN_CMD = 'git clone https://github.com/AmanKashyapp07/NexusIDE && cd NexusIDE && docker compose up';
+
+      if (btnCopyDockerCmd) {
+        btnCopyDockerCmd.addEventListener('click', () => {
+          copyText(DOCKER_RUN_CMD, null);
+        });
+      }
+
+      if (modalCopyCmdBtn) {
+        modalCopyCmdBtn.addEventListener('click', () => {
+          copyText(DOCKER_RUN_CMD, modalCopyCmdBtn, 'Copy');
+        });
+      }
 
       function renderCues(cueList) {
         if (!cueContent) return;
