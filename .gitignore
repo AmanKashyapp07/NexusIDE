@@ -1,34 +1,75 @@
-**/node_modules/
-.DS_Store
+# Environment & Secrets
 .env
 .env.*
-backend/workspace_data/
-terminal_history/
-interview/
-test-results/
-playwright-report/
-docs/
-Interview-Prep/
-
-# Build and dist artifacts
-dist/
-**/dist/
-.last_build_hash
-**/.last_build_hash
-.last_pkg_hash
-**/.last_pkg_hash
-
-# SSH keys and deployment secrets
+*.env
+deploy.env
 *.key
 *.pem
 *.id_rsa
 id_rsa*
 *.pub
-deploy.env
+
+# Dependencies
+node_modules/
+**/node_modules/
+.pnpm-store/
+
+# Production Build & Dist Artifacts
+dist/
+**/dist/
+build/
+**/build/
+.last_build_hash
+**/.last_build_hash
+.last_pkg_hash
+**/.last_pkg_hash
+
+# Local Runtime Data & State
+backend/workspace_data/
+terminal_history/
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testing & Test Coverage Reports
+test-results/
+playwright-report/
+.playwright/
+coverage/
+.nyc_output/
+reports/
+
+# Operating System & Editor Files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Internal Interview Prep, Planning & Study Materials
+guide.md
+plan.md
+context.md
+/microsoft/
+microsoft/
+/features-doc/
+/extra/
+/core/
+interview/
+Interview-Prep/
+*.docx
+*.pdf
+website/plan.md
 t.md
 s.md
-
-/features-doc
-/extra
-/core
-/microsoft
+*.tmp
+*.bak
