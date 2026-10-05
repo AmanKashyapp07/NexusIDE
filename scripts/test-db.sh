@@ -297,8 +297,8 @@ run_tunnel() {
 run_local() {
   local t_start=$(date +%s)
   section "Running DB Tests against Local PostgreSQL (localhost:5432)"
-  export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:my_secure_db_password@localhost:5432/sandbox}"
-  (cd "${LOCAL_BASE}/testing" && DATABASE_URL="$DATABASE_URL" npx vitest run db/query_performance.test.ts db/concurrency_locks.test.ts db/brutal_stress.test.ts db/redis_l2_cache.test.ts db/crdt_write_behind.test.ts db/redis_presence_session.test.ts)
+  export DATABASE_URL="${DATABASE_URL:-postgresql://amankashyap@localhost:5432/sandbox}"
+  (cd "${LOCAL_BASE}/testing" && DATABASE_URL="$DATABASE_URL" npx vitest run --fileParallelism=false db/query_performance.test.ts db/concurrency_locks.test.ts db/brutal_stress.test.ts db/redis_l2_cache.test.ts db/crdt_write_behind.test.ts db/redis_presence_session.test.ts)
   local t_end=$(date +%s)
   show_metrics_summary "$((t_end - t_start))"
 }

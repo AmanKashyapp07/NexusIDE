@@ -17,8 +17,16 @@ describe('API Services (Live Integration)', () => {
   let validToken: string;
 
   beforeAll(async () => {
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       httpListener = server.listen(4000, () => resolve());
+      httpListener.on('error', (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+          httpListener = null;
+          resolve();
+        } else {
+          reject(err);
+        }
+      });
     });
 
     const ts = Date.now();

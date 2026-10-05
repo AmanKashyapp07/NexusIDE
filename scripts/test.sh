@@ -543,7 +543,11 @@ run_integration() {
 run_db() {
   local t_start=$(date +%s)
   echo -e "${DIM}Running database covering indexes, Redis L2, Write-Behind & Presence suites...${RESET}"
-  if bash "${SCRIPT_DIR}/test-db.sh"; then
+  local db_flag="--local"
+  if [[ "${NEXUS_BASE_URL}" =~ 129\.154 ]]; then
+    db_flag="remote"
+  fi
+  if bash "${SCRIPT_DIR}/test-db.sh" "$db_flag"; then
     local t_end=$(date +%s)
     local elapsed=$((t_end - t_start))
     record_result "PostgreSQL & Redis DB Suite" "PASSED ✓" "38 Tests" "$elapsed"

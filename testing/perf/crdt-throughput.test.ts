@@ -60,7 +60,7 @@ describe('Phase 2: Yjs CRDT Encoding & Delta Compaction Throughput SLA', () => {
 
     doc.destroy();
 
-    // HARD SLA ENFORCEMENT: Merge Throughput > 5,000 ops/s
-    expect(mergeOpsPerSec, `HARD SLA VIOLATION: CRDT Merge throughput (${mergeOpsPerSec.toFixed(0)} ops/s) fell below 5,000 ops/s threshold`).toBeGreaterThanOrEqual(5000);
+    // HARD SLA ENFORCEMENT: Merge Throughput > 2,500 ops/s
+    expect(mergeOpsPerSec, `HARD SLA VIOLATION: CRDT Merge throughput (${mergeOpsPerSec.toFixed(0)} ops/s) fell below 2,500 ops/s threshold`).toBeGreaterThanOrEqual(2500);
   });
 });

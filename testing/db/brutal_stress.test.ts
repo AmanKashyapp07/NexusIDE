@@ -290,8 +290,9 @@ describe('NexusIDE Brutal Database Stress & Resilience Suite', () => {
     const treeHash = treeRes.rows[0]?.hash;
     if (treeHash) {
       await pool.query(`
-        INSERT INTO git_commits (id, workspace_id, root_tree_hash, label, created_by)
+        INSERT INTO git_commits (hash, id, workspace_id, root_tree_hash, label, created_by)
         SELECT
+          encode(sha256(('wipe_commit_' || s || '_' || extract(epoch from now()))::bytea), 'hex'),
           uuid_generate_v4(),
           $1,
           $2,

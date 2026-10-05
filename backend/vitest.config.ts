@@ -22,7 +22,7 @@ export default defineConfig({
 
     // Pick up backend unit tests, services, integration, and DB performance suites; E2E .spec.ts belong to Playwright
     include: ['../testing/**/*.test.ts', '../testing/db/*.test.ts', '../testing/services/*.test.ts', '../testing/integration/*.test.ts'],
-    exclude: ['**/node_modules/**', '../testing/frontend/**'],
+    exclude: ['**/node_modules/**', '../testing/node_modules/**', '../testing/frontend/**'],
 
     reporters: ['default'],
 

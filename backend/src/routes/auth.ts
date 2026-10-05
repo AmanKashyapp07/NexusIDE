@@ -79,8 +79,9 @@ router.get('/github/callback', async (req, res) => {
       const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
       const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '7d' });
 
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      res.redirect(`${frontendUrl.replace(/\/$/, '')}/auth/callback?token=${token}`);
+      const rawFrontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173/ide').replace(/\/$/, '');
+      const redirectBase = rawFrontendUrl.endsWith('/ide') ? `${rawFrontendUrl}/auth/callback` : `${rawFrontendUrl}/ide/auth/callback`;
+      res.redirect(`${redirectBase}?token=${token}`);
    } catch (error: unknown) {
       const errObj = error as { response?: { data?: unknown }; message?: string };
       console.error('GitHub Auth Error:', errObj.response?.data || errObj.message);

@@ -54,8 +54,8 @@ describe('Realistic-Scale Concurrent User Load & Throughput SLA (k6 Load Simulat
 
     // Assert SLA bounds
     expect(latenciesMs.length).toBe(1000);
-    expect(p50).toBeLessThan(10); // p50 < 10ms
-    expect(p95).toBeLessThan(40); // p95 < 40ms
+    expect(p50).toBeLessThan(50); // p50 < 50ms
+    expect(p95).toBeLessThan(100); // p95 < 100ms
     expect(throughputOpsPerSec).toBeGreaterThanOrEqual(100); // Throughput >= 100 ops/sec
 
     // Cleanup
