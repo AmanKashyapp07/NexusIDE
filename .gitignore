@@ -55,24 +55,3 @@ Thumbs.db
 *.swo
 *~
 
-# Internal Interview Prep, Planning & Study Materials
-guide.md
-guide-2.md
-guide*.md
-ai.md
-plan.md
-context.md
-/microsoft/
-microsoft/
-/features-doc/
-/extra/
-/core/
-interview/
-Interview-Prep/
-*.docx
-*.pdf
-website/plan.md
-t.md
-s.md
-*.tmp
-*.bak
