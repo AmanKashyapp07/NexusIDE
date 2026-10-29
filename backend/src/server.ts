@@ -43,18 +43,18 @@ import { eventLoopMonitorService } from './services/eventLoopMonitor.service.js'
 const app = express();
 app.use(cors());
 
-// INTENT: Configure response compression with explicit WebSockets upgrade bypass.
-// WHY: Compressing WebSocket handshakes or upgraded connections can corrupt framing headers or cause unnecessary buffer delays.
-// EDGE CASE: If a connection header contains 'upgrade', bypass compression entirely to prevent socket upgrade failure.
-app.use(compression({
-   level: 6,
-   threshold: 256,
-   filter: (req: unknown, res: unknown) => {
-      const expressReq = req as { headers?: Record<string, string> };
-      if (expressReq.headers?.['upgrade']) return false;
-      return compression.filter(req as express.Request, res as express.Response);
-   }
-}));
+// INTENT: Configure response compression in production (bypassed locally to reduce overhead).
+if (process.env.NODE_ENV === 'production') {
+   app.use(compression({
+      level: 6,
+      threshold: 256,
+      filter: (req: unknown, res: unknown) => {
+         const expressReq = req as { headers?: Record<string, string> };
+         if (expressReq.headers?.['upgrade']) return false;
+         return compression.filter(req as express.Request, res as express.Response);
+      }
+   }));
+}
 app.use(express.json());
 
 // INTENT: Reverse-proxy asset redirection for sandbox preview URLs.
@@ -131,12 +131,23 @@ io.on('connection', (socket) => {
 // WHY: Async pre-warming container pools during server boot eliminates cold-start latency for the first user workspace allocation.
 // INTERVIEW NOTES: Non-blocking boot cycle guarantees fast server readiness; pool initialization occurs in background promises.
 const PORT = process.env.PORT || 4000;
+const isProd = process.env.NODE_ENV === 'production';
+
 if (process.env.NODE_ENV !== 'test') {
    server.listen(PORT, () => {
       log('🚀 BOOT', `Server listening on port ${PORT}`);
-      eventLoopMonitorService.start(5000);
+
+      // Observability & cluster workers (enabled on production; bypassed on localhost)
+      if (isProd || process.env.ENABLE_METRICS === 'true') {
+         eventLoopMonitorService.start(5000);
+      }
+
       initializeRedisCollaborationMesh();
-      crdtWriteBehindService.startWriteBehindWorker(1000);
+
+      if (isProd || process.env.ENABLE_WRITE_BEHIND === 'true') {
+         crdtWriteBehindService.startWriteBehindWorker(1000);
+      }
+
       warmPoolManager.initializePools().catch(() => {});
       getPool().query('SELECT NOW()', (err) => {
          log('🚀 BOOT', err ? '❌ DB Connection Failed' : '✅ DB Connected');

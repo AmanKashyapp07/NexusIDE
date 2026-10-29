@@ -45,9 +45,10 @@ function getFreePort(): Promise<number> {
 // WARM POOL MANAGER CLASS
 // =============================================================================
 
+const isDemoMode = process.env.DEMO_MODE === 'true' || process.env.NODE_ENV !== 'production';
 const TERMINAL_POOL_MIN = 1;
-const TERMINAL_POOL_MAX = 5;
-let TERMINAL_POOL_SIZE = 2;
+const TERMINAL_POOL_MAX = isDemoMode ? 2 : 5;
+let TERMINAL_POOL_SIZE = isDemoMode ? 1 : 2;
 
 const TERMINAL_IMAGE = 'sandbox-dev-env:latest';
 
@@ -87,10 +88,21 @@ WORKDIR /app
 
    // INTENT: Bootstrap container pool during server start sequence.
    public async initializePools(): Promise<void> {
+      try {
+         await docker.ping();
+      } catch {
+         console.log('[WarmPool] Docker daemon not reachable. Sandboxed terminals will initialize on-demand when Docker starts.');
+         return;
+      }
+
       console.log('[WarmPool] Initializing warm pools...');
-      await this.ensureTerminalImageExists();
-      await this.fillTerminalPool();
-      console.log('[WarmPool] All pools initialized.');
+      try {
+         await this.ensureTerminalImageExists();
+         await this.fillTerminalPool();
+         console.log('[WarmPool] All pools initialized.');
+      } catch (err) {
+         console.warn('[WarmPool] Pool initialization deferred:', err instanceof Error ? err.message : String(err));
+      }
    }
 
    // INTENT: Pop a pre-warmed container from the pool or create one on-demand if pool is depleted.

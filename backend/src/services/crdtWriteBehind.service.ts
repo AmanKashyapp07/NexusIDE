@@ -29,6 +29,7 @@ export class CrdtWriteBehindService {
    // INTENT: Ingest raw binary CRDT update into Redis List buffer in sub-millisecond RAM (< 0.3ms).
    // WHY: Bypasses immediate synchronous SQL INSERT on every keystroke.
    async bufferCrdtUpdate(fileId: string, update: Uint8Array | Buffer): Promise<void> {
+      if (redis.status !== 'ready') return;
       try {
          const bufferKey = `${BUFFER_KEY_PREFIX}${fileId}`;
          const hexPayload = Buffer.from(update).toString('hex');
@@ -46,7 +47,7 @@ export class CrdtWriteBehindService {
 
    // INTENT: Batch ingest array of binary CRDT updates into Redis List in a single atomic pipeline roundtrip (< 1ms).
    async bufferCrdtUpdatesBatch(fileId: string, updates: (Uint8Array | Buffer)[]): Promise<void> {
-      if (!updates || updates.length === 0) return;
+      if (!updates || updates.length === 0 || redis.status !== 'ready') return;
       try {
          const bufferKey = `${BUFFER_KEY_PREFIX}${fileId}`;
          const hexPayloads = updates.map(u => Buffer.from(u).toString('hex'));
@@ -64,6 +65,7 @@ export class CrdtWriteBehindService {
 
    // INTENT: Query current pending queue depth in Redis for a specific file.
    async getPendingBufferSize(fileId: string): Promise<number> {
+      if (redis.status !== 'ready') return 0;
       try {
          const bufferKey = `${BUFFER_KEY_PREFIX}${fileId}`;
          return await redis.llen(bufferKey);
@@ -75,6 +77,7 @@ export class CrdtWriteBehindService {
    // INTENT: Drain and persist all buffered updates for a single file into PostgreSQL under distributed lock.
    // WHY: Coalesces hundreds of keystrokes into a single compound chunk or multi-row SQL INSERT.
    async flushFileBuffer(fileId: string): Promise<number> {
+      if (redis.status !== 'ready') return 0;
       const bufferKey = `${BUFFER_KEY_PREFIX}${fileId}`;
       const lockKey = `lock:crdt:flush:${fileId}`;
 
@@ -133,7 +136,7 @@ export class CrdtWriteBehindService {
 
    // INTENT: Background worker cycle that drains all dirty document buffers across the system.
    async flushAllDirtyBuffers(): Promise<FlushStats> {
-      if (this.isFlushing) {
+      if (this.isFlushing || redis.status !== 'ready') {
          return { flushedFiles: 0, totalUpdates: 0, elapsedMs: 0 };
       }
 

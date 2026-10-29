@@ -5,7 +5,3 @@ export interface DbQueryResult<T extends QueryResultRow = QueryResultRow> {
    rowCount: number;
 }
 
-export interface PreparedQueryConfig {
-   name: string;
-   query: string;
-}

@@ -35,7 +35,7 @@ export function getPool(): Pool {
          console.error('[DB Pool] Unexpected error:', err);
       });
 
-      if (process.env.NODE_ENV !== 'production') {
+      if (process.env.DEBUG_DB === 'true') {
          pool.on('connect', () => {
             console.log('[DB Pool] Client connection established');
          });

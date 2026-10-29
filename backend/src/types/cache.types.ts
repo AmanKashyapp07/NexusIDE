@@ -1,9 +1,3 @@
-export interface CacheEntry<T> {
-   value: T;
-   expiresAt: number;
-   size: number;
-}
-
 export interface CacheStats {
    size?: number | undefined;
    items?: number | undefined;
