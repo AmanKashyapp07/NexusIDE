@@ -17,7 +17,7 @@ function redactSensitiveSecrets(input: string): string {
 
 describe('Production Security: Secrets Redaction SLA (Live Code)', () => {
   it('1. Redacts sensitive database credentials, AWS access keys, and JWT tokens in real time', () => {
-    const rawMessage = 'Auth service initialized with DB postgresql://admin:SecretPass123@129.154.39.198:5432/nexuside and key AKIAIOSFODNN7EXAMPLE';
+    const rawMessage = 'Auth service initialized with DB postgresql://admin:SecretPass123@10.0.0.1:5432/nexuside and key AKIAIOSFODNN7EXAMPLE';
     const redactedMessage = redactSensitiveSecrets(rawMessage);
 
     // Call production logger service directly

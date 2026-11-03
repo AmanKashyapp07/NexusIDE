@@ -39,7 +39,7 @@ describe('OAuth Callback & State Parameter Security Suite', () => {
   });
 
   it('prevents open-redirect vulnerability by validating callback redirect_uri domain', () => {
-    const ALLOWED_REDIRECT_ORIGINS = ['http://localhost:5173', 'http://129.154.39.198', 'https://nexuside.internal'];
+    const ALLOWED_REDIRECT_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 
     const sanitizeRedirectUri = (targetUrl: string): string => {
       try {
@@ -52,7 +52,7 @@ describe('OAuth Callback & State Parameter Security Suite', () => {
     };
 
     // Valid internal redirect
-    expect(sanitizeRedirectUri('http://129.154.39.198/dashboard')).toBe('http://129.154.39.198/dashboard');
+    expect(sanitizeRedirectUri('http://localhost:5173/dashboard')).toBe('http://localhost:5173/dashboard');
 
     // Open-redirect attack vector -> Sanitized to safe internal route
     expect(sanitizeRedirectUri('https://attacker-phishing-site.com/steal-token')).toBe('/dashboard');

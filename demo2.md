@@ -14,8 +14,6 @@
 | **Local Application URL** | `http://localhost:5173/ide` |
 | **Window 1 (Main)** | Chrome standard window -> User: `demo` / Pass: `test` |
 | **Window 2 (Collaborator)** | Incognito side-by-side -> User: `collab` / Pass: `test` |
-| **Live Cloud Backup** | `http://129.154.39.198/ide/login` *(Oracle Cloud VM)* |
-| **Static Portfolio Showcase** | `https://amankashyapp07.github.io/NexusIDE/` |
 
 ---
 

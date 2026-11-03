@@ -375,7 +375,6 @@ describe('Database Query Performance & Correctness Suite', () => {
     //   On the VM itself (same-host), this INSERT takes < 1ms.
     const url = process.env.DATABASE_URL ?? '';
     const isRemoteTunnel = url.includes('5433')                            // SSH tunnel port (TUNNEL_PORT=5433)
-                        || url.includes('129.154')                         // Direct remote IP
                         || (!url.includes('localhost') && !url.includes('127.0.0.1')); // Non-local host
 
     if (isRemoteTunnel) {

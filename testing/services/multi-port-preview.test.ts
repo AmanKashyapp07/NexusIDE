@@ -58,7 +58,7 @@ describe('Multi-Port Live Preview Proxy Engine Suite', () => {
   });
 
   it('4. preserves /ide route prefix when executing inside subpath deployments', () => {
-    const referer = 'http://129.154.39.198/ide/api/workspace/ws-prod/preview/8080/app';
+    const referer = 'http://localhost:4000/ide/api/workspace/ws-prod/preview/8080/app';
     const redirect = computeRefererRedirect('/static/css/styles.css', referer);
     expect(redirect).toBe('/ide/api/workspace/ws-prod/preview/8080/static/css/styles.css');
   });

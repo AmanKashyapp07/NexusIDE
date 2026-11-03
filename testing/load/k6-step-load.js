@@ -15,7 +15,7 @@ export const options = {
 };
 
 export default function () {
-  const targetUrl = __ENV.WS_URL || 'ws://129.154.39.198/ide/ws';
+  const targetUrl = __ENV.WS_URL || 'ws://127.0.0.1:4000';
   const url = `${targetUrl}?workspaceId=ws-step-load-${__VU % 10}`;
 
   ws.connect(url, {}, function (socket) {

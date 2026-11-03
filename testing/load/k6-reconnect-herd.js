@@ -10,7 +10,7 @@ export const options = {
 };
 
 export default function () {
-  const targetUrl = __ENV.WS_URL || 'ws://129.154.39.198/ide/ws';
+  const targetUrl = __ENV.WS_URL || 'ws://127.0.0.1:4000';
   const url = `${targetUrl}?workspaceId=ws-reconnect-herd-${__VU % 20}`;
 
   // Step 1: Connect and maintain live session for 1 minute

@@ -32,7 +32,7 @@ export const API_URL = (() => {
       u.pathname = `${basePath}/api`;
     }
     return u.toString().replace(/\/$/, '');
-  } catch { return 'http://129.154.39.198/ide/api'; }
+  } catch { return 'http://127.0.0.1:4000/api'; }
 })();
 export const WS_URL = (() => {
   const base = process.env.NEXUS_BASE_URL || process.env.BASE_URL || DEFAULT_TARGET_URL;
@@ -48,7 +48,7 @@ export const WS_URL = (() => {
     }
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
     return u.toString().replace(/\/$/, '');
-  } catch { return 'ws://129.154.39.198/ide/ws'; }
+  } catch { return 'ws://127.0.0.1:4000'; }
 })();
 
 /**

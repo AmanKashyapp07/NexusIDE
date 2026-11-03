@@ -10,7 +10,7 @@ export const options = {
 };
 
 export default function () {
-  const targetUrl = __ENV.WS_URL || 'ws://129.154.39.198/ide/ws';
+  const targetUrl = __ENV.WS_URL || 'ws://127.0.0.1:4000';
   const workspaceId = 'ws-shared-fanout-doc';
   const url = `${targetUrl}?workspaceId=${workspaceId}`;
 

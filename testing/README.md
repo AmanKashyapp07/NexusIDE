@@ -237,8 +237,8 @@ testing/
 ## ⚡ Master Test Suite CLI Commands (`test.sh`)
 
 ```bash
-# Target system environment configuration (Default: Deployed Oracle Cloud VM)
-export NEXUS_BASE_URL="http://129.154.39.198/ide"
+# Target system environment configuration (Default: Localhost development server)
+export NEXUS_BASE_URL="http://localhost:5173/ide"
 
 # 1. Running standard test suites via master orchestrator:
 bash test.sh              # Fast mode: Runs all unit, service, DB & integration suites cleanly

@@ -10,7 +10,6 @@
     "test:frontend": "npm --prefix frontend test",
     "test:e2e": "npm --prefix testing run test:e2e",
     "test:all": "npm run test:backend && npm run test:frontend",
-    "showcase:dev": "npx -y serve website -l 4173",
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
     "typecheck:backend": "backend/node_modules/.bin/tsc -p backend/tsconfig.json --noEmit",
     "typecheck:frontend": "frontend/node_modules/.bin/tsc -p frontend/tsconfig.app.json --noEmit"

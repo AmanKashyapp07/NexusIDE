@@ -4,7 +4,7 @@ import { WS_URL } from '../test-utils';
 
 describe('Phase 4: Cross-Origin WebSocket Hijacking (CSWSH) Security SLA', () => {
   it('1. Rejects WebSocket connection upgrades carrying unauthorized Origin headers', async () => {
-    const wsTarget = WS_URL || 'ws://129.154.39.198/ide/ws';
+    const wsTarget = WS_URL || 'ws://127.0.0.1:4000';
     const maliciousOrigins = [
       'http://attacker-site.com',
       'https://malicious-phishing-ide.net',

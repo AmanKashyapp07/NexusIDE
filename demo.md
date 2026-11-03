@@ -2,7 +2,7 @@
 
 > **Purpose:** A focused guide to presenting NexusIDE clearly, demonstrating the highest-value workflows, and defending the engineering decisions under follow-up questions.
 >
-> **Project:** [AmanKashyapp07/NexusIDE](https://github.com/AmanKashyapp07/NexusIDE) · [Live deployment](http://129.154.39.198/ide/login) · [Static showcase](https://amankashyapp07.github.io/NexusIDE/)
+> **Project:** [AmanKashyapp07/NexusIDE](https://github.com/AmanKashyapp07/NexusIDE) · [Local IDE URL](http://localhost:5173/ide)
 
 ---
 

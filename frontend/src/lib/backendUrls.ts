@@ -1,32 +1,21 @@
-const trimTrailingSlash = (value: string) => value.replace(/\/$/, '');
-
 export const getFallbackApiUrl = () => {
   if (typeof window === 'undefined') return 'http://localhost:4000/api';
-  const hostname = window.location.hostname;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `${window.location.protocol}//${hostname}:4000/api`;
-  }
-  return `${window.location.protocol}//${hostname}/ide/api`;
+  const hostname = window.location.hostname || 'localhost';
+  return `${window.location.protocol}//${hostname}:4000/api`;
 };
 
 export const getFallbackWsUrl = () => {
   if (typeof window === 'undefined') return 'ws://localhost:4000';
-  const hostname = window.location.hostname;
+  const hostname = window.location.hostname || 'localhost';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `${protocol}//${hostname}:4000`;
-  }
-  return `${protocol}//${hostname}/ide/ws`;
+  return `${protocol}//${hostname}:4000`;
 };
 
 export const getSocketIoOptions = () => {
   const options = { transports: ['websocket'], upgrade: false };
   if (typeof window === 'undefined') return { url: 'http://localhost:4000', path: '/socket.io', ...options };
-  const hostname = window.location.hostname;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return { url: `${window.location.protocol}//${hostname}:4000`, path: '/socket.io', ...options };
-  }
-  return { url: `${window.location.protocol}//${hostname}`, path: '/ide/socket.io', ...options };
+  const hostname = window.location.hostname || 'localhost';
+  return { url: `${window.location.protocol}//${hostname}:4000`, path: '/socket.io', ...options };
 };
 
 export const apiUrl = (path: string) => `${getFallbackApiUrl()}${path.startsWith('/') ? path : `/${path}`}`;

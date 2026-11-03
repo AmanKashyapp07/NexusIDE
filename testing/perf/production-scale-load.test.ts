@@ -1,7 +1,7 @@
 /**
  * Production Scale Load Benchmark
  * Simulates realistic concurrent user traffic (50+ workspace boots & concurrent WebSocket connections)
- * against live Oracle Cloud VM (http://129.154.39.198/ide) measuring p50/p95 latency & connection success rate.
+ * against local test server measuring p50/p95 latency & connection success rate.
  */
 
 import { describe, it, expect } from 'vitest';

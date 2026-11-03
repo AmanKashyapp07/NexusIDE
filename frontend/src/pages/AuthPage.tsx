@@ -8,7 +8,6 @@ import {
   Zap,
   Users,
   ArrowRight,
-  ExternalLink,
   Box
 } from 'lucide-react';
 
@@ -455,12 +454,6 @@ export default function AuthPage() {
                   <a href="https://github.com/AmanKashyapp07/NexusIDE" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-white transition-colors">
                     <GithubIcon className="h-3.5 w-3.5" />
                     <span>GitHub Repository</span>
-                  </a>
-                </li>
-                <li>
-                  <a href="http://129.154.39.198/ide/login" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-white transition-colors">
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    <span>Live Oracle Cloud Node</span>
                   </a>
                 </li>
                 <li>

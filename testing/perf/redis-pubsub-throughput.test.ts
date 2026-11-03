@@ -4,8 +4,8 @@ import { API_URL, WS_URL } from '../test-utils';
 
 describe('Phase 3: Real Backend Redis Pub/Sub & WebSocket Fan-out SLA', () => {
   it('1. Connects authenticated WebSocket clients to target server and measures Redis Pub/Sub fan-out over TCP', async () => {
-    const wsBase = WS_URL || 'ws://129.154.39.198/ide/ws';
-    const apiBase = API_URL || 'http://129.154.39.198/ide/api';
+    const wsBase = WS_URL || 'ws://127.0.0.1:4000';
+    const apiBase = API_URL || 'http://127.0.0.1:4000/api';
     console.log(`[Real Redis Pub/Sub SLA] Target API: ${apiBase} | Target WS: ${wsBase}`);
 
     let token = '';
