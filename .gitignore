@@ -60,11 +60,12 @@ Thumbs.db
 # Interview Preparation Documentation (Personal Study Notes)
 Interview-Prep/
 
-# Architecture Diagrams & Image Assets
-*.png
+# Media Assets (Keep README architecture diagrams tracked)
 *.jpg
 *.jpeg
 *.webp
 *.gif
+*.png
+!NexusIDE*.png
 
 

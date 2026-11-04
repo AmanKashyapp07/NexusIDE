@@ -100,22 +100,22 @@ Workspace permissions enforced across REST, WebSocket, and terminal layers:
 ## System Architecture
 
 ### 01 — High-Level System Architecture
-![NexusIDE High-Level System Architecture](NexusIDE%20System%20Architecture%20Diagram.png)
+![NexusIDE High-Level System Architecture](./NexusIDE%20System%20Architecture%20Diagram.png)
 
 ---
 
 ### 02 — Real-Time Collaboration Flow
-![NexusIDE Real-Time Collaboration Flow](NexusIDE%20Real-Time%20Collaboration%20Flow.png)
+![NexusIDE Real-Time Collaboration Flow](./NexusIDE%20Real-Time%20Collaboration%20Flow.png)
 
 ---
 
 ### 03 — Docker Sandbox & Terminal Architecture
-![NexusIDE Docker Sandbox & Terminal Architecture](NexusIDE%20Docker%20Sandbox%20Architecture.png)
+![NexusIDE Docker Sandbox & Terminal Architecture](./NexusIDE%20Docker%20Sandbox%20Architecture.png)
 
 ---
 
 ### 04 — Snapshot & Versioning Architecture
-![NexusIDE Snapshot & Versioning Architecture](NexusIDE%20Merkle%20DAG%20Versioning%20Workflow.png)
+![NexusIDE Snapshot & Versioning Architecture](./NexusIDE%20Merkle%20DAG%20Versioning%20Workflow.png)
 
 ---
 
