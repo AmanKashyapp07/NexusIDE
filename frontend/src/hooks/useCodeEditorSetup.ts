@@ -74,7 +74,7 @@ export function useCodeEditorSetup({
     const token = getNexusToken();
 
     // Check Multi-Model Tab Cache for instant 0ms switching
-    let cached = modelCacheRef.current.get(roomName);
+    const cached = modelCacheRef.current.get(roomName);
     let ydoc: Y.Doc;
     let wsProvider: WebsocketProvider;
 

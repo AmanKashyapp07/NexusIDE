@@ -60,4 +60,11 @@ Thumbs.db
 # Interview Preparation Documentation (Personal Study Notes)
 Interview-Prep/
 
+# Architecture Diagrams & Image Assets
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+
 

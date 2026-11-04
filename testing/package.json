@@ -10,6 +10,7 @@
     "test:integration": "vitest run integration/ --config ../backend/vitest.config.ts",
     "test:frontend": "vitest run --config ../frontend/vite.config.ts",
     "test:e2e": "playwright test e2e/ --config playwright.config.ts",
+    "test:demo": "playwright test e2e/interview-demo.spec.ts --config playwright.config.ts --reporter=list",
     "test:all": "npm run test:backend && npm run test:frontend && npm run test:e2e",
     "typecheck": "tsc --noEmit"
   },

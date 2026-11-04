@@ -54,6 +54,9 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
   </div>
 );
 
+// Demo Feature Flag: External GitHub OAuth is disabled for reliable offline/local interview demonstration
+const ENABLE_GITHUB_OAUTH = false;
+
 export default function AuthPage() {
   const [testUsername, setTestUsername] = useState('');
   const [testPassword, setTestPassword] = useState('');
@@ -258,32 +261,30 @@ export default function AuthPage() {
                 </p>
               </div>
 
-              {/* GitHub OAuth Button */}
-              <button
-  onClick={handleGitHubLogin}
-  className="group relative flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3.5 text-sm font-semibold text-zinc-950 transition-all duration-200 hover:bg-zinc-100 hover:shadow-[0_0_25px_rgba(255,255,255,0.15)] active:scale-[0.99] cursor-pointer shadow-md overflow-hidden"
->
-  {/* Empty div balances the arrow on the right to keep center align perfectly mathematical */}
-  <div className="w-4 h-4 opacity-0 pointer-events-none" />
+              {/* GitHub OAuth Button (Hidden when ENABLE_GITHUB_OAUTH is false) */}
+              {ENABLE_GITHUB_OAUTH && (
+                <>
+                  <button
+                    onClick={handleGitHubLogin}
+                    className="group relative flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3.5 text-sm font-semibold text-zinc-950 transition-all duration-200 hover:bg-zinc-100 hover:shadow-[0_0_25px_rgba(255,255,255,0.15)] active:scale-[0.99] cursor-pointer shadow-md overflow-hidden"
+                  >
+                    <div className="w-4 h-4 opacity-0 pointer-events-none" />
+                    <div className="flex items-center justify-center gap-3">
+                      <GithubIcon className="h-5 w-5" />
+                      <span>Continue with GitHub</span>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-zinc-400 group-hover:text-zinc-950 group-hover:translate-x-1 transition-all duration-200" />
+                  </button>
 
-  {/* Centered content */}
-  <div className="flex items-center justify-center gap-3">
-    <GithubIcon className="h-5 w-5" />
-    <span>Continue with GitHub</span>
-  </div>
-
-  {/* Arrow pinned right */}
-  <ArrowRight className="h-4 w-4 text-zinc-400 group-hover:text-zinc-950 group-hover:translate-x-1 transition-all duration-200" />
-</button>
-
-              {/* Divider */}
-              <div className="flex items-center gap-3 py-1">
-                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-800 to-zinc-800" />
-                <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-widest px-1 font-semibold">
-                  Or Demo Access
-                </span>
-                <div className="h-px flex-1 bg-gradient-to-r from-zinc-800 via-zinc-800 to-transparent" />
-              </div>
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-800 to-zinc-800" />
+                    <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-widest px-1 font-semibold">
+                      Or Demo Access
+                    </span>
+                    <div className="h-px flex-1 bg-gradient-to-r from-zinc-800 via-zinc-800 to-transparent" />
+                  </div>
+                </>
+              )}
 
               {/* Demo Form with Custom Credentials */}
               <form

@@ -10,6 +10,10 @@
  *   limit of 10 is exceeded, generating MaxListenersExceededWarning noise.
  */
 import { EventEmitter } from 'events';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../backend/.env') });
 
 EventEmitter.defaultMaxListeners = 100;
 process.setMaxListeners(100);

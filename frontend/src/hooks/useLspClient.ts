@@ -24,6 +24,10 @@ interface UseLspClientOptions {
   onStatusChange?: (status: LspStatus) => void;
 }
 
+// Feature Flag: In-container LSP WebSocket is disabled for interview demo stability.
+// Monaco's built-in language workers (TsWorker, JsonWorker, etc.) handle syntax & completions locally.
+const ENABLE_CONTAINER_LSP = false;
+
 export function useLspClient({
   workspaceId,
   fileId,
@@ -38,6 +42,8 @@ export function useLspClient({
   onStatusChangeRef.current = onStatusChange;
 
   useEffect(() => {
+    if (!ENABLE_CONTAINER_LSP) return;
+
     const backendLang = LSP_LANGUAGE_MAP[language];
     if (!backendLang || !editor || !monacoInstance || readOnly) return;
 

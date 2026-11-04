@@ -54,6 +54,11 @@ const getFileColor = (name: string) => {
   return 'text-zinc-500';
 };
 
+// Demo Feature Flags: kept in codebase, disabled for smooth interview presentation
+const ENABLE_WEB_PREVIEW = false;
+const ENABLE_CONFLICT_RESOLVER = false;
+const ENABLE_TIMELAPSE = false;
+
 function IdePage() {
   const [user, setUser] = useState<User | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -474,20 +479,22 @@ function IdePage() {
                       );
                     })}
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsViewingTimelapse(prev => !prev);
-                    }}
-                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                      isViewingTimelapse ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
-                    }`}
-                  >
-                    <History size={14} />
-                    Timelapse
-                  </button>
+                  {ENABLE_TIMELAPSE && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsViewingTimelapse(prev => !prev);
+                      }}
+                      className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                        isViewingTimelapse ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
+                      }`}
+                    >
+                      <History size={14} />
+                      Timelapse
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-xs font-medium text-zinc-600">
@@ -498,7 +505,7 @@ function IdePage() {
             </div>
 
             {/* Conflict banner */}
-            {hasConflicts && (
+            {ENABLE_CONFLICT_RESOLVER && hasConflicts && (
               <div className="flex shrink-0 items-center justify-between bg-amber-500/10 px-4 py-2 border-b border-amber-500/20">
                 <div className="flex items-center gap-2 text-xs text-amber-500">
                   <GitBranch size={14} />
@@ -536,7 +543,7 @@ function IdePage() {
                       onJumpComplete={() => setJumpToUserId(null)}
                     />
                   </div>
-                  {isViewingTimelapse && (
+                  {ENABLE_TIMELAPSE && isViewingTimelapse && (
                     <div className="relative flex flex-col flex-1 min-h-0 min-w-0">
                       <TimelapseReplayer
                         workspaceId={workspaceId}
@@ -576,13 +583,15 @@ function IdePage() {
                     {terminalCwd || (activeFile ? (activeFile.name.includes('/') ? activeFile.name.substring(0, activeFile.name.lastIndexOf('/')) + '/' : '~/') : '~/')}
                   </span>
                 </div>
-                <button
-                  onClick={() => window.open(apiUrl(`/workspace/${workspaceId}/preview/?token=${getNexusToken()}`), '_blank')}
-                  className="group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-all hover:bg-emerald-500/20"
-                >
-                  <Globe size={12} className="transition-transform group-hover:scale-110" />
-                  Preview
-                </button>
+                {ENABLE_WEB_PREVIEW && (
+                  <button
+                    onClick={() => window.open(apiUrl(`/workspace/${workspaceId}/preview/?token=${getNexusToken()}`), '_blank')}
+                    className="group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 transition-all hover:bg-emerald-500/20"
+                  >
+                    <Globe size={12} className="transition-transform group-hover:scale-110" />
+                    Preview
+                  </button>
+                )}
                 {userRole !== 'viewer' && (
                   <button
                     onClick={() => { sessionStorage.setItem('resetTerminal', 'true'); setTerminalKey(prev => prev + 1); setTerminalCwd(''); }}
@@ -624,7 +633,7 @@ function IdePage() {
         />
       )}
 
-      {showConflictResolver && workspaceId && activeFileId && activeFile && (
+      {ENABLE_CONFLICT_RESOLVER && showConflictResolver && workspaceId && activeFileId && activeFile && (
         <ConflictResolver
           workspaceId={workspaceId}
           fileId={activeFileId}

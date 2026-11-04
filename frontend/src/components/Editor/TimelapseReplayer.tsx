@@ -179,10 +179,6 @@ export function buildFullFidelityTimeline(updatesB64: string[]): BuiltTimeline {
   const getFrame = (frameIdx: number): Snapshot => {
     if (cachedFrames.has(frameIdx)) return cachedFrames.get(frameIdx)!;
 
-    // Start from the closest preceding keyframe checkpoint
-    let baseIdx = Math.floor(frameIdx / KEYFRAME_INTERVAL) * KEYFRAME_INTERVAL;
-    if (baseIdx < 0) baseIdx = 0;
-
     const tempDoc = new Y.Doc({ gc: false });
     const tempText = tempDoc.getText('monaco');
 

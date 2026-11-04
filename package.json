@@ -9,6 +9,7 @@
     "test:backend": "npm --prefix backend test",
     "test:frontend": "npm --prefix frontend test",
     "test:e2e": "npm --prefix testing run test:e2e",
+    "test:demo": "npm --prefix testing run test:demo",
     "test:all": "npm run test:backend && npm run test:frontend",
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
     "typecheck:backend": "backend/node_modules/.bin/tsc -p backend/tsconfig.json --noEmit",

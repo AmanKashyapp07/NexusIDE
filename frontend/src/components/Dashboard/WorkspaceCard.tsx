@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Users, Clock, Edit2, Trash2, Check, X, ArrowUpRight } from 'lucide-react';
 import type { Workspace } from '../../hooks/useWorkspaces';
 
