@@ -47,7 +47,7 @@ All sample counts, percentile distributions, trade-offs, and boundary edge cases
 | **Real-Time CRDT Sync** | Dynamic Multi-Client Convergence | N/A | 7.85ms (2 clients), 37.97ms (10 clients) | **100% bit-for-bit convergence** | **Tier B** (WSSharedDoc Harness) |
 | **CRDT Tombstone Growth** | Deletion State Inflation | 520 B (Fresh doc, 500 chars) | 1,040 B (`gc: false`, 50% deleted) | **+100.0% tombstone expansion** | **Tier D** (In-Memory Engine Microbenchmark) |
 | **Binary Cursor Codec** | 100-User Payload Size | 6,798 Bytes (JSON) | 800 Bytes (8-Byte) / 1,200 Bytes (12-Byte) | **88.23% / 82.35% payload reduction** | **Tier D** (Experimental Prototype) |
-| **Binary Cursor Codec** | 100-User Batch Deserialization | 108.1K batch ops/s (JSON.parse) | 3.42M batch ops/s (8-Byte) / 2.40M (12-Byte) | **31.68× / 22.18× faster batch decoding** | **Tier D** (Experimental Prototype) |
+| **Binary Cursor Codec** | 100-User Batch Deserialization | 110.1K batch ops/s (JSON.parse) | 3.00M batch ops/s (8-Byte) / 2.40M (12-Byte) | **27.28× / 21.78× faster batch decoding** | **Tier D** (Experimental Prototype) |
 
 ---
 
@@ -253,11 +253,11 @@ JIT warmup (1,000 iterations) was executed prior to measurement. Latency and bat
 | Collabs | 8-Byte Size | 12-Byte Size | JSON Size | 8-B Reduction | 12-B Reduction | 8-B Decode Ops/s | 12-B Decode Ops/s | JSON Parse Ops/s | 8-B Speedup | 12-B Speedup |
 |---|---|---|---|---|---|---|---|---|---|---|
 | **1** | 8 B | 12 B | 64 B | **87.50%** | **81.25%** | 12.05M | 12.05M | 4.00M | **3.01×** | **3.01×** |
-| **10** | 80 B | 120 B | 655 B | **87.79%** | **81.68%** | 11.90M | 11.90M | 1.04M | **11.42×** | **11.42×** |
-| **50** | 400 B | 600 B | 3,365 B | **88.11%** | **82.17%** | 5.99M | 4.00M | 214K | **27.94×** | **18.66×** |
-| **100** | 800 B | 1,200 B | 6,798 B | **88.23%** | **82.35%** | 3.42M | 2.40M | 108.1K | **31.68×** | **22.18×** |
-| **250** | 2,000 B | 3,000 B | 17,257 B | **88.41%** | **82.62%** | 1.26M | 858K | 44.2K | **28.57×** | **19.40×** |
-| **500** | 4,000 B | 6,000 B | 34,606 B | **88.44%** | **82.66%** | 649K | 429K | 22.2K | **29.24×** | **19.32×** |
+| **10** | 80 B | 120 B | 655 B | **87.79%** | **81.68%** | 11.90M | 11.90M | 1.04M | **11.40×** | **11.40×** |
+| **50** | 400 B | 600 B | 3,365 B | **88.11%** | **82.17%** | 5.99M | 4.78M | 216K | **27.69×** | **22.13×** |
+| **100** | 800 B | 1,200 B | 6,798 B | **88.23%** | **82.35%** | 3.00M | 2.40M | 110.1K | **27.28×** | **21.78×** |
+| **250** | 2,000 B | 3,000 B | 17,257 B | **88.41%** | **82.62%** | 1.26M | 857K | 44.2K | **28.57×** | **19.39×** |
+| **500** | 4,000 B | 6,000 B | 34,606 B | **88.44%** | **82.66%** | 685K | 444K | 22.3K | **30.79×** | **19.96×** |
 
 *Note: Throughput numbers reflect batch operations per second (i.e. encoding/decoding entire collaborator arrays).*
 

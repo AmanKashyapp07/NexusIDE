@@ -122,24 +122,24 @@
 ## 2. Experimental Prototype Section (Non-Production Systems Research)
 
 ### 2.1. Bit-Packed Binary Cursor Streaming Codec
-> **"Prototyped and benchmarked an experimental bit-packed binary cursor codec (Tier D), evaluating an 88.23% payload reduction (800B vs 6.8KB JSON) and 31.7× faster batch deserialization across 100 collaborators, while identifying a 7.28% 16-bit hash collision risk and modeling migration via collision-free room-scoped slot tables and prospective 12-byte uint32 formats with external allocation."**
+> **"Prototyped and benchmarked an experimental bit-packed binary cursor codec (Tier D), evaluating an 88.23% payload reduction (800B vs 6.8KB JSON) and 27.3× faster batch deserialization across 100 collaborators, while identifying a 7.28% 16-bit hash collision risk and modeling migration via collision-free room-scoped slot tables and prospective 12-byte uint32 formats with external allocation."**
 
 #### Evidence & Audit Record:
 - **Metric**: Network payload reduction & Deserialization batch throughput.
-- **Baseline**: Standard JSON serialized cursor array `[{ userHash, lineNumber, column, selectionLength }, ...]` (6,798 bytes for 100 users, 108,108 batch ops/sec parse).
+- **Baseline**: Standard JSON serialized cursor array `[{ userHash, lineNumber, column, selectionLength }, ...]` (6,798 bytes for 100 users, 110,084 batch ops/sec parse).
 - **Production Source**: `backend/src/services/cursorCodec.service.ts` (`encodeCursorBatch`, `decodeCursorBatch`).
 - **Benchmark Script**: `benchmarks/scripts/bench-cursor-codec.ts`.
 - **Raw Data Path**: `benchmarks/results/raw/cursor-codec-production.json`.
 - **Measured Results**:
-  - 10 Collaborators: 80B vs 655B (**87.79% payload drop**), 11.90M decode batch ops/sec (**11.42× faster**).
-  - 100 Collaborators: 800B vs 6,798B (**88.23% payload drop**), 3.42M decode batch ops/sec (**31.68× faster**).
-  - 500 Collaborators: 4,000B vs 34,606B (**88.44% payload drop**), 648.5K decode batch ops/sec (**29.24× faster**).
+  - 10 Collaborators: 80B vs 655B (**87.79% payload drop**), 11.90M decode batch ops/sec (**11.40× faster**).
+  - 100 Collaborators: 800B vs 6,798B (**88.23% payload drop**), 3.00M decode batch ops/sec (**27.28× faster**).
+  - 500 Collaborators: 4,000B vs 34,606B (**88.44% payload drop**), 685.4K decode batch ops/sec (**30.79× faster**).
 - **Collision & Invariant Audit**:
   - Round-trip fidelity verified; uint16 upper-bound coordinates clamped to 65,535; truncated buffer rejection verified.
   - *Engineering Limitation Disclosed*: User ID is compressed into a 16-bit integer (`uint16`). In collaboration rooms, birthday paradox collision risks are: 0.069% (10 users), 1.852% (50 users), and 7.278% (100 users).
   - *Evaluated Migration Designs*:
     1. `RoomIdentityTable`: Maps string user IDs to ephemeral integer indices within room sessions (**0.00% collision rate by construction**, with enforced uint16 capacity limit of 65,536 participants).
-    2. Prospective 12-Byte uint32 Format: Implemented in benchmark script (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`), maintaining an **82.35% payload reduction** (1,200 B vs 6,798 B JSON) and 2.40M ops/sec decode speed (**22.18× faster**). *Note*: The 12-byte format accepts numeric IDs; UUID collision freedom requires an external numeric ID allocator (e.g. database sequence or snowflake generator) to map string UUIDs to 32-bit integers.
+    2. Prospective 12-Byte uint32 Format: Implemented in benchmark script (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`), maintaining an **82.35% payload reduction** (1,200 B vs 6,798 B JSON) and 2.40M ops/sec decode speed (**21.78× faster**). *Note*: The 12-byte format accepts numeric IDs; UUID collision freedom requires an external numeric ID allocator (e.g. database sequence or snowflake generator) to map string UUIDs to 32-bit integers.
   - *Integration Qualification*: The 8-byte implementation in `backend/src/services/cursorCodec.service.ts` is explicitly an experimental component microbenchmark; it is not integrated into the live WebSocket collaboration awareness loop.
 - **Classification**: **Tier D (Experimental Prototype Microbenchmark)**.
 
@@ -154,4 +154,4 @@
 | **Redis Write-Behind**| Ingestion & Coalescing | 98.1% burst latency drop, 98.0% write reduction | **Tier A** | Live Redis 8.8.0 + Live PostgreSQL 14 |
 | **PostgreSQL Persistence**| Batch Multi-Row Write | 267,932 rows/s effective (24× gain vs single) | **Tier B** | Dedicated Pool matching Production Config |
 | **Merkle DAG CAS** | Snapshot & Deduplication | 0.079ms snapshot (100 files), 61.4% dedup | **Tier B** | Real Node.js Crypto SHA-256 Engine |
-| **Cursor Codec (Exp.)** | Payload & Decode Speed | 88.23% payload cut, 31.7× decode speedup | **Tier D** | Real V8 Engine v14.6, Component Microbenchmark |
+| **Cursor Codec (Exp.)** | Payload & Decode Speed | 88.23% payload cut, 27.3× decode speedup | **Tier D** | Real V8 Engine v14.6, Component Microbenchmark |
