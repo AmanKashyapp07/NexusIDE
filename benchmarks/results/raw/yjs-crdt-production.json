@@ -1,8 +1,8 @@
 {
   "benchmark": "Yjs CRDT Real-Time Collaboration",
-  "timestamp": "2026-11-14T06:41:22.286Z",
+  "timestamp": "2026-11-14T06:58:15.630Z",
   "environment": {
-    "timestamp": "2026-11-14T06:41:21.786Z",
+    "timestamp": "2026-11-14T06:58:15.101Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,19 +10,19 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.32
+      "freeMemoryGb": 0.09
     },
     "runtime": {
-      "node": "v22.20.0",
-      "v8": "12.4.254.21-node.33",
-      "uv": "1.51.0"
+      "node": "v26.5.0",
+      "v8": "14.6.202.34-node.24",
+      "uv": "1.52.1"
     },
     "services": {
       "docker": {
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 42,
+        "containers": 45,
         "images": 5
       },
       "redis": {
@@ -38,31 +38,32 @@
       }
     }
   },
-  "evidenceTier": "Tier A (Live WebSockets + Live Redis + Production WSSharedDoc)",
+  "evidenceTier": "Tier B / Component Harness (Production WSSharedDoc Class + Single-Host Redis Pub/Sub Mesh)",
   "productionSources": [
     "backend/src/services/yjsSyncEngine.service.ts",
     "backend/src/services/redisAdapter.service.ts"
   ],
+  "scopeQualification": "Measures production WSSharedDoc synchronization concurrency over real WebSockets and Redis Pub/Sub update replication between document instances in a single-host environment. Full multi-instance production clustering with HTTP upgrade auth was not evaluated.",
   "results": {
     "level1_localLibrary": {
       "100": {
         "insertions": 100,
-        "elapsedMs": 1.55,
-        "insertionsPerSec": 64501,
+        "elapsedMs": 1.556,
+        "insertionsPerSec": 64269,
         "encodedStateBytes": 120,
         "bytesPerChar": 1.2
       },
       "1000": {
         "insertions": 1000,
-        "elapsedMs": 4.001,
-        "insertionsPerSec": 249940,
+        "elapsedMs": 3.271,
+        "insertionsPerSec": 305682,
         "encodedStateBytes": 1021,
         "bytesPerChar": 1.02
       },
       "5000": {
         "insertions": 5000,
-        "elapsedMs": 14.347,
-        "insertionsPerSec": 348498,
+        "elapsedMs": 28.3,
+        "insertionsPerSec": 176677,
         "encodedStateBytes": 5021,
         "bytesPerChar": 1
       }
@@ -72,21 +73,21 @@
         "clientCount": 2,
         "editsPerClient": 20,
         "totalEdits": 40,
-        "exactConvergenceMs": 7.52,
+        "exactConvergenceMs": 10.54,
         "allClientsBitIdentical": true
       },
       "5": {
         "clientCount": 5,
         "editsPerClient": 20,
         "totalEdits": 100,
-        "exactConvergenceMs": 24.81,
+        "exactConvergenceMs": 29.56,
         "allClientsBitIdentical": true
       },
       "10": {
         "clientCount": 10,
         "editsPerClient": 20,
         "totalEdits": 200,
-        "exactConvergenceMs": 43.51,
+        "exactConvergenceMs": 42.57,
         "allClientsBitIdentical": true
       }
     },
@@ -94,15 +95,17 @@
       "iterations": 100,
       "propagationStats": {
         "n": 100,
-        "min": 0.096916,
-        "max": 1.253834,
-        "mean": 0.177245,
-        "median": 0.142979,
-        "p95": 0.340916,
-        "p99": 1.253834,
-        "stddev": 0.127858,
-        "opsPerSec": 6994
-      }
+        "min": 0.094167,
+        "max": 1.199,
+        "mean": 0.20834,
+        "median": 0.16502,
+        "p95": 0.494625,
+        "p99": 1.199,
+        "stddev": 0.148377,
+        "opsPerSec": 6060
+      },
+      "crossInstanceConvergenceVerified": true,
+      "replicatedCharacters": 100
     },
     "level4_tombstoneStateInflation": {
       "0%_deleted": {
@@ -126,8 +129,8 @@
         "deletedPct": 50,
         "remainingChars": 500,
         "gcFalseStateVectorBytes": 1040,
-        "freshDocStateVectorBytes": 521,
-        "tombstoneInflationPct": 99.62
+        "freshDocStateVectorBytes": 520,
+        "tombstoneInflationPct": 100
       },
       "75%_deleted": {
         "initialChars": 1000,

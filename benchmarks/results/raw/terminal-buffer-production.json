@@ -1,8 +1,8 @@
 {
   "benchmark": "Terminal PTY Stream Buffer",
-  "timestamp": "2026-11-14T06:40:40.695Z",
+  "timestamp": "2026-11-14T06:56:43.599Z",
   "environment": {
-    "timestamp": "2026-11-14T06:40:40.614Z",
+    "timestamp": "2026-11-14T06:56:43.522Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,19 +10,19 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.07
+      "freeMemoryGb": 0.11
     },
     "runtime": {
-      "node": "v22.20.0",
-      "v8": "12.4.254.21-node.33",
-      "uv": "1.51.0"
+      "node": "v26.5.0",
+      "v8": "14.6.202.34-node.24",
+      "uv": "1.52.1"
     },
     "services": {
       "docker": {
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 41,
+        "containers": 45,
         "images": 5
       },
       "redis": {
@@ -46,9 +46,9 @@
       "directFrames": 100,
       "bufferedFrames": 2,
       "frameReductionPct": 98,
-      "directDeliveryDurationMs": 1.72,
-      "bufferedDeliveryDurationMs": 11.36,
-      "latencyTradeoffDeltaMs": 9.64,
+      "directDeliveryDurationMs": 1.49,
+      "bufferedDeliveryDurationMs": 10.34,
+      "latencyTradeoffDeltaMs": 8.84,
       "integrityVerified": true
     },
     "scenarioB_1000x64B": {
@@ -56,9 +56,9 @@
       "directFrames": 1000,
       "bufferedFrames": 4,
       "frameReductionPct": 99.6,
-      "directDeliveryDurationMs": 6.6,
-      "bufferedDeliveryDurationMs": 11.48,
-      "latencyTradeoffDeltaMs": 4.88,
+      "directDeliveryDurationMs": 6.03,
+      "bufferedDeliveryDurationMs": 10.38,
+      "latencyTradeoffDeltaMs": 4.34,
       "integrityVerified": true
     },
     "scenarioC_10x8KB": {
@@ -66,8 +66,8 @@
       "directFrames": 10,
       "bufferedFrames": 5,
       "frameReductionPct": 50,
-      "directDeliveryDurationMs": 0.12,
-      "bufferedDeliveryDurationMs": 0.13,
+      "directDeliveryDurationMs": 0.09,
+      "bufferedDeliveryDurationMs": 0.14,
       "integrityVerified": true
     },
     "scenarioD_mixed": {
@@ -75,17 +75,21 @@
       "directFrames": 100,
       "bufferedFrames": 13,
       "frameReductionPct": 87,
-      "directDeliveryDurationMs": 0.77,
-      "bufferedDeliveryDurationMs": 10.44,
+      "directDeliveryDurationMs": 0.55,
+      "bufferedDeliveryDurationMs": 10.36,
       "integrityVerified": true
     },
     "backpressureAudit": {
+      "classification": "Tier C (Emulated Socket-Level Interface Test)",
       "backpressureThresholdBytes": 65536,
       "emulatedSocketCongestionBytes": 70000,
       "transmissionDeferredDuringCongestion": true,
-      "dataRetainedInRamBytes": 27,
+      "clientReceivedDuringCongestion": 0,
+      "dataRetainedInRamBytes": 47,
       "flushedSuccessfullyOnDrain": true,
-      "zeroDataLossVerified": true
+      "clientReceivedAfterDrainBytes": 47,
+      "endToEndPayloadIntegrityVerified": true,
+      "scopeNote": "Evaluated transport driver throttling logic and delivery upon drain. Physical OS kernel TCP socket buffer saturation was not performed."
     }
   }
 }

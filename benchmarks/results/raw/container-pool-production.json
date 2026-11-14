@@ -1,108 +1,82 @@
 {
-  "benchmark": "Docker Warm Container Sandbox Pool",
-  "timestamp": "2026-11-14T06:39:20.682Z",
+  "benchmark": "Docker Container Pool Lifecycle & Exhaustion Audit",
+  "timestamp": "2026-11-14T06:56:12.843Z",
   "environment": {
-    "timestamp": "2026-11-14T06:39:18.275Z",
-    "os": {
-      "platform": "darwin",
-      "release": "27.2.0",
-      "arch": "arm64",
-      "cpus": 10,
-      "cpuModel": "Apple M4",
-      "totalMemoryGb": 16,
-      "freeMemoryGb": 0.1
-    },
-    "runtime": {
-      "node": "v22.20.0",
-      "v8": "12.4.254.21-node.33",
-      "uv": "1.51.0"
-    },
-    "services": {
-      "docker": {
-        "available": true,
-        "version": "29.5.2",
-        "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 39,
-        "images": 5
-      },
-      "redis": {
-        "available": true,
-        "version": "8.8.0",
-        "host": "127.0.0.1",
-        "port": 6379
-      },
-      "postgres": {
-        "available": true,
-        "version": "PostgreSQL 14.20 (Homebrew) on aarch64-apple-darwin25.1.0, compiled by Apple clang version 17.0.0 (clang-1700.4.4.1), 64-bit",
-        "database": "sandbox"
-      }
-    }
+    "platform": "darwin",
+    "arch": "arm64",
+    "dockerVersion": "29.5.2",
+    "dockerSocket": "/Users/amankashyap/.docker/run/docker.sock"
   },
-  "evidenceTier": "Tier A (Live Docker Engine v29.5.2 Daemon)",
-  "productionSource": "backend/src/sandbox/pool.ts",
   "results": {
     "coldProvisioning": {
       "samplesMs": [
-        128.815917,
-        99.97275000000002,
-        103.47204199999999,
-        113.77179100000001,
-        91.65037499999994
+        106.67,
+        97.73,
+        102.63,
+        113.49,
+        102.51
       ],
       "stats": {
         "n": 5,
-        "min": 91.650375,
-        "max": 128.815917,
-        "mean": 107.536575,
-        "median": 103.472042,
-        "p95": 128.815917,
-        "p99": 128.815917,
-        "stddev": 12.788992,
+        "min": 97.73,
+        "max": 113.49,
+        "mean": 104.606,
+        "median": 102.63,
+        "p95": 113.49,
+        "p99": 113.49,
+        "stddev": 5.268068,
         "opsPerSec": 10
       }
     },
     "warmCheckout": {
       "samplesMs": [
-        0.4172919999999749
+        0.2935,
+        0.2882,
+        0.4325,
+        0.2841,
+        0.2526
       ],
       "stats": {
-        "n": 1,
-        "min": 0.417292,
-        "max": 0.417292,
-        "mean": 0.417292,
-        "median": 0.417292,
-        "p95": 0.417292,
-        "p99": 0.417292,
-        "stddev": 0,
-        "opsPerSec": 2396
+        "n": 5,
+        "min": 0.2526,
+        "max": 0.4325,
+        "mean": 0.31018,
+        "median": 0.2882,
+        "p95": 0.4325,
+        "p99": 0.4325,
+        "stddev": 0.0628,
+        "opsPerSec": 3470
       },
       "verifiedPrewarmed": true
     },
     "onDemandFallback": {
       "samplesMs": [
-        205.30187499999988,
-        0.009958000000096945,
-        138.57850000000008
+        100.3,
+        90.76,
+        104.72,
+        105.88,
+        111.54
       ],
       "stats": {
-        "n": 3,
-        "min": 0.009958,
-        "max": 205.301875,
-        "mean": 114.630111,
-        "median": 138.5785,
-        "p95": 205.301875,
-        "p99": 205.301875,
-        "stddev": 85.50375,
-        "opsPerSec": 7
-      }
+        "n": 5,
+        "min": 90.76,
+        "max": 111.54,
+        "mean": 102.64,
+        "median": 104.72,
+        "p95": 111.54,
+        "p99": 111.54,
+        "stddev": 6.937492,
+        "opsPerSec": 10
+      },
+      "verifiedEmptyPoolBeforeEachPop": true
     },
     "comparison": {
-      "coldMedianMs": 103.472042,
-      "warmCheckoutMedianMs": 0.417292,
-      "onDemandFallbackMedianMs": 138.5785,
-      "warmCheckoutSpeedupVsCold": 248,
-      "warmCheckoutLatencyReductionPct": 99.6,
-      "onDemandMatchesColdProvisioning": false
+      "coldMedianMs": 102.63,
+      "warmCheckoutMedianMs": 0.2882,
+      "onDemandFallbackMedianMs": 104.72,
+      "warmCheckoutSpeedupVsCold": 356.1,
+      "warmCheckoutLatencyReductionPct": 99.72,
+      "onDemandMatchesColdProvisioning": true
     }
   }
 }

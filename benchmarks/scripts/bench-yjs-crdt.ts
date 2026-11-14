@@ -210,14 +210,19 @@ async function run() {
   BenchmarkLogger.success('WSSharedDoc WebSocket server closed cleanly');
 
   // =========================================================================
-  // LEVEL 3: Redis Pub/Sub Propagation Mesh (Production Adapter Method)
+  // LEVEL 3: Redis Pub/Sub Propagation Mesh & Cross-Instance Convergence
   // =========================================================================
-  BenchmarkLogger.section('Level 3: Redis Pub/Sub Cluster Mesh Propagation');
+  BenchmarkLogger.section('Level 3: Redis Pub/Sub Propagation & Cross-Instance State Convergence');
   const redisSub = new Redis({ host: '127.0.0.1', port: 6379, maxRetriesPerRequest: 1 });
   const meshDocName = `bench-mesh-doc-${Date.now()}`;
   const clusterChannel = `yjs:update:${meshDocName}`;
 
   await redisSub.subscribe(clusterChannel);
+
+  const originDoc = new Y.Doc({ gc: false });
+  const replicaDoc = new Y.Doc({ gc: false });
+  const originText = originDoc.getText('content');
+  const replicaText = replicaDoc.getText('content');
 
   const propagationSamples: number[] = [];
   const testIterations = 100;
@@ -229,27 +234,50 @@ async function run() {
     redisSub.on('messageBuffer', (_ch: string, message: Buffer) => {
       const receiveTime = performance.now();
       propagationSamples.push(receiveTime - sendTime);
+
+      // Apply update to replica document (simulating second backend instance)
+      const uint8 = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+      Y.applyUpdate(replicaDoc, uint8);
+
       received++;
       if (received >= testIterations) resolve();
     });
 
-    const sendStep = async (step: number) => {
-      if (step >= testIterations) return;
+    originDoc.on('update', async (update: Uint8Array) => {
       sendTime = performance.now();
-      const testUpdate = new Uint8Array([0, 1, step % 256]);
-      await publishYjsUpdate(meshDocName, testUpdate);
+      await publishYjsUpdate(meshDocName, update);
+    });
+
+    const sendStep = (step: number) => {
+      if (step >= testIterations) return;
+      originDoc.transact(() => {
+        originText.insert(originText.length, String.fromCharCode((step % 26) + 97));
+      });
       setTimeout(() => sendStep(step + 1), 2);
     };
 
     sendStep(0);
   });
 
+  // Verify full convergence between origin and replica
+  const originContent = originText.toString();
+  const replicaContent = replicaText.toString();
+  const contentMatches = originContent === replicaContent;
+  const svOrigin = Buffer.from(Y.encodeStateVector(originDoc));
+  const svReplica = Buffer.from(Y.encodeStateVector(replicaDoc));
+  const stateVectorMatches = svOrigin.equals(svReplica);
+
+  Assertions.assert(contentMatches, 'Replica document must match origin content after Redis propagation');
+  Assertions.assert(stateVectorMatches, 'Replica document state vector must match origin state vector');
+
   const meshStats = Statistics.summarize(propagationSamples);
   results['level3_redisPubSubMesh'] = {
     iterations: testIterations,
-    propagationStats: meshStats
+    propagationStats: meshStats,
+    crossInstanceConvergenceVerified: contentMatches && stateVectorMatches,
+    replicatedCharacters: replicaText.length
   };
-  console.log(`  Redis Mesh Propagation (publishYjsUpdate): Median ${meshStats.median} ms | p95 ${meshStats.p95} ms | p99 ${meshStats.p99} ms`);
+  console.log(`  Redis Mesh Propagation: Median ${meshStats.median} ms | p95 ${meshStats.p95} ms | Convergence Verified: YES ✓`);
 
   await redisSub.unsubscribe();
   await redisSub.quit();
@@ -297,11 +325,12 @@ async function run() {
     benchmark: 'Yjs CRDT Real-Time Collaboration',
     timestamp: new Date().toISOString(),
     environment: env,
-    evidenceTier: 'Tier A (Live WebSockets + Live Redis + Production WSSharedDoc)',
+    evidenceTier: 'Tier B / Component Harness (Production WSSharedDoc Class + Single-Host Redis Pub/Sub Mesh)',
     productionSources: [
       'backend/src/services/yjsSyncEngine.service.ts',
       'backend/src/services/redisAdapter.service.ts'
     ],
+    scopeQualification: 'Measures production WSSharedDoc synchronization concurrency over real WebSockets and Redis Pub/Sub update replication between document instances in a single-host environment. Full multi-instance production clustering with HTTP upgrade auth was not evaluated.',
     results
   };
 

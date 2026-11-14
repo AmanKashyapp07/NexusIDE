@@ -129,6 +129,47 @@ async function run() {
     }
 
     // =========================================================================
+    // 2b. 500-UPDATE BURST: Sequential Unbatched vs Pipelined Batch Comparison
+    // =========================================================================
+    BenchmarkLogger.section('2b. 500-Update Burst Ingestion (Sequential vs Pipelined)');
+    const burstFileSeq = `bench-file-burst-seq-${Date.now()}`;
+    const burstFilePipe = `bench-file-burst-pipe-${Date.now()}`;
+    const burstUpdates = Array.from({ length: 500 }, (_, i) => Buffer.from(`burst-keystroke-delta-${i}-${Date.now()}`));
+
+    // Measure 500 sequential unbatched bufferCrdtUpdate calls
+    const t0Seq = performance.now();
+    for (let i = 0; i < 500; i++) {
+      await crdtWriteBehindService.bufferCrdtUpdate(burstFileSeq, burstUpdates[i]);
+    }
+    const burstSequentialDurationMs = performance.now() - t0Seq;
+
+    // Measure 500 updates in a single pipelined batch call
+    const t0Pipe = performance.now();
+    await crdtWriteBehindService.bufferCrdtUpdatesBatch(burstFilePipe, burstUpdates);
+    const burstPipelinedDurationMs = performance.now() - t0Pipe;
+
+    const burstLatencyReductionPct = Number(((1 - (burstPipelinedDurationMs / burstSequentialDurationMs)) * 100).toFixed(2));
+    const burstSpeedup = Number((burstSequentialDurationMs / burstPipelinedDurationMs).toFixed(1));
+
+    results['burstComparison_500'] = {
+      updateCount: 500,
+      sequentialUnbatchedDurationMs: Number(burstSequentialDurationMs.toFixed(2)),
+      pipelinedBatchDurationMs: Number(burstPipelinedDurationMs.toFixed(2)),
+      latencyReductionPct: burstLatencyReductionPct,
+      speedupFactor: burstSpeedup
+    };
+
+    console.log(`  500 Sequential Unbatched Writes: ${burstSequentialDurationMs.toFixed(2)} ms`);
+    console.log(`  500 Pipelined Batch Write:       ${burstPipelinedDurationMs.toFixed(2)} ms`);
+    console.log(`  Burst Speedup:                   ${burstSpeedup}x faster (${burstLatencyReductionPct}% latency reduction)`);
+
+    // Clean up burst buffers
+    await redis.del(`crdt:buffer:${burstFileSeq}`);
+    await redis.srem('crdt:dirty_files', burstFileSeq);
+    await redis.del(`crdt:buffer:${burstFilePipe}`);
+    await redis.srem('crdt:dirty_files', burstFilePipe);
+
+    // =========================================================================
     // 3. PERSISTENCE FLUSH LIFECYCLE (flushFileBuffer -> PostgreSQL file_updates)
     // =========================================================================
     BenchmarkLogger.section('3. Production flushFileBuffer() Lifecycle (Redis -> DB Persistence)');

@@ -11,10 +11,24 @@ import { Assertions } from '../common/assertions.mjs';
 import { BenchmarkLogger } from '../common/logger.mjs';
 import { detectEnvironment } from '../common/environment.mjs';
 
+import dotenv from 'dotenv';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../../backend/.env') });
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = 'postgresql://amankashyap@localhost:5432/sandbox';
+}
+
+// Import production connection pool
+import { getPool } from '../../backend/src/db.js';
+
+import { Statistics } from '../common/statistics.mjs';
+import { CleanupManager } from '../common/cleanup.mjs';
+import { Assertions } from '../common/assertions.mjs';
+import { BenchmarkLogger } from '../common/logger.mjs';
+import { detectEnvironment } from '../common/environment.mjs';
 
 async function run() {
-  BenchmarkLogger.header('Benchmark 5: PostgreSQL Persistence Engine (Live Database)');
+  BenchmarkLogger.header('Benchmark 5: PostgreSQL Persistence Engine (Production getPool)');
   const env = await detectEnvironment();
 
   if (!env.services.postgres.available) {
@@ -22,11 +36,7 @@ async function run() {
     process.exit(1);
   }
 
-  const pool = new pg.Pool({
-    connectionString: 'postgresql://amankashyap@localhost:5432/sandbox',
-    max: 10,
-    idleTimeoutMillis: 5000
-  });
+  const pool = getPool();
 
   const BENCH_TABLE = 'bench_production_file_updates';
 
@@ -163,8 +173,9 @@ async function run() {
     benchmark: 'PostgreSQL Persistence Engine',
     timestamp: new Date().toISOString(),
     environment: env,
-    evidenceTier: 'Tier A (Live PostgreSQL 14+ Database)',
+    evidenceTier: 'Tier B (PostgreSQL Infrastructure Benchmark: Direct SQL with Production getPool())',
     productionSource: 'backend/src/db.ts',
+    scopeQualification: 'Measures database engine raw row and batch write throughput via production getPool() connection pool. End-to-end write coalescing lifecycle is benchmarked in bench-redis-writebehind.ts.',
     results
   };
 

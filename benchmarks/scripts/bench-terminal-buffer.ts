@@ -206,23 +206,31 @@ async function run() {
   console.log(`  Integrity: ${bufferedD.integrityVerified ? '100% BIT-FOR-BIT MATCH' : 'FAIL'}`);
 
   // =========================================================================
-  // Scenario E: Deliberate Backpressure & Buffer Throttling Audit
+  // Scenario E: Backpressure Throttling & Socket Drain Delivery Test
   // =========================================================================
-  BenchmarkLogger.section('Scenario E: Backpressure Congestion & Buffer Throttling');
+  BenchmarkLogger.section('Scenario E: Backpressure Throttling & Drain Delivery (Interface Audit)');
   const bufferWithBackpressure = new TerminalStreamBuffer(serverWs, {
     maxBatchMs: 10,
     maxBatchBytes: 16384,
     maxBufferedAmount: 65536 // 64 KB threshold
   });
 
-  // Emulate socket congestion by setting bufferedAmount > 64KB
+  // Attach real client listener to track end-to-end receipt of backpressure payloads
+  const receivedCongestionChunks: Buffer[] = [];
+  let onChunkReceived: (() => void) | null = null;
+  clientWs.on('message', (data: Buffer) => {
+    receivedCongestionChunks.push(Buffer.from(data));
+    if (onChunkReceived) onChunkReceived();
+  });
+
+  // Emulate socket congestion by setting bufferedAmount > 64KB threshold
   Object.defineProperty(serverWs, 'bufferedAmount', {
     value: 70000,
     configurable: true,
     writable: true
   });
 
-  const congestionChunk = Buffer.from('Congestion Test Chunk 12345');
+  const congestionChunk = Buffer.from('Congestion Test Chunk 12345 - Verified Delivery');
   bufferWithBackpressure.push(congestionChunk);
 
   // Trigger flush attempt during congestion
@@ -231,25 +239,42 @@ async function run() {
   // Verify internal buffer deferred transmission and retained chunks
   const pendingBytesDuringCongestion = (bufferWithBackpressure as any).currentBytes;
   Assertions.assertEqual(pendingBytesDuringCongestion, congestionChunk.length, 'Data must be retained in buffer during socket congestion');
+  Assertions.assertEqual(receivedCongestionChunks.length, 0, 'Client must not receive payload while socket is congested');
   console.log(`  Congestion Trigger: socket bufferedAmount = 70,000 (> 64KB threshold)`);
-  console.log(`  Throttling Active: flush was deferred; ${pendingBytesDuringCongestion} bytes held safely in RAM`);
+  console.log(`  Throttling Active: flush deferred; ${pendingBytesDuringCongestion} bytes held in RAM (0 frames sent over wire)`);
 
-  // Emulate socket drain: bufferedAmount drops to 0
+  // Emulate socket drain: bufferedAmount drops to 0 and flush triggered
   (serverWs as any).bufferedAmount = 0;
   console.log(`  Socket Drain: bufferedAmount reset to 0; triggering drain flush`);
-  bufferWithBackpressure.flush();
+  
+  const drainDeliveryPromise = new Promise<void>((resolve) => {
+    if (receivedCongestionChunks.length > 0) return resolve();
+    onChunkReceived = () => resolve();
+    bufferWithBackpressure.flush();
+  });
+
+  await drainDeliveryPromise;
 
   const pendingBytesAfterDrain = (bufferWithBackpressure as any).currentBytes;
   Assertions.assertEqual(pendingBytesAfterDrain, 0, 'Buffer must be drained to 0 after socket clears');
-  console.log(`  Drain Completed: ${pendingBytesAfterDrain} bytes remaining in buffer`);
+  Assertions.assert(receivedCongestionChunks.length > 0, 'Client must receive retained payload after socket drain');
+  
+  const receivedCombined = Buffer.concat(receivedCongestionChunks);
+  const deliveryMatches = receivedCombined.equals(congestionChunk);
+  Assertions.assert(deliveryMatches, 'Payload delivered to client after drain must match original chunk bit-for-bit');
+  console.log(`  Drain Completed: ${receivedCombined.length} bytes delivered to client (Bit-for-bit match: ${deliveryMatches ? 'YES ✓' : 'NO ✗'})`);
 
   results['backpressureAudit'] = {
+    classification: 'Tier C (Emulated Socket-Level Interface Test)',
     backpressureThresholdBytes: 65536,
     emulatedSocketCongestionBytes: 70000,
     transmissionDeferredDuringCongestion: true,
+    clientReceivedDuringCongestion: 0,
     dataRetainedInRamBytes: congestionChunk.length,
     flushedSuccessfullyOnDrain: true,
-    zeroDataLossVerified: true
+    clientReceivedAfterDrainBytes: receivedCombined.length,
+    endToEndPayloadIntegrityVerified: deliveryMatches,
+    scopeNote: 'Evaluated transport driver throttling logic and delivery upon drain. Physical OS kernel TCP socket buffer saturation was not performed.'
   };
 
   // Cleanup WebSockets
