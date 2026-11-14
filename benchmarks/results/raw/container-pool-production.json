@@ -1,6 +1,6 @@
 {
   "benchmark": "Docker Container Pool Lifecycle & Exhaustion Audit",
-  "timestamp": "2026-11-14T06:56:12.843Z",
+  "timestamp": "2026-11-14T07:23:59.338Z",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
@@ -10,73 +10,78 @@
   "results": {
     "coldProvisioning": {
       "samplesMs": [
-        106.67,
-        97.73,
-        102.63,
-        113.49,
-        102.51
+        100.28,
+        95.74,
+        132,
+        125.2,
+        127.65
       ],
       "stats": {
         "n": 5,
-        "min": 97.73,
-        "max": 113.49,
-        "mean": 104.606,
-        "median": 102.63,
-        "p95": 113.49,
-        "p99": 113.49,
-        "stddev": 5.268068,
-        "opsPerSec": 10
+        "min": 95.74,
+        "max": 132,
+        "mean": 116.174,
+        "median": 125.2,
+        "p95": 132,
+        "p99": 132,
+        "stddev": 15.058533,
+        "opsPerSec": 8
       }
     },
     "warmCheckout": {
       "samplesMs": [
-        0.2935,
-        0.2882,
-        0.4325,
-        0.2841,
-        0.2526
+        0.21,
+        0.2496,
+        0.2021,
+        0.2369,
+        0.1775
       ],
       "stats": {
         "n": 5,
-        "min": 0.2526,
-        "max": 0.4325,
-        "mean": 0.31018,
-        "median": 0.2882,
-        "p95": 0.4325,
-        "p99": 0.4325,
-        "stddev": 0.0628,
-        "opsPerSec": 3470
+        "min": 0.1775,
+        "max": 0.2496,
+        "mean": 0.21522,
+        "median": 0.21,
+        "p95": 0.2496,
+        "p99": 0.2496,
+        "stddev": 0.02559,
+        "opsPerSec": 4762
       },
       "verifiedPrewarmed": true
     },
     "onDemandFallback": {
       "samplesMs": [
-        100.3,
-        90.76,
-        104.72,
-        105.88,
-        111.54
+        121.02,
+        131.34,
+        130.52,
+        131.32,
+        109.39
       ],
       "stats": {
         "n": 5,
-        "min": 90.76,
-        "max": 111.54,
-        "mean": 102.64,
-        "median": 104.72,
-        "p95": 111.54,
-        "p99": 111.54,
-        "stddev": 6.937492,
-        "opsPerSec": 10
+        "min": 109.39,
+        "max": 131.34,
+        "mean": 124.718,
+        "median": 130.52,
+        "p95": 131.34,
+        "p99": 131.34,
+        "stddev": 8.599108,
+        "opsPerSec": 8
       },
       "verifiedEmptyPoolBeforeEachPop": true
     },
     "comparison": {
-      "coldMedianMs": 102.63,
-      "warmCheckoutMedianMs": 0.2882,
-      "onDemandFallbackMedianMs": 104.72,
-      "warmCheckoutSpeedupVsCold": 356.1,
-      "warmCheckoutLatencyReductionPct": 99.72,
+      "coldMedianMs": 125.2,
+      "warmCheckoutMedianMs": 0.21,
+      "onDemandFallbackMedianMs": 130.52,
+      "warmCheckoutSpeedupVsCold": 596.2,
+      "warmCheckoutLatencyReductionPct": 99.83,
       "onDemandMatchesColdProvisioning": true
+    },
+    "cleanupVerification": {
+      "removedContainersCount": 29,
+      "zeroOrphansVerified": true,
+      "remainingBenchmarkContainers": 0
     }
   }
 }

@@ -227,37 +227,33 @@ async function run() {
   const propagationSamples: number[] = [];
   const testIterations = 100;
 
-  await new Promise<void>(resolve => {
-    let received = 0;
-    let sendTime = 0;
-
-    redisSub.on('messageBuffer', (_ch: string, message: Buffer) => {
-      const receiveTime = performance.now();
-      propagationSamples.push(receiveTime - sendTime);
-
-      // Apply update to replica document (simulating second backend instance)
-      const uint8 = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
-      Y.applyUpdate(replicaDoc, uint8);
-
-      received++;
-      if (received >= testIterations) resolve();
-    });
-
-    originDoc.on('update', async (update: Uint8Array) => {
-      sendTime = performance.now();
-      await publishYjsUpdate(meshDocName, update);
-    });
-
-    const sendStep = (step: number) => {
-      if (step >= testIterations) return;
-      originDoc.transact(() => {
-        originText.insert(originText.length, String.fromCharCode((step % 26) + 97));
-      });
-      setTimeout(() => sendStep(step + 1), 2);
-    };
-
-    sendStep(0);
+  // Wire origin update listener to publish across Redis Pub/Sub
+  originDoc.on('update', async (update: Uint8Array) => {
+    await publishYjsUpdate(meshDocName, update);
   });
+
+  // Execute 100 sequential cross-instance propagation trials with per-update timing
+  for (let step = 0; step < testIterations; step++) {
+    let t0 = 0;
+    const updateDelivered = new Promise<number>(resolve => {
+      const handler = (_ch: string, message: Buffer) => {
+        const t1 = performance.now();
+        const uint8 = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+        Y.applyUpdate(replicaDoc, uint8);
+        redisSub.off('messageBuffer', handler);
+        resolve(t1);
+      };
+      redisSub.on('messageBuffer', handler);
+    });
+
+    t0 = performance.now();
+    originDoc.transact(() => {
+      originText.insert(originText.length, String.fromCharCode((step % 26) + 97));
+    });
+
+    const t1 = await updateDelivered;
+    propagationSamples.push(t1 - t0);
+  }
 
   // Verify full convergence between origin and replica
   const originContent = originText.toString();

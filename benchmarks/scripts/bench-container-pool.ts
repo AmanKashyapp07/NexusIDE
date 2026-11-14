@@ -240,14 +240,21 @@ async function run() {
     console.log(`  • Measured Speedup: Warm checkout is ${warmVsColdRatio}x faster than cold provisioning (${warmVsColdReductionPct}% latency eliminated).`);
     console.log(`  • Degradation finding: When pool is depleted, allocation falls back to ~${fallbackStats.median.toFixed(0)} ms on-demand container boot without throwing or deadlocking.`);
 
-    // Release back
-    for (const _ of checkedOutWarmContainers) {
-      warmPoolManager.releaseTerminalContainer();
-    }
-
   } finally {
     // Teardown and deterministic cleanup
-    BenchmarkLogger.section('Teardown & Cleanup');
+    BenchmarkLogger.section('Teardown & Deterministic Cleanup');
+    
+    // 1. Permanently deactivate pool replenishment to prevent async spawns during teardown
+    (warmPoolManager as any).fillTerminalPool = async () => {};
+    (warmPoolManager as any).replenishingTerminal = false;
+
+    // 2. Collect any remaining warm containers in terminalPool
+    while ((warmPoolManager as any).terminalPool && (warmPoolManager as any).terminalPool.length > 0) {
+      const c = (warmPoolManager as any).terminalPool.pop();
+      if (c && c.id) trackedContainerIds.push(c.id);
+    }
+
+    // 3. Force-remove all explicitly tracked container IDs
     let removedCount = 0;
     const uniqueIds = Array.from(new Set(trackedContainerIds));
 
@@ -262,7 +269,35 @@ async function run() {
         }
       }
     }
-    BenchmarkLogger.success(`Cleaned up ${removedCount} benchmark Docker containers. Zero orphans.`);
+
+    // 4. Daemon-level verification: inspect all containers on host
+    const allContainersOnHost = await docker.listContainers({ all: true });
+    const remainingBenchContainers = allContainersOnHost.filter(c =>
+      c.Names.some(name => name.includes('bench-cold') || name.includes('bench-')) ||
+      (c.Image === TERMINAL_IMAGE && c.Created * 1000 > Date.now() - 300000)
+    );
+
+    for (const orphan of remainingBenchContainers) {
+      try {
+        const c = docker.getContainer(orphan.Id);
+        await c.remove({ force: true, v: true });
+        removedCount++;
+      } catch {}
+    }
+
+    // 5. Final assertion verifying 0 benchmark containers exist on Docker daemon
+    const finalScan = await docker.listContainers({ all: true });
+    const finalBenchOrphans = finalScan.filter(c =>
+      c.Names.some(name => name.includes('bench-cold') || name.includes('bench-'))
+    );
+    Assertions.assertEqual(finalBenchOrphans.length, 0, 'No benchmark containers must remain on host');
+    
+    BenchmarkLogger.success(`Cleaned up ${removedCount} benchmark Docker containers. Docker daemon verified: ZERO orphans remain.`);
+    results['cleanupVerification'] = {
+      removedContainersCount: removedCount,
+      zeroOrphansVerified: true,
+      remainingBenchmarkContainers: finalBenchOrphans.length
+    };
   }
 
   // Save raw results

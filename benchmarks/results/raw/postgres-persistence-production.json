@@ -1,8 +1,8 @@
 {
   "benchmark": "PostgreSQL Persistence Engine",
-  "timestamp": "2026-11-14T06:58:44.039Z",
+  "timestamp": "2026-11-14T07:23:42.534Z",
   "environment": {
-    "timestamp": "2026-11-14T06:58:43.502Z",
+    "timestamp": "2026-11-14T07:23:42.303Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.08
+      "freeMemoryGb": 0.07
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 46,
+        "containers": 47,
         "images": 5
       },
       "redis": {
@@ -44,70 +44,70 @@
   "results": {
     "pingLatency": {
       "n": 500,
-      "min": 0.02725,
-      "max": 0.730459,
-      "mean": 0.063655,
-      "median": 0.061062,
-      "p95": 0.094209,
-      "p99": 0.132959,
-      "stddev": 0.035117,
-      "opsPerSec": 16377
+      "min": 0.031292,
+      "max": 0.472958,
+      "mean": 0.064884,
+      "median": 0.06075,
+      "p95": 0.091042,
+      "p99": 0.139167,
+      "stddev": 0.024548,
+      "opsPerSec": 16461
     },
     "singleRowInsert": {
       "n": 500,
-      "min": 0.051584,
-      "max": 1.103416,
-      "mean": 0.092079,
-      "median": 0.071375,
-      "p95": 0.191375,
-      "p99": 0.446333,
-      "stddev": 0.071828,
-      "opsPerSec": 14011
+      "min": 0.048958,
+      "max": 0.827041,
+      "mean": 0.076708,
+      "median": 0.072583,
+      "p95": 0.104125,
+      "p99": 0.205541,
+      "stddev": 0.040542,
+      "opsPerSec": 13777
     },
     "batchInserts": {
       "10": {
         "batchSize": 10,
         "batchStats": {
           "n": 50,
-          "min": 0.0675,
-          "max": 0.268084,
-          "mean": 0.109277,
-          "median": 0.088104,
-          "p95": 0.249917,
-          "p99": 0.268084,
-          "stddev": 0.053204,
-          "opsPerSec": 11350
+          "min": 0.077166,
+          "max": 0.309833,
+          "mean": 0.112453,
+          "median": 0.090688,
+          "p95": 0.240958,
+          "p99": 0.309833,
+          "stddev": 0.05273,
+          "opsPerSec": 11027
         },
-        "perUpdateMedianMs": 0.00881,
-        "effectiveThroughputRowsPerSec": 113502
+        "perUpdateMedianMs": 0.009069,
+        "effectiveThroughputRowsPerSec": 110268
       },
       "50": {
         "batchSize": 50,
         "batchStats": {
           "n": 50,
-          "min": 0.13225,
-          "max": 0.559834,
-          "mean": 0.261465,
-          "median": 0.273479,
-          "p95": 0.537542,
-          "p99": 0.559834,
-          "stddev": 0.104148,
-          "opsPerSec": 3657
+          "min": 0.147792,
+          "max": 1.160625,
+          "mean": 0.294187,
+          "median": 0.290479,
+          "p95": 0.532125,
+          "p99": 1.160625,
+          "stddev": 0.165358,
+          "opsPerSec": 3443
         },
-        "perUpdateMedianMs": 0.00547,
-        "effectiveThroughputRowsPerSec": 182829
+        "perUpdateMedianMs": 0.00581,
+        "effectiveThroughputRowsPerSec": 172129
       },
       "100": {
         "batchSize": 100,
         "batchStats": {
           "n": 50,
-          "min": 0.207875,
-          "max": 1.820125,
-          "mean": 0.349269,
+          "min": 0.224875,
+          "max": 0.628541,
+          "mean": 0.341872,
           "median": 0.311104,
-          "p95": 0.451208,
-          "p99": 1.820125,
-          "stddev": 0.236371,
+          "p95": 0.474333,
+          "p99": 0.628541,
+          "stddev": 0.096505,
           "opsPerSec": 3214
         },
         "perUpdateMedianMs": 0.003111,
@@ -118,19 +118,19 @@
       "concurrentWorkers": 5,
       "updatesPerWorker": 100,
       "totalWrites": 500,
-      "totalDurationMs": 20.82,
-      "sustainedThroughputRowsPerSec": 24016
+      "totalDurationMs": 18.57,
+      "sustainedThroughputRowsPerSec": 26930
     },
     "stateReplayRead": {
       "n": 100,
-      "min": 2.383833,
-      "max": 6.780083,
-      "mean": 3.248694,
-      "median": 2.621584,
-      "p95": 5.930166,
-      "p99": 6.780083,
-      "stddev": 1.050501,
-      "opsPerSec": 381
+      "min": 0.368667,
+      "max": 1.334041,
+      "mean": 0.461616,
+      "median": 0.412604,
+      "p95": 0.764084,
+      "p99": 1.334041,
+      "stddev": 0.16586,
+      "opsPerSec": 2424
     }
   }
 }

@@ -2,7 +2,7 @@
 
 This directory contains the production-grade, evidence-backed benchmark suite for **NexusIDE**.
 
-Every benchmark directly exercises the **actual TypeScript production code** in `backend/src/` and interfaces with **real infrastructure services** (Live Docker Engine daemon, Redis 8.8, and PostgreSQL 14+).
+Every benchmark directly exercises **actual TypeScript production code** from `backend/src/` or interfaces with **real infrastructure services** (Live Docker Engine daemon, Redis 8.8, and PostgreSQL 14+ via production `getPool()`).
 
 ---
 
