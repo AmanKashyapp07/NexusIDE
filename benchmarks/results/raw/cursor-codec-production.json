@@ -1,8 +1,8 @@
 {
-  "benchmark": "Binary Cursor Codec (Experimental 8-Byte vs Collision-Free 12-Byte vs JSON)",
-  "timestamp": "2026-11-14T07:33:24.266Z",
+  "benchmark": "Binary Cursor Codec (Experimental 8-Byte vs Prospective 12-Byte vs JSON)",
+  "timestamp": "2026-11-14T07:41:20.335Z",
   "environment": {
-    "timestamp": "2026-11-14T07:33:22.707Z",
+    "timestamp": "2026-11-14T07:41:18.814Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.31
+      "freeMemoryGb": 0.11
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 47,
+        "containers": 48,
         "images": 5
       },
       "redis": {
@@ -40,7 +40,7 @@
   },
   "evidenceTier": "Tier D (Experimental Prototype Microbenchmark - Non-Production)",
   "productionSource": "backend/src/services/cursorCodec.service.ts",
-  "statusNote": "EXPERIMENTAL PROTOTYPE: The 8-byte bit-packed codec in backend/src/services/cursorCodec.service.ts uses a 16-bit user hash subject to birthday-paradox collisions at scale (>100 users = 7.28%). It is retained strictly as an algorithmic prototype microbenchmark and is NOT integrated into the live WebSocket collaboration channel. Collision-free alternatives (RoomIdentityTable and 12-byte uint32 codec) are evaluated as prospective migration designs.",
+  "statusNote": "EXPERIMENTAL PROTOTYPE: The 8-byte bit-packed codec in backend/src/services/cursorCodec.service.ts uses a 16-bit user hash subject to birthday-paradox collisions at scale (>100 users = 7.28%). It is retained strictly as an algorithmic prototype microbenchmark and is NOT integrated into the live WebSocket collaboration channel. Two prospective migration designs are evaluated: 1) RoomIdentityTable (room-scoped uint16 slot table with 0.00% collisions by construction), and 2) a 12-byte binary format accepting uint32 user identifiers (which expands capacity to 4.29B users but requires an external numeric ID allocator to assign unique 32-bit integers to string UUIDs).",
   "correctness": {
     "roundTrip8BytePassed": true,
     "boundaryClamping8BytePassed": true,
@@ -69,35 +69,35 @@
       "encoding": {
         "binary8": {
           "n": 10000,
-          "min": 0.000125,
-          "max": 0.005917,
-          "mean": 0.000192,
-          "median": 0.000167,
-          "p95": 0.000209,
-          "p99": 0.001042,
-          "stddev": 0.000181,
-          "opsPerSec": 5988024
+          "min": 0.000083,
+          "max": 0.028458,
+          "mean": 0.000174,
+          "median": 0.000166,
+          "p95": 0.00025,
+          "p99": 0.000916,
+          "stddev": 0.000346,
+          "opsPerSec": 6024096
         },
         "binary12": {
           "n": 10000,
           "min": 0.000083,
-          "max": 0.017875,
-          "mean": 0.000171,
+          "max": 0.013,
+          "mean": 0.000163,
           "median": 0.000125,
-          "p95": 0.000208,
-          "p99": 0.000959,
-          "stddev": 0.00036,
+          "p95": 0.00025,
+          "p99": 0.000958,
+          "stddev": 0.000334,
           "opsPerSec": 8000000
         },
         "json": {
           "n": 10000,
           "min": 0,
-          "max": 0.011625,
-          "mean": 0.000075,
+          "max": 0.01275,
+          "mean": 0.000071,
           "median": 0.000083,
           "p95": 0.000084,
           "p99": 0.000125,
-          "stddev": 0.000163,
+          "stddev": 0.000214,
           "opsPerSec": 12048193
         },
         "speedup8Factor": 0.5,
@@ -106,35 +106,35 @@
       "decoding": {
         "binary8": {
           "n": 10000,
-          "min": 0,
-          "max": 0.005208,
-          "mean": 0.000091,
+          "min": 0.000041,
+          "max": 0.006416,
+          "mean": 0.000082,
           "median": 0.000083,
-          "p95": 0.000125,
-          "p99": 0.00025,
-          "stddev": 0.000093,
+          "p95": 0.000084,
+          "p99": 0.000208,
+          "stddev": 0.000096,
           "opsPerSec": 12048193
         },
         "binary12": {
           "n": 10000,
-          "min": 0,
-          "max": 0.014417,
-          "mean": 0.00011,
+          "min": 0.000041,
+          "max": 0.029209,
+          "mean": 0.000107,
           "median": 0.000083,
           "p95": 0.000125,
           "p99": 0.000792,
-          "stddev": 0.000299,
+          "stddev": 0.000422,
           "opsPerSec": 12048193
         },
         "json": {
           "n": 10000,
-          "min": 0.000208,
-          "max": 0.014125,
-          "mean": 0.000261,
+          "min": 0.000166,
+          "max": 0.010709,
+          "mean": 0.000244,
           "median": 0.00025,
-          "p95": 0.000292,
-          "p99": 0.000334,
-          "stddev": 0.000257,
+          "p95": 0.00025,
+          "p99": 0.000292,
+          "stddev": 0.000248,
           "opsPerSec": 4000000
         },
         "speedup8Factor": 3.01,
@@ -153,76 +153,76 @@
       "encoding": {
         "binary8": {
           "n": 10000,
-          "min": 0.000125,
-          "max": 0.00175,
+          "min": 0.000083,
+          "max": 0.004,
           "mean": 0.000172,
           "median": 0.000167,
           "p95": 0.000208,
-          "p99": 0.000292,
-          "stddev": 0.000074,
+          "p99": 0.000333,
+          "stddev": 0.000094,
           "opsPerSec": 5988024
         },
         "binary12": {
           "n": 10000,
           "min": 0.000083,
-          "max": 0.027458,
-          "mean": 0.000173,
-          "median": 0.000167,
+          "max": 0.005834,
+          "mean": 0.000163,
+          "median": 0.000166,
           "p95": 0.000167,
           "p99": 0.000917,
-          "stddev": 0.000292,
-          "opsPerSec": 5988024
+          "stddev": 0.000162,
+          "opsPerSec": 6024096
         },
         "json": {
           "n": 10000,
           "min": 0.000292,
-          "max": 0.0815,
-          "mean": 0.000417,
-          "median": 0.000416,
-          "p95": 0.000459,
-          "p99": 0.000625,
-          "stddev": 0.000828,
-          "opsPerSec": 2403846
+          "max": 0.09175,
+          "mean": 0.0004,
+          "median": 0.000375,
+          "p95": 0.000417,
+          "p99": 0.000459,
+          "stddev": 0.000926,
+          "opsPerSec": 2666667
         },
-        "speedup8Factor": 2.49,
-        "speedup12Factor": 2.49
+        "speedup8Factor": 2.25,
+        "speedup12Factor": 2.26
       },
       "decoding": {
         "binary8": {
           "n": 10000,
-          "min": 0,
-          "max": 0.01225,
-          "mean": 0.000157,
+          "min": 0.000041,
+          "max": 0.010417,
+          "mean": 0.00015,
           "median": 0.000084,
           "p95": 0.00025,
-          "p99": 0.000333,
-          "stddev": 0.000174,
+          "p99": 0.000375,
+          "stddev": 0.00018,
           "opsPerSec": 11904762
         },
         "binary12": {
           "n": 10000,
           "min": 0.000041,
-          "max": 0.065166,
-          "mean": 0.000147,
+          "max": 0.016375,
+          "mean": 0.000139,
           "median": 0.000084,
           "p95": 0.000292,
-          "p99": 0.000333,
-          "stddev": 0.000661,
+          "p99": 0.000292,
+          "stddev": 0.000212,
           "opsPerSec": 11904762
         },
         "json": {
           "n": 10000,
           "min": 0.000875,
-          "max": 0.062625,
-          "mean": 0.001042,
-          "median": 0.001042,
-          "p95": 0.001084,
-          "p99": 0.001125,
-          "stddev": 0.000635,
-          "opsPerSec": 959693
+          "max": 0.074667,
+          "mean": 0.001041,
+          "median": 0.001041,
+          "p95": 0.001083,
+          "p99": 0.001333,
+          "stddev": 0.000765,
+          "opsPerSec": 960615
         },
-        "speedup8Factor": 12.4,
-        "speedup12Factor": 12.4
+        "speedup8Factor": 12.39,
+        "speedup12Factor": 12.39
       }
     },
     "50": {
@@ -238,75 +238,75 @@
         "binary8": {
           "n": 10000,
           "min": 0.000166,
-          "max": 0.014625,
-          "mean": 0.000264,
+          "max": 0.042084,
+          "mean": 0.000271,
           "median": 0.00025,
           "p95": 0.000292,
-          "p99": 0.001042,
-          "stddev": 0.000282,
+          "p99": 0.001125,
+          "stddev": 0.00055,
           "opsPerSec": 4000000
         },
         "binary12": {
           "n": 10000,
           "min": 0.000166,
-          "max": 0.013625,
-          "mean": 0.00028,
+          "max": 0.015,
+          "mean": 0.000285,
           "median": 0.00025,
-          "p95": 0.000292,
-          "p99": 0.001167,
-          "stddev": 0.000269,
+          "p95": 0.000334,
+          "p99": 0.001125,
+          "stddev": 0.000316,
           "opsPerSec": 4000000
         },
         "json": {
           "n": 10000,
           "min": 0.001458,
-          "max": 0.088334,
-          "mean": 0.001717,
-          "median": 0.001708,
-          "p95": 0.00175,
-          "p99": 0.002125,
-          "stddev": 0.001154,
-          "opsPerSec": 585480
+          "max": 0.092208,
+          "mean": 0.001696,
+          "median": 0.001667,
+          "p95": 0.001833,
+          "p99": 0.002208,
+          "stddev": 0.001255,
+          "opsPerSec": 599880
         },
-        "speedup8Factor": 6.83,
-        "speedup12Factor": 6.83
+        "speedup8Factor": 6.67,
+        "speedup12Factor": 6.67
       },
       "decoding": {
         "binary8": {
           "n": 10000,
           "min": 0.000125,
-          "max": 0.052041,
-          "mean": 0.000212,
-          "median": 0.000208,
+          "max": 0.064833,
+          "mean": 0.000208,
+          "median": 0.000167,
           "p95": 0.00025,
           "p99": 0.000458,
-          "stddev": 0.000689,
-          "opsPerSec": 4807692
+          "stddev": 0.000821,
+          "opsPerSec": 5988024
         },
         "binary12": {
           "n": 10000,
           "min": 0.000166,
-          "max": 0.044625,
-          "mean": 0.000273,
+          "max": 0.058292,
+          "mean": 0.000272,
           "median": 0.00025,
           "p95": 0.000375,
-          "p99": 0.0005,
-          "stddev": 0.000698,
+          "p99": 0.000541,
+          "stddev": 0.000843,
           "opsPerSec": 4000000
         },
         "json": {
           "n": 10000,
-          "min": 0.004542,
-          "max": 0.079583,
-          "mean": 0.004793,
-          "median": 0.00475,
-          "p95": 0.004875,
-          "p99": 0.0055,
-          "stddev": 0.000958,
-          "opsPerSec": 210526
+          "min": 0.004125,
+          "max": 0.090167,
+          "mean": 0.004705,
+          "median": 0.004666,
+          "p95": 0.004792,
+          "p99": 0.005834,
+          "stddev": 0.001092,
+          "opsPerSec": 214316
         },
-        "speedup8Factor": 22.84,
-        "speedup12Factor": 19
+        "speedup8Factor": 27.94,
+        "speedup12Factor": 18.66
       }
     },
     "100": {
@@ -322,75 +322,75 @@
         "binary8": {
           "n": 10000,
           "min": 0.00025,
-          "max": 0.096125,
-          "mean": 0.000367,
+          "max": 0.0905,
+          "mean": 0.000371,
           "median": 0.000333,
-          "p95": 0.000417,
-          "p99": 0.001167,
-          "stddev": 0.001035,
+          "p95": 0.0005,
+          "p99": 0.00125,
+          "stddev": 0.001004,
           "opsPerSec": 3003003
         },
         "binary12": {
           "n": 10000,
-          "min": 0.000333,
-          "max": 0.015916,
-          "mean": 0.000476,
+          "min": 0.000291,
+          "max": 0.01475,
+          "mean": 0.000491,
           "median": 0.000375,
-          "p95": 0.001167,
-          "p99": 0.001292,
-          "stddev": 0.000408,
+          "p95": 0.001458,
+          "p99": 0.001834,
+          "stddev": 0.000447,
           "opsPerSec": 2666667
         },
         "json": {
           "n": 10000,
-          "min": 0.003083,
-          "max": 0.097042,
-          "mean": 0.003562,
-          "median": 0.003541,
-          "p95": 0.003708,
-          "p99": 0.004041,
-          "stddev": 0.001225,
-          "opsPerSec": 282406
+          "min": 0.002916,
+          "max": 0.135916,
+          "mean": 0.003399,
+          "median": 0.003333,
+          "p95": 0.003958,
+          "p99": 0.004458,
+          "stddev": 0.001717,
+          "opsPerSec": 300030
         },
-        "speedup8Factor": 10.63,
-        "speedup12Factor": 9.44
+        "speedup8Factor": 10.01,
+        "speedup12Factor": 8.89
       },
       "decoding": {
         "binary8": {
           "n": 10000,
-          "min": 0.00025,
-          "max": 0.04275,
-          "mean": 0.000376,
+          "min": 0.000208,
+          "max": 0.04425,
+          "mean": 0.000365,
           "median": 0.000333,
-          "p95": 0.000542,
-          "p99": 0.000833,
-          "stddev": 0.000811,
+          "p95": 0.000541,
+          "p99": 0.000792,
+          "stddev": 0.000831,
           "opsPerSec": 3003003
         },
         "binary12": {
           "n": 10000,
-          "min": 0.000375,
-          "max": 0.037667,
-          "mean": 0.000503,
-          "median": 0.000459,
-          "p95": 0.000625,
-          "p99": 0.000708,
-          "stddev": 0.000806,
-          "opsPerSec": 2178649
+          "min": 0.000292,
+          "max": 0.043083,
+          "mean": 0.000469,
+          "median": 0.000417,
+          "p95": 0.000583,
+          "p99": 0.000667,
+          "stddev": 0.000814,
+          "opsPerSec": 2398082
         },
         "json": {
           "n": 10000,
-          "min": 0.008167,
-          "max": 0.092584,
-          "mean": 0.00924,
-          "median": 0.009167,
-          "p95": 0.009417,
-          "p99": 0.00975,
-          "stddev": 0.001281,
-          "opsPerSec": 109087
+          "min": 0.008208,
+          "max": 0.102708,
+          "mean": 0.009245,
+          "median": 0.00925,
+          "p95": 0.009541,
+          "p99": 0.011875,
+          "stddev": 0.001562,
+          "opsPerSec": 108108
         },
-        "speedup8Factor": 27.53,
-        "speedup12Factor": 19.97
+        "speedup8Factor": 27.78,
+        "speedup12Factor": 22.18
       }
     },
     "250": {
@@ -405,76 +405,76 @@
       "encoding": {
         "binary8": {
           "n": 10000,
-          "min": 0.000541,
-          "max": 0.078916,
-          "mean": 0.000696,
-          "median": 0.000625,
-          "p95": 0.001375,
-          "p99": 0.001542,
-          "stddev": 0.000885,
-          "opsPerSec": 1600000
+          "min": 0.0005,
+          "max": 0.015375,
+          "mean": 0.000723,
+          "median": 0.000584,
+          "p95": 0.001542,
+          "p99": 0.001916,
+          "stddev": 0.000516,
+          "opsPerSec": 1712329
         },
         "binary12": {
           "n": 10000,
           "min": 0.000666,
-          "max": 0.018334,
-          "mean": 0.000987,
-          "median": 0.000792,
-          "p95": 0.001708,
-          "p99": 0.001875,
-          "stddev": 0.000552,
-          "opsPerSec": 1262626
+          "max": 0.440708,
+          "mean": 0.001209,
+          "median": 0.00075,
+          "p95": 0.002,
+          "p99": 0.002792,
+          "stddev": 0.005046,
+          "opsPerSec": 1333333
         },
         "json": {
           "n": 10000,
-          "min": 0.007375,
-          "max": 0.05975,
-          "mean": 0.008375,
-          "median": 0.008375,
-          "p95": 0.008625,
-          "p99": 0.009,
-          "stddev": 0.001164,
-          "opsPerSec": 119403
+          "min": 0.007291,
+          "max": 1.518375,
+          "mean": 0.008788,
+          "median": 0.008292,
+          "p95": 0.009583,
+          "p99": 0.014,
+          "stddev": 0.018996,
+          "opsPerSec": 120598
         },
-        "speedup8Factor": 13.4,
-        "speedup12Factor": 10.57
+        "speedup8Factor": 14.2,
+        "speedup12Factor": 11.06
       },
       "decoding": {
         "binary8": {
           "n": 10000,
           "min": 0.000666,
-          "max": 0.050583,
-          "mean": 0.000881,
+          "max": 0.055417,
+          "mean": 0.000911,
           "median": 0.000792,
-          "p95": 0.001125,
-          "p99": 0.001416,
-          "stddev": 0.00129,
+          "p95": 0.001167,
+          "p99": 0.0015,
+          "stddev": 0.001377,
           "opsPerSec": 1262626
         },
         "binary12": {
           "n": 10000,
-          "min": 0.001041,
-          "max": 0.048083,
-          "mean": 0.001324,
-          "median": 0.001208,
-          "p95": 0.001625,
-          "p99": 0.001833,
-          "stddev": 0.00136,
-          "opsPerSec": 827815
+          "min": 0.000916,
+          "max": 0.054084,
+          "mean": 0.001273,
+          "median": 0.001166,
+          "p95": 0.001584,
+          "p99": 0.001916,
+          "stddev": 0.001425,
+          "opsPerSec": 857633
         },
         "json": {
           "n": 10000,
-          "min": 0.020208,
-          "max": 0.127458,
-          "mean": 0.023081,
-          "median": 0.02275,
-          "p95": 0.023458,
-          "p99": 0.029791,
-          "stddev": 0.003806,
-          "opsPerSec": 43956
+          "min": 0.020041,
+          "max": 0.086167,
+          "mean": 0.02272,
+          "median": 0.022708,
+          "p95": 0.0235,
+          "p99": 0.028958,
+          "stddev": 0.002122,
+          "opsPerSec": 44037
         },
-        "speedup8Factor": 28.72,
-        "speedup12Factor": 18.83
+        "speedup8Factor": 28.67,
+        "speedup12Factor": 19.48
       }
     },
     "500": {
@@ -490,75 +490,75 @@
         "binary8": {
           "n": 10000,
           "min": 0.001041,
-          "max": 3.596833,
-          "mean": 0.002751,
-          "median": 0.001291,
-          "p95": 0.004458,
-          "p99": 0.006708,
-          "stddev": 0.038922,
-          "opsPerSec": 774593
+          "max": 0.148125,
+          "mean": 0.001453,
+          "median": 0.001167,
+          "p95": 0.002375,
+          "p99": 0.002917,
+          "stddev": 0.00166,
+          "opsPerSec": 856898
         },
         "binary12": {
           "n": 10000,
-          "min": 0.001416,
-          "max": 1.31275,
-          "mean": 0.002371,
-          "median": 0.001583,
-          "p95": 0.003333,
-          "p99": 0.010834,
-          "stddev": 0.013531,
-          "opsPerSec": 631712
+          "min": 0.001166,
+          "max": 2.528167,
+          "mean": 0.002033,
+          "median": 0.001375,
+          "p95": 0.002375,
+          "p99": 0.003208,
+          "stddev": 0.026307,
+          "opsPerSec": 727273
         },
         "json": {
           "n": 10000,
-          "min": 0.014666,
-          "max": 0.131375,
-          "mean": 0.016913,
-          "median": 0.016625,
-          "p95": 0.017417,
-          "p99": 0.021584,
-          "stddev": 0.003063,
-          "opsPerSec": 60150
+          "min": 0.014291,
+          "max": 0.0825,
+          "mean": 0.016457,
+          "median": 0.016333,
+          "p95": 0.017209,
+          "p99": 0.022583,
+          "stddev": 0.0021,
+          "opsPerSec": 61226
         },
-        "speedup8Factor": 12.88,
-        "speedup12Factor": 10.5
+        "speedup8Factor": 14,
+        "speedup12Factor": 11.88
       },
       "decoding": {
         "binary8": {
           "n": 10000,
-          "min": 0.001291,
-          "max": 0.057125,
-          "mean": 0.001682,
+          "min": 0.00125,
+          "max": 0.063458,
+          "mean": 0.001689,
           "median": 0.0015,
-          "p95": 0.002083,
-          "p99": 0.002417,
-          "stddev": 0.001812,
+          "p95": 0.002125,
+          "p99": 0.002625,
+          "stddev": 0.00205,
           "opsPerSec": 666667
         },
         "binary12": {
           "n": 10000,
-          "min": 0.001916,
-          "max": 0.056541,
-          "mean": 0.002473,
-          "median": 0.002292,
+          "min": 0.00175,
+          "max": 0.060917,
+          "mean": 0.002427,
+          "median": 0.00225,
           "p95": 0.002875,
           "p99": 0.00325,
-          "stddev": 0.002253,
-          "opsPerSec": 436300
+          "stddev": 0.002196,
+          "opsPerSec": 444444
         },
         "json": {
           "n": 10000,
-          "min": 0.040583,
-          "max": 0.121,
-          "mean": 0.045383,
-          "median": 0.045083,
-          "p95": 0.046459,
-          "p99": 0.050583,
-          "stddev": 0.002469,
-          "opsPerSec": 22181
+          "min": 0.039792,
+          "max": 0.100792,
+          "mean": 0.045098,
+          "median": 0.045208,
+          "p95": 0.047,
+          "p99": 0.050625,
+          "stddev": 0.002616,
+          "opsPerSec": 22120
         },
-        "speedup8Factor": 30.06,
-        "speedup12Factor": 19.67
+        "speedup8Factor": 30.14,
+        "speedup12Factor": 20.09
       }
     }
   }

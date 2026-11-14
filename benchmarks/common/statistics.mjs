@@ -29,8 +29,9 @@ export class Statistics {
     const variance = sorted.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / n;
     const stddev = Math.sqrt(variance);
 
-    const hasSufficientSampleForP95 = n >= 20;
-    const hasSufficientSampleForP99 = n >= 100;
+    // With nearest-rank discrete estimator floor(n * p), p95 selects max when n <= 20, p99 when n <= 100
+    const isP95AtMax = p95Index >= n - 1;
+    const isP99AtMax = p99Index >= n - 1;
 
     return {
       n,
@@ -40,8 +41,12 @@ export class Statistics {
       median: Number(median.toFixed(6)),
       p95: Number(p95.toFixed(6)),
       p99: Number(p99.toFixed(6)),
-      p95SampleWarning: !hasSufficientSampleForP95 ? `Sample size n=${n} insufficient for distinct p95 (reflects max/near-max observation)` : undefined,
-      p99SampleWarning: !hasSufficientSampleForP99 ? `Sample size n=${n} insufficient for distinct p99 (reflects max observation)` : undefined,
+      p95SampleWarning: isP95AtMax
+        ? `Sample size n=${n} insufficient for distinct p95 (floor(n*0.95)=${p95Index} selects max observation; requires n>=21)`
+        : undefined,
+      p99SampleWarning: isP99AtMax
+        ? `Sample size n=${n} insufficient for distinct p99 (floor(n*0.99)=${p99Index} selects max observation; requires n>=101)`
+        : undefined,
       stddev: Number(stddev.toFixed(6)),
       opsPerSec: median > 0 ? Math.round(1000 / median) : Math.round(1000 / (mean || 0.000001))
     };

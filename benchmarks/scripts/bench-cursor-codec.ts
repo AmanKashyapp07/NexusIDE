@@ -50,7 +50,10 @@ export class RoomIdentityTable {
   }
 }
 
-// Solution 2: Wider 12-Byte uint32 Identifier Codec Implementation
+// Solution 2: Prospective 12-Byte uint32 Identifier Codec Format
+// NOTE: Accepts 32-bit integer user IDs (0 to 4,294,967,295). This expands identifier capacity
+// but requires an external identity allocator (e.g. database sequence, snowflake ID, or server mapping)
+// to assign unique 32-bit numbers to string UUIDs; the encoding format alone does not map UUIDs.
 export interface CursorPosition12 {
   userId: number; // Full 32-bit integer (0 to 4,294,967,295)
   lineNumber: number;
@@ -327,12 +330,12 @@ async function run() {
 
   // Save results
   const outputData = {
-    benchmark: 'Binary Cursor Codec (Experimental 8-Byte vs Collision-Free 12-Byte vs JSON)',
+    benchmark: 'Binary Cursor Codec (Experimental 8-Byte vs Prospective 12-Byte vs JSON)',
     timestamp: new Date().toISOString(),
     environment: env,
     evidenceTier: 'Tier D (Experimental Prototype Microbenchmark - Non-Production)',
     productionSource: 'backend/src/services/cursorCodec.service.ts',
-    statusNote: 'EXPERIMENTAL PROTOTYPE: The 8-byte bit-packed codec in backend/src/services/cursorCodec.service.ts uses a 16-bit user hash subject to birthday-paradox collisions at scale (>100 users = 7.28%). It is retained strictly as an algorithmic prototype microbenchmark and is NOT integrated into the live WebSocket collaboration channel. Collision-free alternatives (RoomIdentityTable and 12-byte uint32 codec) are evaluated as prospective migration designs.',
+    statusNote: 'EXPERIMENTAL PROTOTYPE: The 8-byte bit-packed codec in backend/src/services/cursorCodec.service.ts uses a 16-bit user hash subject to birthday-paradox collisions at scale (>100 users = 7.28%). It is retained strictly as an algorithmic prototype microbenchmark and is NOT integrated into the live WebSocket collaboration channel. Two prospective migration designs are evaluated: 1) RoomIdentityTable (room-scoped uint16 slot table with 0.00% collisions by construction), and 2) a 12-byte binary format accepting uint32 user identifiers (which expands capacity to 4.29B users but requires an external numeric ID allocator to assign unique 32-bit integers to string UUIDs).',
     correctness: {
       roundTrip8BytePassed: true,
       boundaryClamping8BytePassed: true,

@@ -172,11 +172,17 @@ async function run() {
   } finally {
     // Teardown benchmark table and close dedicated benchmark pool cleanly in finally block
     try {
-      await pool.query(`DROP TABLE IF EXISTS ${BENCH_TABLE}`);
-      await pool.end();
-      BenchmarkLogger.success(`Dedicated benchmark table '${BENCH_TABLE}' dropped and isolated pool closed cleanly.`);
-    } catch (err: any) {
-      console.warn(`[Cleanup Warning] Could not drop ${BENCH_TABLE} or close pool:`, err.message);
+      try {
+        await pool.query(`DROP TABLE IF EXISTS ${BENCH_TABLE}`);
+        BenchmarkLogger.success(`Dedicated benchmark table '${BENCH_TABLE}' dropped.`);
+      } catch (dropErr: any) {
+        console.warn(`[Cleanup Warning] Could not drop ${BENCH_TABLE}:`, dropErr.message);
+      } finally {
+        await pool.end();
+        BenchmarkLogger.success('Isolated benchmark connection pool closed cleanly.');
+      }
+    } catch (poolErr: any) {
+      console.warn('[Cleanup Warning] Error closing benchmark pool:', poolErr.message);
     }
   }
 

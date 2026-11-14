@@ -12,6 +12,7 @@
 - **Redis Server**: Redis v8.8.0 on `127.0.0.1:6379`
 - **PostgreSQL**: PostgreSQL 14.20 on `localhost:5432/sandbox` with connection pooling
 - **Measurement Instrumentation**: Monotonic high-resolution millisecond timing via Node.js `performance.now()` (`perf_hooks`) with JIT warmup phases and statistical percentile distributions (min, median, max, p95, p99, stddev).
+  - *Percentile Estimator Specification*: Nearest-rank discrete estimator (`floor(n * 0.95)` / `floor(n * 0.99)`). Because of integer truncation, the 95th percentile index equals $n-1$ (selecting the maximum observation) for all $n \le 20$; similarly, the 99th percentile index selects the maximum observation for all $n \le 100$. Small-sample evaluations are explicitly flagged with sample warnings.
 
 ---
 
@@ -268,9 +269,9 @@ JIT warmup (1,000 iterations) was executed prior to measurement. Latency and bat
      - 50 active users in a room: **1.852% collision probability**
      - 100 active users in a room: **7.278% collision probability**
      - 10,000 global users: **17.14% empirical collision rate**
-3. **Tested Collision-Free Identity Solutions**:
-   - **Solution A (`RoomIdentityTable`)**: In a collaborative editing session, clients join a room where the room server assigns each participant an ephemeral integer index (0, 1, 2, ... $N-1$) mapped to their permanent UUID. Tested and verified for 100 concurrent room participants: **0.00% collision rate by construction**.
-   - **Solution B (12-Byte uint32 Codec)**: Fully implemented and tested in the benchmark script (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`). Allocates 32 bits for `userId` (0 to 4,294,967,295), eliminating collisions across global UUID hashes (0% collision probability) while preserving an **82.35% payload reduction** over JSON at 100 collaborators.
+3. **Evaluated Migration Designs**:
+   - **Approach A (`RoomIdentityTable`)**: In a collaborative editing session, clients join a room where the room server assigns each participant an ephemeral integer index (0, 1, 2, ... $N-1$) mapped to their permanent UUID. Tested and verified for 100 concurrent room participants: **0.00% collision rate by construction**.
+   - **Approach B (Prospective 12-Byte uint32 Format)**: Implemented and tested in the benchmark script (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`). Encodes 32 bits for `userId` (0 to 4,294,967,295), preserving an **82.35% payload reduction** over JSON at 100 collaborators. *Note on UUID Mapping*: The 12-byte binary format accepts numeric IDs; achieving end-to-end collision freedom for UUID-based users requires pairing it with an external identity allocator (e.g. database sequence, snowflake generator, or session index) rather than relying on the binary encoding alone.
 
 ---
 

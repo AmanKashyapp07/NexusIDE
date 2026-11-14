@@ -1,8 +1,8 @@
 {
   "benchmark": "PostgreSQL Persistence Engine",
-  "timestamp": "2026-11-14T07:32:59.725Z",
+  "timestamp": "2026-11-14T07:41:14.388Z",
   "environment": {
-    "timestamp": "2026-11-14T07:32:59.488Z",
+    "timestamp": "2026-11-14T07:41:14.159Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.13
+      "freeMemoryGb": 0.15
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 46,
+        "containers": 48,
         "images": 5
       },
       "redis": {
@@ -44,96 +44,97 @@
   "results": {
     "pingLatency": {
       "n": 500,
-      "min": 0.0295,
-      "max": 0.443917,
-      "mean": 0.065717,
-      "median": 0.060146,
-      "p95": 0.099958,
-      "p99": 0.141959,
-      "stddev": 0.026789,
-      "opsPerSec": 16626
+      "min": 0.027125,
+      "max": 0.426584,
+      "mean": 0.065909,
+      "median": 0.061355,
+      "p95": 0.101,
+      "p99": 0.132,
+      "stddev": 0.02749,
+      "opsPerSec": 16299
     },
     "singleRowInsert": {
       "n": 500,
-      "min": 0.0605,
-      "max": 0.823666,
-      "mean": 0.076361,
-      "median": 0.069959,
-      "p95": 0.102416,
-      "p99": 0.1875,
-      "stddev": 0.039007,
-      "opsPerSec": 14294
+      "min": 0.047125,
+      "max": 4.546375,
+      "mean": 0.090888,
+      "median": 0.062605,
+      "p95": 0.11575,
+      "p99": 0.485959,
+      "stddev": 0.278616,
+      "opsPerSec": 15973
     },
     "batchInserts": {
       "10": {
         "batchSize": 10,
         "batchStats": {
           "n": 50,
-          "min": 0.086834,
-          "max": 0.311875,
-          "mean": 0.126229,
-          "median": 0.101229,
-          "p95": 0.263709,
-          "p99": 0.311875,
-          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (reflects max observation)",
-          "stddev": 0.057958,
-          "opsPerSec": 9879
+          "min": 0.063292,
+          "max": 0.339667,
+          "mean": 0.105893,
+          "median": 0.088979,
+          "p95": 0.238125,
+          "p99": 0.339667,
+          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (floor(n*0.99)=49 selects max observation; requires n>=101)",
+          "stddev": 0.05686,
+          "opsPerSec": 11239
         },
-        "perUpdateMedianMs": 0.010123,
-        "effectiveThroughputRowsPerSec": 98786
+        "perUpdateMedianMs": 0.008898,
+        "effectiveThroughputRowsPerSec": 112386
       },
       "50": {
         "batchSize": 50,
         "batchStats": {
           "n": 50,
-          "min": 0.146125,
-          "max": 0.682958,
-          "mean": 0.262131,
-          "median": 0.276708,
-          "p95": 0.406292,
-          "p99": 0.682958,
-          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (reflects max observation)",
-          "stddev": 0.1024,
-          "opsPerSec": 3614
+          "min": 0.138333,
+          "max": 0.480375,
+          "mean": 0.24111,
+          "median": 0.262271,
+          "p95": 0.390208,
+          "p99": 0.480375,
+          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (floor(n*0.99)=49 selects max observation; requires n>=101)",
+          "stddev": 0.088241,
+          "opsPerSec": 3813
         },
-        "perUpdateMedianMs": 0.005534,
-        "effectiveThroughputRowsPerSec": 180696
+        "perUpdateMedianMs": 0.005245,
+        "effectiveThroughputRowsPerSec": 190643
       },
       "100": {
         "batchSize": 100,
         "batchStats": {
           "n": 50,
-          "min": 0.211584,
-          "max": 0.523083,
-          "mean": 0.319079,
-          "median": 0.304563,
-          "p95": 0.475834,
-          "p99": 0.523083,
-          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (reflects max observation)",
-          "stddev": 0.082369,
-          "opsPerSec": 3283
+          "min": 0.20575,
+          "max": 0.58225,
+          "mean": 0.317282,
+          "median": 0.332313,
+          "p95": 0.44375,
+          "p99": 0.58225,
+          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (floor(n*0.99)=49 selects max observation; requires n>=101)",
+          "stddev": 0.088079,
+          "opsPerSec": 3009
         },
-        "perUpdateMedianMs": 0.003046,
-        "effectiveThroughputRowsPerSec": 328339
+        "perUpdateMedianMs": 0.003323,
+        "effectiveThroughputRowsPerSec": 300921
       }
     },
     "concurrentWrites": {
       "concurrentWorkers": 5,
       "updatesPerWorker": 100,
       "totalWrites": 500,
-      "totalDurationMs": 16.78,
-      "burstThroughputRowsPerSec": 29793
+      "totalDurationMs": 17.4,
+      "burstThroughputRowsPerSec": 28743
     },
     "stateReplayRead": {
       "n": 100,
-      "min": 0.378125,
-      "max": 1.521583,
-      "mean": 0.49233,
-      "median": 0.445479,
-      "p95": 0.774583,
-      "p99": 1.521583,
-      "stddev": 0.191007,
-      "opsPerSec": 2245
+      "min": 0.364917,
+      "max": 1.358792,
+      "mean": 0.458083,
+      "median": 0.408584,
+      "p95": 0.80375,
+      "p99": 1.358792,
+      "p99SampleWarning": "Sample size n=100 insufficient for distinct p99 (floor(n*0.99)=99 selects max observation; requires n>=101)",
+      "stddev": 0.161122,
+      "opsPerSec": 2447
     }
   }
 }

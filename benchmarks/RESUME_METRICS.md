@@ -137,9 +137,9 @@
 - **Collision & Invariant Audit**:
   - Round-trip fidelity verified; uint16 upper-bound coordinates clamped to 65,535; truncated buffer rejection verified.
   - *Engineering Limitation Disclosed*: User ID is compressed into a 16-bit integer (`uint16`). In collaboration rooms, birthday paradox collision risks are: 0.069% (10 users), 1.852% (50 users), and 7.278% (100 users).
-  - *Collision-Free Solutions Implemented & Benchmarked*:
-    1. `RoomIdentityTable`: Maps string user IDs to ephemeral integer indices within room sessions (**0.00% collision by construction**).
-    2. 12-Byte uint32 Codec: Implemented in benchmark script (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`), delivering 0% collision risk across global UUIDs while maintaining an **82.35% payload reduction** (1,200 B vs 6,798 B JSON) and 2.18M ops/sec decode speed (**19.97× faster**).
+  - *Evaluated Migration Designs*:
+    1. `RoomIdentityTable`: Maps string user IDs to ephemeral integer indices within room sessions (**0.00% collision rate by construction**).
+    2. Prospective 12-Byte uint32 Format: Implemented in benchmark script (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`), maintaining an **82.35% payload reduction** (1,200 B vs 6,798 B JSON) and 2.18M ops/sec decode speed (**19.97× faster**). *Note*: The 12-byte format accepts numeric IDs; UUID collision freedom requires an external numeric ID allocator (e.g. database sequence or snowflake generator) to map string UUIDs to 32-bit integers.
   - *Integration Qualification*: The 8-byte implementation in `backend/src/services/cursorCodec.service.ts` is explicitly an experimental component microbenchmark; it is not integrated into the live WebSocket collaboration awareness loop.
 - **Classification**: **Tier D (Experimental Prototype Microbenchmark)**.
 

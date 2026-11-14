@@ -163,22 +163,36 @@ async function run() {
     // Dynamically measure true convergence time with bounded safety timeout
     const convergencePromise = new Promise<{ durationMs: number; finalChars: number }>((resolve, reject) => {
       const t0 = performance.now();
+      let settled = false;
+      let pollTimer: NodeJS.Timeout | null = null;
+
+      const cleanup = () => {
+        settled = true;
+        clearTimeout(timeoutTimer);
+        if (pollTimer) clearTimeout(pollTimer);
+      };
+
       const timeoutTimer = setTimeout(() => {
+        if (settled) return;
+        cleanup();
         reject(new Error(`Timeout: Convergence did not occur within 10,000 ms for ${clientCount} clients`));
       }, 10000);
 
       const checkConvergence = () => {
+        if (settled) return;
         const firstLen = clients[0].text.length;
         if (firstLen >= totalTargetEdits) {
           const allMatch = clients.every(c => c.text.length === firstLen && c.text.toString() === clients[0].text.toString());
           if (allMatch) {
-            clearTimeout(timeoutTimer);
+            cleanup();
             const durationMs = performance.now() - t0;
             resolve({ durationMs, finalChars: firstLen });
             return;
           }
         }
-        setTimeout(checkConvergence, 2);
+        if (!settled) {
+          pollTimer = setTimeout(checkConvergence, 2);
+        }
       };
 
       // Emit edits concurrently from each client
