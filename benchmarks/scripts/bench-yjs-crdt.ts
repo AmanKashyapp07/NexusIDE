@@ -182,7 +182,13 @@ async function run() {
         if (settled) return;
         const firstLen = clients[0].text.length;
         if (firstLen >= totalTargetEdits) {
-          const allMatch = clients.every(c => c.text.length === firstLen && c.text.toString() === clients[0].text.toString());
+          const firstContent = clients[0].text.toString();
+          const firstSv = Buffer.from(Y.encodeStateVector(clients[0].doc));
+          const allMatch = clients.every(c =>
+            c.text.length === firstLen &&
+            c.text.toString() === firstContent &&
+            Buffer.from(Y.encodeStateVector(c.doc)).equals(firstSv)
+          );
           if (allMatch) {
             cleanup();
             const durationMs = performance.now() - t0;
@@ -215,10 +221,11 @@ async function run() {
       editsPerClient,
       totalEdits: totalTargetEdits,
       exactConvergenceMs: Number(convergence.durationMs.toFixed(2)),
-      allClientsBitIdentical: true
+      allClientsBitIdentical: true,
+      stateVectorConvergenceVerified: true
     };
 
-    console.log(`  ${clientCount} Real WS Clients on WSSharedDoc: True convergence in ${convergence.durationMs.toFixed(2)} ms (${totalTargetEdits} edits | Identical: YES ✓)`);
+    console.log(`  ${clientCount} Real WS Clients on WSSharedDoc: True convergence in ${convergence.durationMs.toFixed(2)} ms (${totalTargetEdits} edits | Content & State-Vector Identical: YES ✓)`);
 
     // Teardown clients for next tier
     for (const c of clients) c.ws.close();

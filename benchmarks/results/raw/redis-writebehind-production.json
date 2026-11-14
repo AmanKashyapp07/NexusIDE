@@ -1,8 +1,8 @@
 {
   "benchmark": "Redis Write-Behind Buffer & Flush Lifecycle",
-  "timestamp": "2026-11-14T07:33:33.966Z",
+  "timestamp": "2026-11-14T07:54:16.506Z",
   "environment": {
-    "timestamp": "2026-11-14T07:33:33.790Z",
+    "timestamp": "2026-11-14T07:54:16.327Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.1
+      "freeMemoryGb": 0.06
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 47,
+        "containers": 49,
         "images": 5
       },
       "redis": {
@@ -46,101 +46,104 @@
   "results": {
     "singleIngestion": {
       "n": 1000,
-      "min": 0.02175,
-      "max": 4.527916,
-      "mean": 0.053709,
-      "median": 0.034229,
-      "p95": 0.105208,
-      "p99": 0.146625,
-      "stddev": 0.148912,
-      "opsPerSec": 29215
+      "min": 0.021792,
+      "max": 1.03775,
+      "mean": 0.050428,
+      "median": 0.037709,
+      "p95": 0.106833,
+      "p99": 0.136792,
+      "stddev": 0.044076,
+      "opsPerSec": 26519
     },
     "batchIngestion": {
       "10": {
         "batchSize": 10,
         "totalBatchStats": {
           "n": 100,
-          "min": 0.023875,
-          "max": 0.087542,
-          "mean": 0.034486,
-          "median": 0.034125,
-          "p95": 0.042792,
-          "p99": 0.087542,
-          "stddev": 0.007175,
-          "opsPerSec": 29304
+          "min": 0.023125,
+          "max": 0.08625,
+          "mean": 0.03199,
+          "median": 0.031937,
+          "p95": 0.044458,
+          "p99": 0.08625,
+          "p99SampleWarning": "Sample size n=100 insufficient for distinct p99 (floor(n*0.99)=99 selects max observation; requires n>=101)",
+          "stddev": 0.00831,
+          "opsPerSec": 31311
         },
-        "perUpdateMedianMs": 0.003413,
-        "effectiveBatchUpdatesPerSec": 293040
+        "perUpdateMedianMs": 0.003194,
+        "effectiveBatchUpdatesPerSec": 313116
       },
       "50": {
         "batchSize": 50,
         "totalBatchStats": {
           "n": 100,
-          "min": 0.038,
-          "max": 0.061916,
-          "mean": 0.047083,
-          "median": 0.047708,
-          "p95": 0.054083,
-          "p99": 0.061916,
-          "stddev": 0.004549,
-          "opsPerSec": 20961
+          "min": 0.037708,
+          "max": 0.076333,
+          "mean": 0.049058,
+          "median": 0.048917,
+          "p95": 0.059542,
+          "p99": 0.076333,
+          "p99SampleWarning": "Sample size n=100 insufficient for distinct p99 (floor(n*0.99)=99 selects max observation; requires n>=101)",
+          "stddev": 0.005653,
+          "opsPerSec": 20443
         },
-        "perUpdateMedianMs": 0.000954,
-        "effectiveBatchUpdatesPerSec": 1048042
+        "perUpdateMedianMs": 0.000978,
+        "effectiveBatchUpdatesPerSec": 1022140
       },
       "100": {
         "batchSize": 100,
         "totalBatchStats": {
           "n": 100,
-          "min": 0.054,
-          "max": 0.78675,
-          "mean": 0.092577,
-          "median": 0.066563,
-          "p95": 0.171791,
-          "p99": 0.78675,
-          "stddev": 0.102039,
-          "opsPerSec": 15023
+          "min": 0.057792,
+          "max": 0.855292,
+          "mean": 0.091005,
+          "median": 0.065375,
+          "p95": 0.159125,
+          "p99": 0.855292,
+          "p99SampleWarning": "Sample size n=100 insufficient for distinct p99 (floor(n*0.99)=99 selects max observation; requires n>=101)",
+          "stddev": 0.10883,
+          "opsPerSec": 15296
         },
-        "perUpdateMedianMs": 0.000666,
-        "effectiveBatchUpdatesPerSec": 1502336
+        "perUpdateMedianMs": 0.000654,
+        "effectiveBatchUpdatesPerSec": 1529637
       }
     },
     "burstComparison_500": {
       "updateCount": 500,
-      "sequentialUnbatchedDurationMs": 15.13,
+      "sequentialUnbatchedDurationMs": 12.61,
       "pipelinedBatchDurationMs": 0.24,
-      "latencyReductionPct": 98.39,
-      "speedupFactor": 62.1
+      "latencyReductionPct": 98.08,
+      "speedupFactor": 52
     },
     "flushLifecycle": {
       "bufferedUpdatesCount": 50,
       "flushedUpdatesCount": 50,
-      "flushDurationMs": 5.205,
+      "flushDurationMs": 4.765,
       "persistedSqlRows": 1,
       "writeAmplificationReductionPct": 98
     },
     "cacheOperations": {
       "cacheSetStats": {
         "n": 500,
-        "min": 0.018625,
-        "max": 0.078,
-        "mean": 0.024693,
-        "median": 0.024354,
-        "p95": 0.028833,
-        "p99": 0.034542,
-        "stddev": 0.003618,
-        "opsPerSec": 41061
+        "min": 0.017542,
+        "max": 0.057459,
+        "mean": 0.024117,
+        "median": 0.024042,
+        "p95": 0.028791,
+        "p99": 0.033833,
+        "stddev": 0.00339,
+        "opsPerSec": 41594
       },
       "cacheGetHitStats": {
         "n": 500,
-        "min": 0.015291,
-        "max": 0.067,
-        "mean": 0.024392,
-        "median": 0.024166,
-        "p95": 0.028541,
-        "p99": 0.035583,
-        "stddev": 0.00337,
-        "opsPerSec": 41380
+        "min": 0.017292,
+        "max": 0.06125,
+        "mean": 0.024015,
+        "median": 0.023833,
+        "p95": 0.027583,
+        "p99": 0.035417,
+        "stddev": 0.00299,
+        "opsPerSec": 41959
       },
       "hitsRecorded": 500,
       "missesRecorded": 0,

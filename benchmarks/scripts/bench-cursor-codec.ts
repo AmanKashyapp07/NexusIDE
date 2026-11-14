@@ -26,6 +26,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // =============================================================================
 
 // Solution 1: Room-Scoped Ephemeral Identity Mapping Table
+// Enforces a strict uint16 capacity limit (0 to 65,535). Slots map string UUIDs to 16-bit indices.
+export const MAX_ROOM_CAPACITY_UINT16 = 65536;
+
 export class RoomIdentityTable {
   private userToClientIndex = new Map<string, number>();
   private clientIndexToUser = new Map<number, string>();
@@ -34,6 +37,11 @@ export class RoomIdentityTable {
   getOrAssign(userId: string): number {
     let idx = this.userToClientIndex.get(userId);
     if (idx === undefined) {
+      if (this.nextIndex >= MAX_ROOM_CAPACITY_UINT16) {
+        throw new Error(
+          `RoomIdentityTable capacity exhausted: maximum ${MAX_ROOM_CAPACITY_UINT16} concurrent participants per room supported by uint16 mapping`
+        );
+      }
       idx = this.nextIndex++;
       this.userToClientIndex.set(userId, idx);
       this.clientIndexToUser.set(idx, userId);
@@ -47,6 +55,12 @@ export class RoomIdentityTable {
 
   get size(): number {
     return this.userToClientIndex.size;
+  }
+
+  reset(): void {
+    this.userToClientIndex.clear();
+    this.clientIndexToUser.clear();
+    this.nextIndex = 0;
   }
 }
 
@@ -195,8 +209,22 @@ async function run() {
     assignedIndices.add(idx);
     Assertions.assertEqual(roomTable.resolve(idx), u, 'Room identity table reverse lookup mismatch');
   }
-  Assertions.assertEqual(assignedIndices.size, 100, 'Room identity table must have 100 unique indices');
+  Assertions.assertEqual(assignedIndices.size, 100, 'RoomIdentityTable must have 100 unique indices');
   BenchmarkLogger.success('RoomIdentityTable: 100 room users mapped to 100 unique indices (0.00% collision by construction)');
+
+  // Verify RoomIdentityTable uint16 capacity guard
+  const boundaryTable = new RoomIdentityTable();
+  (boundaryTable as any).nextIndex = 65536;
+  let capacityErrorCaught = false;
+  try {
+    boundaryTable.getOrAssign('overflow-user');
+  } catch (err: any) {
+    if (err.message.includes('capacity exhausted')) {
+      capacityErrorCaught = true;
+    }
+  }
+  Assertions.assertEqual(capacityErrorCaught, true, 'RoomIdentityTable must reject index >= 65,536');
+  BenchmarkLogger.success('RoomIdentityTable: uint16 capacity guard (65,536 max participants) verified');
 
   // B. 12-Byte uint32 Codec Verification
   const sample32UserId = 3735928559; // 0xDEADBEEF

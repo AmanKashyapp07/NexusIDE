@@ -1,7 +1,7 @@
 {
   "benchmark": "Docker Container Pool Lifecycle & Exhaustion Audit",
-  "timestamp": "2026-11-14T07:33:12.118Z",
-  "benchmarkRunId": "nexus-bench-1794641584697-499887",
+  "timestamp": "2026-11-14T07:53:41.641Z",
+  "benchmarkRunId": "nexus-bench-1794642814264-13616",
   "evidenceTiers": {
     "warmCheckout": "Tier A (Production Component Integration: warmPoolManager.popTerminalContainer())",
     "coldProvisioning": "Tier B (Equivalent Infrastructure Baseline: Docker container with equivalent production cgroup/volume configuration)",
@@ -17,82 +17,82 @@
   "results": {
     "coldProvisioning": {
       "samplesMs": [
-        120.95,
-        118,
-        98.06,
-        121.78,
-        114.7
+        118.48,
+        101.38,
+        154.88,
+        131.13,
+        115.07
       ],
       "stats": {
         "n": 5,
-        "min": 98.06,
-        "max": 121.78,
-        "mean": 114.698,
-        "median": 118,
-        "p95": 121.78,
-        "p99": 121.78,
-        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (reflects max/near-max observation)",
-        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (reflects max observation)",
-        "stddev": 8.682954,
+        "min": 101.38,
+        "max": 154.88,
+        "mean": 124.188,
+        "median": 118.48,
+        "p95": 154.88,
+        "p99": 154.88,
+        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (floor(n*0.95)=4 selects max observation; requires n>=21)",
+        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (floor(n*0.99)=4 selects max observation; requires n>=101)",
+        "stddev": 18.033936,
         "opsPerSec": 8
       }
     },
     "warmCheckout": {
       "samplesMs": [
-        0.2774,
-        0.4134,
-        0.2815,
-        0.2317,
-        0.2264
+        0.3264,
+        0.2806,
+        0.7563,
+        0.2697,
+        0.3324
       ],
       "stats": {
         "n": 5,
-        "min": 0.2264,
-        "max": 0.4134,
-        "mean": 0.28608,
-        "median": 0.2774,
-        "p95": 0.4134,
-        "p99": 0.4134,
-        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (reflects max/near-max observation)",
-        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (reflects max observation)",
-        "stddev": 0.067566,
-        "opsPerSec": 3605
+        "min": 0.2697,
+        "max": 0.7563,
+        "mean": 0.39308,
+        "median": 0.3264,
+        "p95": 0.7563,
+        "p99": 0.7563,
+        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (floor(n*0.95)=4 selects max observation; requires n>=21)",
+        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (floor(n*0.99)=4 selects max observation; requires n>=101)",
+        "stddev": 0.183266,
+        "opsPerSec": 3064
       },
       "verifiedPrewarmed": true
     },
     "onDemandFallback": {
       "samplesMs": [
-        115.34,
-        103.78,
-        117.1,
-        112.33,
-        108.81
+        110.99,
+        96.2,
+        112.81,
+        112.08,
+        102.86
       ],
       "stats": {
         "n": 5,
-        "min": 103.78,
-        "max": 117.1,
-        "mean": 111.472,
-        "median": 112.33,
-        "p95": 117.1,
-        "p99": 117.1,
-        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (reflects max/near-max observation)",
-        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (reflects max observation)",
-        "stddev": 4.767076,
+        "min": 96.2,
+        "max": 112.81,
+        "mean": 106.988,
+        "median": 110.99,
+        "p95": 112.81,
+        "p99": 112.81,
+        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (floor(n*0.95)=4 selects max observation; requires n>=21)",
+        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (floor(n*0.99)=4 selects max observation; requires n>=101)",
+        "stddev": 6.469335,
         "opsPerSec": 9
       },
       "verifiedEmptyPoolBeforeEachPop": true
     },
     "comparison": {
-      "coldMedianMs": 118,
-      "warmCheckoutMedianMs": 0.2774,
-      "onDemandFallbackMedianMs": 112.33,
-      "warmCheckoutSpeedupVsCold": 425.4,
-      "warmCheckoutLatencyReductionPct": 99.76,
+      "coldMedianMs": 118.48,
+      "warmCheckoutMedianMs": 0.3264,
+      "onDemandFallbackMedianMs": 110.99,
+      "warmCheckoutSpeedupVsCold": 363,
+      "warmCheckoutLatencyReductionPct": 99.72,
       "onDemandMatchesColdProvisioning": true
     },
     "cleanupVerification": {
-      "benchmarkRunId": "nexus-bench-1794641584697-499887",
+      "benchmarkRunId": "nexus-bench-1794642814264-13616",
       "removedContainersCount": 27,
       "zeroOrphansVerified": true,
       "remainingBenchmarkContainers": 0

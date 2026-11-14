@@ -1,8 +1,8 @@
 {
   "benchmark": "Terminal PTY Stream Buffer",
-  "timestamp": "2026-11-14T07:33:29.269Z",
+  "timestamp": "2026-11-14T07:54:07.060Z",
   "environment": {
-    "timestamp": "2026-11-14T07:33:29.196Z",
+    "timestamp": "2026-11-14T07:54:06.982Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.23
+      "freeMemoryGb": 0.06
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 47,
+        "containers": 49,
         "images": 5
       },
       "redis": {
@@ -46,9 +46,9 @@
       "directFrames": 100,
       "bufferedFrames": 2,
       "frameReductionPct": 98,
-      "directDeliveryDurationMs": 1.36,
-      "bufferedDeliveryDurationMs": 11.38,
-      "latencyTradeoffDeltaMs": 10.01,
+      "directDeliveryDurationMs": 1.42,
+      "bufferedDeliveryDurationMs": 11.31,
+      "latencyTradeoffDeltaMs": 9.89,
       "integrityVerified": true
     },
     "scenarioB_1000x64B": {
@@ -56,9 +56,9 @@
       "directFrames": 1000,
       "bufferedFrames": 4,
       "frameReductionPct": 99.6,
-      "directDeliveryDurationMs": 5.32,
+      "directDeliveryDurationMs": 5.29,
       "bufferedDeliveryDurationMs": 10.44,
-      "latencyTradeoffDeltaMs": 5.12,
+      "latencyTradeoffDeltaMs": 5.15,
       "integrityVerified": true
     },
     "scenarioC_10x8KB": {
@@ -75,8 +75,8 @@
       "directFrames": 100,
       "bufferedFrames": 13,
       "frameReductionPct": 87,
-      "directDeliveryDurationMs": 0.53,
-      "bufferedDeliveryDurationMs": 10.39,
+      "directDeliveryDurationMs": 0.51,
+      "bufferedDeliveryDurationMs": 10.37,
       "integrityVerified": true
     },
     "backpressureAudit": {

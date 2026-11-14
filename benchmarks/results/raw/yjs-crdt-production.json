@@ -1,8 +1,8 @@
 {
   "benchmark": "Yjs CRDT Real-Time Collaboration",
-  "timestamp": "2026-11-14T07:41:09.917Z",
+  "timestamp": "2026-11-14T07:54:33.815Z",
   "environment": {
-    "timestamp": "2026-11-14T07:41:09.663Z",
+    "timestamp": "2026-11-14T07:54:33.551Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.07
+      "freeMemoryGb": 0.06
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 47,
+        "containers": 49,
         "images": 5
       },
       "redis": {
@@ -53,23 +53,23 @@
     "level1_localLibrary": {
       "100": {
         "insertions": 100,
-        "elapsedMs": 1.539,
-        "insertionsPerSec": 64984,
+        "elapsedMs": 1.494,
+        "insertionsPerSec": 66929,
         "encodedStateBytes": 120,
         "bytesPerChar": 1.2
       },
       "1000": {
         "insertions": 1000,
-        "elapsedMs": 3.321,
-        "insertionsPerSec": 301099,
+        "elapsedMs": 3.037,
+        "insertionsPerSec": 329263,
         "encodedStateBytes": 1021,
         "bytesPerChar": 1.02
       },
       "5000": {
         "insertions": 5000,
-        "elapsedMs": 11.219,
-        "insertionsPerSec": 445671,
-        "encodedStateBytes": 5020,
+        "elapsedMs": 12.281,
+        "insertionsPerSec": 407144,
+        "encodedStateBytes": 5021,
         "bytesPerChar": 1
       }
     },
@@ -78,37 +78,40 @@
         "clientCount": 2,
         "editsPerClient": 20,
         "totalEdits": 40,
-        "exactConvergenceMs": 7.56,
-        "allClientsBitIdentical": true
+        "exactConvergenceMs": 7.85,
+        "allClientsBitIdentical": true,
+        "stateVectorConvergenceVerified": true
       },
       "5": {
         "clientCount": 5,
         "editsPerClient": 20,
         "totalEdits": 100,
-        "exactConvergenceMs": 18.97,
-        "allClientsBitIdentical": true
+        "exactConvergenceMs": 31.08,
+        "allClientsBitIdentical": true,
+        "stateVectorConvergenceVerified": true
       },
       "10": {
         "clientCount": 10,
         "editsPerClient": 20,
         "totalEdits": 200,
-        "exactConvergenceMs": 38.36,
-        "allClientsBitIdentical": true
+        "exactConvergenceMs": 37.97,
+        "allClientsBitIdentical": true,
+        "stateVectorConvergenceVerified": true
       }
     },
     "level3_redisPubSubMesh": {
       "iterations": 100,
       "propagationStats": {
         "n": 100,
-        "min": 0.057709,
-        "max": 0.205,
-        "mean": 0.088688,
-        "median": 0.088459,
-        "p95": 0.120334,
-        "p99": 0.205,
+        "min": 0.063125,
+        "max": 0.241917,
+        "mean": 0.08673,
+        "median": 0.080916,
+        "p95": 0.123083,
+        "p99": 0.241917,
         "p99SampleWarning": "Sample size n=100 insufficient for distinct p99 (floor(n*0.99)=99 selects max observation; requires n>=101)",
-        "stddev": 0.01895,
-        "opsPerSec": 11305
+        "stddev": 0.024749,
+        "opsPerSec": 12358
       },
       "crossInstanceConvergenceVerified": true,
       "replicatedCharacters": 100

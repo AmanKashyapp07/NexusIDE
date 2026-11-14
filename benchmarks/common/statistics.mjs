@@ -29,7 +29,7 @@ export class Statistics {
     const variance = sorted.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / n;
     const stddev = Math.sqrt(variance);
 
-    // With nearest-rank discrete estimator floor(n * p), p95 selects max when n <= 20, p99 when n <= 100
+    // With discrete floor-index percentile estimator floor(n * p), p95 selects max when n <= 20, p99 when n <= 100
     const isP95AtMax = p95Index >= n - 1;
     const isP99AtMax = p99Index >= n - 1;
 
