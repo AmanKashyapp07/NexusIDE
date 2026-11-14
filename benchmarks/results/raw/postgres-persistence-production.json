@@ -1,0 +1,135 @@
+{
+  "benchmark": "PostgreSQL Persistence Engine",
+  "timestamp": "2026-11-14T06:20:37.160Z",
+  "environment": {
+    "timestamp": "2026-11-14T06:20:36.634Z",
+    "os": {
+      "platform": "darwin",
+      "release": "27.2.0",
+      "arch": "arm64",
+      "cpus": 10,
+      "cpuModel": "Apple M4",
+      "totalMemoryGb": 16,
+      "freeMemoryGb": 0.07
+    },
+    "runtime": {
+      "node": "v22.20.0",
+      "v8": "12.4.254.21-node.33",
+      "uv": "1.51.0"
+    },
+    "services": {
+      "docker": {
+        "available": true,
+        "version": "29.5.2",
+        "socket": "/Users/amankashyap/.docker/run/docker.sock",
+        "containers": 38,
+        "images": 5
+      },
+      "redis": {
+        "available": true,
+        "version": "8.8.0",
+        "host": "127.0.0.1",
+        "port": 6379
+      },
+      "postgres": {
+        "available": true,
+        "version": "PostgreSQL 14.20 (Homebrew) on aarch64-apple-darwin25.1.0, compiled by Apple clang version 17.0.0 (clang-1700.4.4.1), 64-bit",
+        "database": "sandbox"
+      }
+    }
+  },
+  "evidenceTier": "Tier A (Live PostgreSQL 14+ Database)",
+  "productionSource": "backend/src/db.ts",
+  "results": {
+    "pingLatency": {
+      "n": 500,
+      "min": 0.037875,
+      "max": 0.266042,
+      "mean": 0.064193,
+      "median": 0.061041,
+      "p95": 0.082792,
+      "p99": 0.153458,
+      "stddev": 0.019036,
+      "opsPerSec": 16382
+    },
+    "singleRowInsert": {
+      "n": 500,
+      "min": 0.068667,
+      "max": 5.692791,
+      "mean": 0.120441,
+      "median": 0.0815,
+      "p95": 0.240958,
+      "p99": 0.719583,
+      "stddev": 0.276988,
+      "opsPerSec": 12270
+    },
+    "batchInserts": {
+      "10": {
+        "batchSize": 10,
+        "batchStats": {
+          "n": 50,
+          "min": 0.088959,
+          "max": 0.467333,
+          "mean": 0.138659,
+          "median": 0.111396,
+          "p95": 0.293167,
+          "p99": 0.467333,
+          "stddev": 0.07134,
+          "opsPerSec": 8977
+        },
+        "perUpdateMedianMs": 0.01114,
+        "effectiveThroughputRowsPerSec": 89770
+      },
+      "50": {
+        "batchSize": 50,
+        "batchStats": {
+          "n": 50,
+          "min": 0.132792,
+          "max": 0.581666,
+          "mean": 0.247746,
+          "median": 0.206896,
+          "p95": 0.396125,
+          "p99": 0.581666,
+          "stddev": 0.093731,
+          "opsPerSec": 4833
+        },
+        "perUpdateMedianMs": 0.004138,
+        "effectiveThroughputRowsPerSec": 241667
+      },
+      "100": {
+        "batchSize": 100,
+        "batchStats": {
+          "n": 50,
+          "min": 0.209667,
+          "max": 2.38325,
+          "mean": 0.384677,
+          "median": 0.378708,
+          "p95": 0.525458,
+          "p99": 2.38325,
+          "stddev": 0.302038,
+          "opsPerSec": 2641
+        },
+        "perUpdateMedianMs": 0.003787,
+        "effectiveThroughputRowsPerSec": 264056
+      }
+    },
+    "concurrentWrites": {
+      "concurrentWorkers": 5,
+      "updatesPerWorker": 100,
+      "totalWrites": 500,
+      "totalDurationMs": 21.05,
+      "sustainedThroughputRowsPerSec": 23749
+    },
+    "stateReplayRead": {
+      "n": 100,
+      "min": 2.550583,
+      "max": 5.854542,
+      "mean": 2.790337,
+      "median": 2.712688,
+      "p95": 3.211709,
+      "p99": 5.854542,
+      "stddev": 0.349591,
+      "opsPerSec": 369
+    }
+  }
+}

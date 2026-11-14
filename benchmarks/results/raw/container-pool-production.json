@@ -1,0 +1,77 @@
+{
+  "benchmark": "Docker Warm Container Sandbox Pool",
+  "timestamp": "2026-11-14T06:21:35.469Z",
+  "environment": {
+    "timestamp": "2026-11-14T06:21:34.075Z",
+    "os": {
+      "platform": "darwin",
+      "release": "27.2.0",
+      "arch": "arm64",
+      "cpus": 10,
+      "cpuModel": "Apple M4",
+      "totalMemoryGb": 16,
+      "freeMemoryGb": 0.07
+    },
+    "runtime": {
+      "node": "v22.20.0",
+      "v8": "12.4.254.21-node.33",
+      "uv": "1.51.0"
+    },
+    "services": {
+      "docker": {
+        "available": true,
+        "version": "29.5.2",
+        "socket": "/Users/amankashyap/.docker/run/docker.sock",
+        "containers": 38,
+        "images": 5
+      },
+      "redis": {
+        "available": true,
+        "version": "8.8.0",
+        "host": "127.0.0.1",
+        "port": 6379
+      },
+      "postgres": {
+        "available": true,
+        "version": "PostgreSQL 14.20 (Homebrew) on aarch64-apple-darwin25.1.0, compiled by Apple clang version 17.0.0 (clang-1700.4.4.1), 64-bit",
+        "database": "sandbox"
+      }
+    }
+  },
+  "evidenceTier": "Tier A (Live Docker Engine v29.5.2 Daemon + Production Pool Manager)",
+  "productionSource": "backend/src/sandbox/pool.ts",
+  "results": {
+    "coldContainerProvisioning": {
+      "n": 3,
+      "min": 107.721042,
+      "max": 130.614083,
+      "mean": 115.400055,
+      "median": 107.865041,
+      "p95": 130.614083,
+      "p99": 130.614083,
+      "stddev": 10.758103,
+      "opsPerSec": 9
+    },
+    "warmAllocation": {
+      "n": 2,
+      "min": 0.313542,
+      "max": 110.348666,
+      "mean": 55.331104,
+      "median": 55.331104,
+      "p95": 110.348666,
+      "p99": 110.348666,
+      "stddev": 55.017562,
+      "opsPerSec": 18
+    },
+    "coldVsWarmComparison": {
+      "coldMedianMs": 107.865041,
+      "warmMedianMs": 55.331104,
+      "latencyReductionPct": 48.7,
+      "speedupFactor": 1.9
+    },
+    "poolExhaustionFallback": {
+      "fallbackAllocationMs": 0.01,
+      "createdOnDemand": true
+    }
+  }
+}

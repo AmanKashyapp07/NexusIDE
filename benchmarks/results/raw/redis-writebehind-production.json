@@ -1,0 +1,146 @@
+{
+  "benchmark": "Redis Write-Behind & Multi-Tier Cache",
+  "timestamp": "2026-11-14T06:19:12.755Z",
+  "environment": {
+    "timestamp": "2026-11-14T06:19:12.137Z",
+    "os": {
+      "platform": "darwin",
+      "release": "27.2.0",
+      "arch": "arm64",
+      "cpus": 10,
+      "cpuModel": "Apple M4",
+      "totalMemoryGb": 16,
+      "freeMemoryGb": 0.07
+    },
+    "runtime": {
+      "node": "v22.20.0",
+      "v8": "12.4.254.21-node.33",
+      "uv": "1.51.0"
+    },
+    "services": {
+      "docker": {
+        "available": true,
+        "version": "29.5.2",
+        "socket": "/Users/amankashyap/.docker/run/docker.sock",
+        "containers": 38,
+        "images": 5
+      },
+      "redis": {
+        "available": true,
+        "version": "8.8.0",
+        "host": "127.0.0.1",
+        "port": 6379
+      },
+      "postgres": {
+        "available": true,
+        "version": "PostgreSQL 14.20 (Homebrew) on aarch64-apple-darwin25.1.0, compiled by Apple clang version 17.0.0 (clang-1700.4.4.1), 64-bit",
+        "database": "sandbox"
+      }
+    }
+  },
+  "evidenceTier": "Tier A (Live Redis 8.8.0 + Production Service Code)",
+  "productionSources": [
+    "backend/src/services/crdtWriteBehind.service.ts",
+    "backend/src/utils/redisCache.ts"
+  ],
+  "results": {
+    "singleIngestion": {
+      "n": 1000,
+      "min": 0.029708,
+      "max": 0.889833,
+      "mean": 0.057215,
+      "median": 0.05602,
+      "p95": 0.104125,
+      "p99": 0.130583,
+      "stddev": 0.036136,
+      "opsPerSec": 17851
+    },
+    "batchIngestion": {
+      "10": {
+        "batchSize": 10,
+        "totalBatchStats": {
+          "n": 100,
+          "min": 0.028,
+          "max": 1.406667,
+          "mean": 0.054996,
+          "median": 0.033375,
+          "p95": 0.092375,
+          "p99": 1.406667,
+          "stddev": 0.137017,
+          "opsPerSec": 29963
+        },
+        "perUpdateMedianMs": 0.003338,
+        "effectiveUpdatesPerSec": 299625
+      },
+      "50": {
+        "batchSize": 50,
+        "totalBatchStats": {
+          "n": 100,
+          "min": 0.036291,
+          "max": 0.101,
+          "mean": 0.050147,
+          "median": 0.046979,
+          "p95": 0.069459,
+          "p99": 0.101,
+          "stddev": 0.011796,
+          "opsPerSec": 21286
+        },
+        "perUpdateMedianMs": 0.00094,
+        "effectiveUpdatesPerSec": 1064305
+      },
+      "100": {
+        "batchSize": 100,
+        "totalBatchStats": {
+          "n": 100,
+          "min": 0.050958,
+          "max": 0.085083,
+          "mean": 0.061701,
+          "median": 0.060667,
+          "p95": 0.073917,
+          "p99": 0.085083,
+          "stddev": 0.006819,
+          "opsPerSec": 16483
+        },
+        "perUpdateMedianMs": 0.000607,
+        "effectiveUpdatesPerSec": 1648343
+      }
+    },
+    "burstComparison": {
+      "updatesCount": 500,
+      "individualSequentialMs": 21.856,
+      "pipelinedBatchMs": 0.19,
+      "speedupFactor": 115.29,
+      "latencyReductionPct": 99.13
+    },
+    "cacheHierarchy": {
+      "l1InMemoryMap": {
+        "n": 100,
+        "min": 0.002583,
+        "max": 0.009713,
+        "mean": 0.00335,
+        "median": 0.002882,
+        "p95": 0.004928,
+        "p99": 0.009713,
+        "stddev": 0.000985,
+        "opsPerSec": 347014
+      },
+      "l2RedisRoundtrip": {
+        "n": 1000,
+        "min": 0.014792,
+        "max": 4.505792,
+        "mean": 0.029949,
+        "median": 0.022083,
+        "p95": 0.04325,
+        "p99": 0.124333,
+        "stddev": 0.143058,
+        "opsPerSec": 45284
+      },
+      "l1SpeedupVsL2": 7.66,
+      "cacheHitStats": {
+        "hits": 0,
+        "misses": 0,
+        "hitRate": 0
+      }
+    }
+  }
+}

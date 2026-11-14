@@ -1,0 +1,81 @@
+{
+  "benchmark": "Terminal PTY Stream Buffer",
+  "timestamp": "2026-11-14T06:20:13.145Z",
+  "environment": {
+    "timestamp": "2026-11-14T06:20:13.061Z",
+    "os": {
+      "platform": "darwin",
+      "release": "27.2.0",
+      "arch": "arm64",
+      "cpus": 10,
+      "cpuModel": "Apple M4",
+      "totalMemoryGb": 16,
+      "freeMemoryGb": 0.08
+    },
+    "runtime": {
+      "node": "v22.20.0",
+      "v8": "12.4.254.21-node.33",
+      "uv": "1.51.0"
+    },
+    "services": {
+      "docker": {
+        "available": true,
+        "version": "29.5.2",
+        "socket": "/Users/amankashyap/.docker/run/docker.sock",
+        "containers": 38,
+        "images": 5
+      },
+      "redis": {
+        "available": true,
+        "version": "8.8.0",
+        "host": "127.0.0.1",
+        "port": 6379
+      },
+      "postgres": {
+        "available": true,
+        "version": "PostgreSQL 14.20 (Homebrew) on aarch64-apple-darwin25.1.0, compiled by Apple clang version 17.0.0 (clang-1700.4.4.1), 64-bit",
+        "database": "sandbox"
+      }
+    }
+  },
+  "evidenceTier": "Tier A (Live WebSocket Transport + Production StreamBuffer)",
+  "productionSource": "backend/src/terminal/terminalStreamBuffer.ts",
+  "results": {
+    "scenarioA_100x256B": {
+      "inputChunks": 100,
+      "directFrames": 100,
+      "bufferedFrames": 2,
+      "frameReductionPct": 98,
+      "directElapsedMs": 1.72,
+      "bufferedElapsedMs": 11.43,
+      "integrityVerified": true
+    },
+    "scenarioB_1000x64B": {
+      "inputChunks": 1000,
+      "directFrames": 1000,
+      "bufferedFrames": 4,
+      "frameReductionPct": 99.6,
+      "directElapsedMs": 6.35,
+      "bufferedElapsedMs": 10.44,
+      "integrityVerified": true
+    },
+    "scenarioC_10x8KB": {
+      "inputChunks": 10,
+      "directFrames": 10,
+      "bufferedFrames": 5,
+      "frameReductionPct": 50,
+      "directElapsedMs": 0.13,
+      "bufferedElapsedMs": 0.14,
+      "integrityVerified": true
+    },
+    "scenarioD_mixed": {
+      "inputChunks": 100,
+      "directFrames": 100,
+      "bufferedFrames": 13,
+      "frameReductionPct": 87,
+      "directElapsedMs": 0.7,
+      "bufferedElapsedMs": 10.36,
+      "integrityVerified": true
+    }
+  }
+}

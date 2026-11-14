@@ -1,0 +1,423 @@
+{
+  "benchmark": "Binary Cursor Codec",
+  "timestamp": "2026-11-14T06:18:45.016Z",
+  "environment": {
+    "timestamp": "2026-11-14T06:18:42.641Z",
+    "os": {
+      "platform": "darwin",
+      "release": "27.2.0",
+      "arch": "arm64",
+      "cpus": 10,
+      "cpuModel": "Apple M4",
+      "totalMemoryGb": 16,
+      "freeMemoryGb": 0.07
+    },
+    "runtime": {
+      "node": "v22.20.0",
+      "v8": "12.4.254.21-node.33",
+      "uv": "1.51.0"
+    },
+    "services": {
+      "docker": {
+        "available": true,
+        "version": "29.5.2",
+        "socket": "/Users/amankashyap/.docker/run/docker.sock",
+        "containers": 38,
+        "images": 5
+      },
+      "redis": {
+        "available": true,
+        "version": "8.8.0",
+        "host": "127.0.0.1",
+        "port": 6379
+      },
+      "postgres": {
+        "available": true,
+        "version": "PostgreSQL 14.20 (Homebrew) on aarch64-apple-darwin25.1.0, compiled by Apple clang version 17.0.0 (clang-1700.4.4.1), 64-bit",
+        "database": "sandbox"
+      }
+    }
+  },
+  "evidenceTier": "Tier B (Production Implementation Microbenchmark)",
+  "productionSource": "backend/src/services/cursorCodec.service.ts",
+  "correctness": {
+    "roundTripPassed": true,
+    "boundaryClampingPassed": true,
+    "corruptedBufferSafetyPassed": true,
+    "hashSpaceCollisionRatePct": 17.14
+  },
+  "results": {
+    "1": {
+      "collaboratorCount": 1,
+      "payload": {
+        "binaryBytes": 8,
+        "jsonBytes": 64,
+        "reductionPct": 87.5
+      },
+      "encoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000083,
+          "max": 0.009583,
+          "mean": 0.000209,
+          "median": 0.000125,
+          "p95": 0.000417,
+          "p99": 0.001084,
+          "stddev": 0.000217,
+          "opsPerSec": 8000000
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.000083,
+          "max": 0.009041,
+          "mean": 0.00014,
+          "median": 0.000125,
+          "p95": 0.000167,
+          "p99": 0.000167,
+          "stddev": 0.00014,
+          "opsPerSec": 8000000
+        },
+        "speedupFactor": 1
+      },
+      "decoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000041,
+          "max": 0.072166,
+          "mean": 0.000241,
+          "median": 0.000167,
+          "p95": 0.000417,
+          "p99": 0.001416,
+          "stddev": 0.001083,
+          "opsPerSec": 5988024
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.000166,
+          "max": 0.037834,
+          "mean": 0.000252,
+          "median": 0.00025,
+          "p95": 0.00025,
+          "p99": 0.000334,
+          "stddev": 0.000441,
+          "opsPerSec": 4000000
+        },
+        "speedupFactor": 1.5
+      },
+      "heapDeltaApproxBytes": {
+        "binaryPer5kCalls": 1443416,
+        "jsonPer5kCalls": 400352
+      }
+    },
+    "10": {
+      "collaboratorCount": 10,
+      "payload": {
+        "binaryBytes": 80,
+        "jsonBytes": 655,
+        "reductionPct": 87.79
+      },
+      "encoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000083,
+          "max": 0.019917,
+          "mean": 0.000179,
+          "median": 0.000167,
+          "p95": 0.000209,
+          "p99": 0.0005,
+          "stddev": 0.000293,
+          "opsPerSec": 5988024
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.000541,
+          "max": 0.039834,
+          "mean": 0.000697,
+          "median": 0.000667,
+          "p95": 0.000792,
+          "p99": 0.001625,
+          "stddev": 0.000486,
+          "opsPerSec": 1499250
+        },
+        "speedupFactor": 3.99
+      },
+      "decoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000041,
+          "max": 0.211042,
+          "mean": 0.000138,
+          "median": 0.000083,
+          "p95": 0.000125,
+          "p99": 0.000875,
+          "stddev": 0.002183,
+          "opsPerSec": 12048193
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.000958,
+          "max": 0.153625,
+          "mean": 0.001187,
+          "median": 0.001125,
+          "p95": 0.001417,
+          "p99": 0.002042,
+          "stddev": 0.001563,
+          "opsPerSec": 888889
+        },
+        "speedupFactor": 13.55
+      },
+      "heapDeltaApproxBytes": {
+        "binaryPer5kCalls": 1320520,
+        "jsonPer5kCalls": 3365072
+      }
+    },
+    "50": {
+      "collaboratorCount": 50,
+      "payload": {
+        "binaryBytes": 400,
+        "jsonBytes": 3365,
+        "reductionPct": 88.11
+      },
+      "encoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000208,
+          "max": 0.047458,
+          "mean": 0.000389,
+          "median": 0.000292,
+          "p95": 0.00075,
+          "p99": 0.001333,
+          "stddev": 0.000801,
+          "opsPerSec": 3424658
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.002833,
+          "max": 0.18625,
+          "mean": 0.003428,
+          "median": 0.00325,
+          "p95": 0.004083,
+          "p99": 0.008709,
+          "stddev": 0.002766,
+          "opsPerSec": 307692
+        },
+        "speedupFactor": 11.13
+      },
+      "decoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000125,
+          "max": 0.167167,
+          "mean": 0.000252,
+          "median": 0.000208,
+          "p95": 0.000292,
+          "p99": 0.000583,
+          "stddev": 0.002049,
+          "opsPerSec": 4807692
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.004583,
+          "max": 0.191792,
+          "mean": 0.005471,
+          "median": 0.005209,
+          "p95": 0.006209,
+          "p99": 0.0125,
+          "stddev": 0.002906,
+          "opsPerSec": 191975
+        },
+        "speedupFactor": 25.04
+      },
+      "heapDeltaApproxBytes": {
+        "binaryPer5kCalls": 1320568,
+        "jsonPer5kCalls": 409616
+      }
+    },
+    "100": {
+      "collaboratorCount": 100,
+      "payload": {
+        "binaryBytes": 800,
+        "jsonBytes": 6798,
+        "reductionPct": 88.23
+      },
+      "encoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000417,
+          "max": 0.039708,
+          "mean": 0.000577,
+          "median": 0.0005,
+          "p95": 0.001208,
+          "p99": 0.001417,
+          "stddev": 0.000514,
+          "opsPerSec": 2000000
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.006083,
+          "max": 0.160667,
+          "mean": 0.007106,
+          "median": 0.006917,
+          "p95": 0.007666,
+          "p99": 0.01175,
+          "stddev": 0.003245,
+          "opsPerSec": 144571
+        },
+        "speedupFactor": 13.83
+      },
+      "decoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000292,
+          "max": 0.113,
+          "mean": 0.000447,
+          "median": 0.000375,
+          "p95": 0.0005,
+          "p99": 0.000792,
+          "stddev": 0.001836,
+          "opsPerSec": 2666667
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.009167,
+          "max": 0.188459,
+          "mean": 0.010614,
+          "median": 0.010375,
+          "p95": 0.011667,
+          "p99": 0.015958,
+          "stddev": 0.003595,
+          "opsPerSec": 96386
+        },
+        "speedupFactor": 27.67
+      },
+      "heapDeltaApproxBytes": {
+        "binaryPer5kCalls": 1320416,
+        "jsonPer5kCalls": 1814168
+      }
+    },
+    "250": {
+      "collaboratorCount": 250,
+      "payload": {
+        "binaryBytes": 2000,
+        "jsonBytes": 17257,
+        "reductionPct": 88.41
+      },
+      "encoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000958,
+          "max": 0.035333,
+          "mean": 0.001298,
+          "median": 0.001125,
+          "p95": 0.002125,
+          "p99": 0.00275,
+          "stddev": 0.0008,
+          "opsPerSec": 888889
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.014916,
+          "max": 0.158042,
+          "mean": 0.01731,
+          "median": 0.016958,
+          "p95": 0.018708,
+          "p99": 0.022875,
+          "stddev": 0.004298,
+          "opsPerSec": 58969
+        },
+        "speedupFactor": 15.07
+      },
+      "decoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.000833,
+          "max": 0.098625,
+          "mean": 0.001127,
+          "median": 0.000959,
+          "p95": 0.001334,
+          "p99": 0.001667,
+          "stddev": 0.002518,
+          "opsPerSec": 1042753
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.022292,
+          "max": 1.664667,
+          "mean": 0.027663,
+          "median": 0.025292,
+          "p95": 0.034417,
+          "p99": 0.064416,
+          "stddev": 0.02124,
+          "opsPerSec": 39538
+        },
+        "speedupFactor": 26.37
+      },
+      "heapDeltaApproxBytes": {
+        "binaryPer5kCalls": 0,
+        "jsonPer5kCalls": 9560696
+      }
+    },
+    "500": {
+      "collaboratorCount": 500,
+      "payload": {
+        "binaryBytes": 4000,
+        "jsonBytes": 34606,
+        "reductionPct": 88.44
+      },
+      "encoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.001875,
+          "max": 1.504875,
+          "mean": 0.002669,
+          "median": 0.002167,
+          "p95": 0.00325,
+          "p99": 0.007292,
+          "stddev": 0.015188,
+          "opsPerSec": 461467
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.030541,
+          "max": 0.212916,
+          "mean": 0.036471,
+          "median": 0.03475,
+          "p95": 0.042917,
+          "p99": 0.072833,
+          "stddev": 0.009318,
+          "opsPerSec": 28777
+        },
+        "speedupFactor": 16.04
+      },
+      "decoding": {
+        "binary": {
+          "n": 10000,
+          "min": 0.001541,
+          "max": 0.131667,
+          "mean": 0.002199,
+          "median": 0.001875,
+          "p95": 0.0025,
+          "p99": 0.004791,
+          "stddev": 0.004066,
+          "opsPerSec": 533333
+        },
+        "json": {
+          "n": 10000,
+          "min": 0.044583,
+          "max": 0.237417,
+          "mean": 0.051459,
+          "median": 0.05,
+          "p95": 0.057583,
+          "p99": 0.0765,
+          "stddev": 0.008975,
+          "opsPerSec": 20000
+        },
+        "speedupFactor": 26.67
+      },
+      "heapDeltaApproxBytes": {
+        "binaryPer5kCalls": 1320520,
+        "jsonPer5kCalls": 2658144
+      }
+    }
+  }
+}
