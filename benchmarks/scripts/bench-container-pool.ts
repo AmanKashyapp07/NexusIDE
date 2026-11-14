@@ -16,6 +16,20 @@ import { detectEnvironment } from '../common/environment.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TERMINAL_IMAGE = 'sandbox-dev-env:latest';
+const BENCHMARK_RUN_ID = `nexus-bench-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+
+// Intercept docker.createContainer to tag EVERY container in this benchmark run with a unique label
+const trackedContainerIds: string[] = [];
+const originalDockerCreateContainer = docker.createContainer.bind(docker);
+docker.createContainer = async function (opts: any) {
+  opts.Labels = {
+    ...(opts.Labels || {}),
+    'nexus.benchmark.run': BENCHMARK_RUN_ID
+  };
+  const container = await originalDockerCreateContainer(opts);
+  trackedContainerIds.push(container.id);
+  return container;
+};
 
 function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -28,8 +42,12 @@ function getFreePort(): Promise<number> {
   });
 }
 
-// Helper to provision container using exact production pool parameters
-async function createExactProductionContainer(namePrefix: string) {
+/**
+ * Helper to provision container using equivalent production pool parameters.
+ * NOTE: This uses equivalent configuration (cgroups, RAM, nanoCPUs, tmpfs, binds)
+ * to measure baseline cold-start container initialization outside of warmPoolManager.
+ */
+async function createEquivalentProductionContainer(namePrefix: string) {
   const hostPort = await getFreePort();
   const HISTORY_DIR = path.join(WORKSPACE_DATA_DIR, '..', 'terminal_history');
   if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });
@@ -87,7 +105,6 @@ async function run() {
 
   BenchmarkLogger.info(`Connected to Docker Engine v${env.services.docker.version} at ${env.services.docker.socket}`);
 
-  const trackedContainerIds: string[] = [];
   const results: any = {};
 
   try {
@@ -98,12 +115,12 @@ async function run() {
     // =========================================================================
     // 1. COLD PROVISIONING: Measure 5 separate cold container starts
     // =========================================================================
-    BenchmarkLogger.section('1. Cold Container Provisioning (5 Trials)');
+    BenchmarkLogger.section('1. Cold Container Provisioning (5 Trials, Equivalent Production Config)');
     const coldSamples: number[] = [];
 
     for (let trial = 0; trial < 5; trial++) {
       const t0 = performance.now();
-      const container = await createExactProductionContainer(`bench-cold-${trial}`);
+      const container = await createEquivalentProductionContainer(`bench-cold-${trial}`);
       trackedContainerIds.push(container.id);
 
       const inspect = await container.inspect();
@@ -270,14 +287,13 @@ async function run() {
       }
     }
 
-    // 4. Daemon-level verification: inspect all containers on host
-    const allContainersOnHost = await docker.listContainers({ all: true });
-    const remainingBenchContainers = allContainersOnHost.filter(c =>
-      c.Names.some(name => name.includes('bench-cold') || name.includes('bench-')) ||
-      (c.Image === TERMINAL_IMAGE && c.Created * 1000 > Date.now() - 300000)
-    );
+    // 4. Daemon-level verification: inspect all containers strictly bearing this benchmark's run label
+    const remainingLabeled = await docker.listContainers({
+      all: true,
+      filters: { label: [`nexus.benchmark.run=${BENCHMARK_RUN_ID}`] }
+    });
 
-    for (const orphan of remainingBenchContainers) {
+    for (const orphan of remainingLabeled) {
       try {
         const c = docker.getContainer(orphan.Id);
         await c.remove({ force: true, v: true });
@@ -285,18 +301,19 @@ async function run() {
       } catch {}
     }
 
-    // 5. Final assertion verifying 0 benchmark containers exist on Docker daemon
-    const finalScan = await docker.listContainers({ all: true });
-    const finalBenchOrphans = finalScan.filter(c =>
-      c.Names.some(name => name.includes('bench-cold') || name.includes('bench-'))
-    );
-    Assertions.assertEqual(finalBenchOrphans.length, 0, 'No benchmark containers must remain on host');
+    // 5. Final assertion verifying 0 benchmark containers exist on Docker daemon with this run ID
+    const finalScan = await docker.listContainers({
+      all: true,
+      filters: { label: [`nexus.benchmark.run=${BENCHMARK_RUN_ID}`] }
+    });
+    Assertions.assertEqual(finalScan.length, 0, `No benchmark containers with run ID ${BENCHMARK_RUN_ID} must remain on host`);
     
-    BenchmarkLogger.success(`Cleaned up ${removedCount} benchmark Docker containers. Docker daemon verified: ZERO orphans remain.`);
+    BenchmarkLogger.success(`Cleaned up ${removedCount} benchmark Docker containers (Run ID: ${BENCHMARK_RUN_ID}). Docker daemon verified: ZERO orphans remain.`);
     results['cleanupVerification'] = {
+      benchmarkRunId: BENCHMARK_RUN_ID,
       removedContainersCount: removedCount,
       zeroOrphansVerified: true,
-      remainingBenchmarkContainers: finalBenchOrphans.length
+      remainingBenchmarkContainers: finalScan.length
     };
   }
 
@@ -304,6 +321,13 @@ async function run() {
   const outputData = {
     benchmark: 'Docker Container Pool Lifecycle & Exhaustion Audit',
     timestamp: new Date().toISOString(),
+    benchmarkRunId: BENCHMARK_RUN_ID,
+    evidenceTiers: {
+      warmCheckout: 'Tier A (Production Component Integration: warmPoolManager.popTerminalContainer())',
+      coldProvisioning: 'Tier B (Equivalent Infrastructure Baseline: Docker container with equivalent production cgroup/volume configuration)',
+      onDemandFallback: 'Tier A (Production Component Integration under Pool Depletion)'
+    },
+    sampleCaveat: 'n=5 observations per condition. Tail percentiles (p95/p99) reflect max observation in small sample size.',
     environment: {
       platform: env.os.platform,
       arch: env.os.arch,

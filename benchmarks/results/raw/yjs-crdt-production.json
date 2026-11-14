@@ -1,8 +1,8 @@
 {
   "benchmark": "Yjs CRDT Real-Time Collaboration",
-  "timestamp": "2026-11-14T07:23:47.604Z",
+  "timestamp": "2026-11-14T07:33:18.209Z",
   "environment": {
-    "timestamp": "2026-11-14T07:23:47.317Z",
+    "timestamp": "2026-11-14T07:33:17.959Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.07
+      "freeMemoryGb": 0.27
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 47,
+        "containers": 46,
         "images": 5
       },
       "redis": {
@@ -38,7 +38,12 @@
       }
     }
   },
-  "evidenceTier": "Tier B / Component Harness (Production WSSharedDoc Class + Single-Host Redis Pub/Sub Mesh)",
+  "evidenceTiers": {
+    "level1_libraryMicrobenchmark": "Tier D (In-Memory Microbenchmark: Y.Doc insert/delete operations in RAM)",
+    "level2_productionWsSharedDoc": "Tier B (Component Test Harness: Real WebSocket clients connected to production WSSharedDoc class)",
+    "level3_redisPubSubMesh": "Tier B (Single-Host Distributed Harness: Redis Pub/Sub propagation and state vector convergence across Y.Doc instances)",
+    "level4_tombstoneInflation": "Tier D (In-Memory CRDT Engine Microbenchmark: Tombstone byte overhead with gc: false)"
+  },
   "productionSources": [
     "backend/src/services/yjsSyncEngine.service.ts",
     "backend/src/services/redisAdapter.service.ts"
@@ -48,22 +53,22 @@
     "level1_localLibrary": {
       "100": {
         "insertions": 100,
-        "elapsedMs": 1.394,
-        "insertionsPerSec": 71749,
-        "encodedStateBytes": 120,
-        "bytesPerChar": 1.2
+        "elapsedMs": 1.436,
+        "insertionsPerSec": 69642,
+        "encodedStateBytes": 119,
+        "bytesPerChar": 1.19
       },
       "1000": {
         "insertions": 1000,
-        "elapsedMs": 3.192,
-        "insertionsPerSec": 313291,
+        "elapsedMs": 3.12,
+        "insertionsPerSec": 320500,
         "encodedStateBytes": 1021,
         "bytesPerChar": 1.02
       },
       "5000": {
         "insertions": 5000,
-        "elapsedMs": 14.858,
-        "insertionsPerSec": 336528,
+        "elapsedMs": 10.173,
+        "insertionsPerSec": 491511,
         "encodedStateBytes": 5021,
         "bytesPerChar": 1
       }
@@ -73,21 +78,21 @@
         "clientCount": 2,
         "editsPerClient": 20,
         "totalEdits": 40,
-        "exactConvergenceMs": 7.44,
+        "exactConvergenceMs": 7.59,
         "allClientsBitIdentical": true
       },
       "5": {
         "clientCount": 5,
         "editsPerClient": 20,
         "totalEdits": 100,
-        "exactConvergenceMs": 41.89,
+        "exactConvergenceMs": 20.74,
         "allClientsBitIdentical": true
       },
       "10": {
         "clientCount": 10,
         "editsPerClient": 20,
         "totalEdits": 200,
-        "exactConvergenceMs": 47.23,
+        "exactConvergenceMs": 37.43,
         "allClientsBitIdentical": true
       }
     },
@@ -95,14 +100,14 @@
       "iterations": 100,
       "propagationStats": {
         "n": 100,
-        "min": 0.061792,
-        "max": 0.226208,
-        "mean": 0.095026,
-        "median": 0.07725,
-        "p95": 0.1695,
-        "p99": 0.226208,
-        "stddev": 0.038512,
-        "opsPerSec": 12945
+        "min": 0.061167,
+        "max": 0.182375,
+        "mean": 0.069203,
+        "median": 0.065875,
+        "p95": 0.085583,
+        "p99": 0.182375,
+        "stddev": 0.013034,
+        "opsPerSec": 15180
       },
       "crossInstanceConvergenceVerified": true,
       "replicatedCharacters": 100
@@ -128,9 +133,9 @@
         "initialChars": 1000,
         "deletedPct": 50,
         "remainingChars": 500,
-        "gcFalseStateVectorBytes": 1040,
+        "gcFalseStateVectorBytes": 1037,
         "freshDocStateVectorBytes": 521,
-        "tombstoneInflationPct": 99.62
+        "tombstoneInflationPct": 99.04
       },
       "75%_deleted": {
         "initialChars": 1000,

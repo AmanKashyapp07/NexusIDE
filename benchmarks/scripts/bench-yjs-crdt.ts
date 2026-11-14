@@ -160,14 +160,19 @@ async function run() {
     const editsPerClient = 20;
     const totalTargetEdits = clientCount * editsPerClient;
 
-    // Dynamically measure true convergence time (no static sleep delay)
-    const convergencePromise = new Promise<{ durationMs: number; finalChars: number }>(resolve => {
+    // Dynamically measure true convergence time with bounded safety timeout
+    const convergencePromise = new Promise<{ durationMs: number; finalChars: number }>((resolve, reject) => {
       const t0 = performance.now();
+      const timeoutTimer = setTimeout(() => {
+        reject(new Error(`Timeout: Convergence did not occur within 10,000 ms for ${clientCount} clients`));
+      }, 10000);
+
       const checkConvergence = () => {
         const firstLen = clients[0].text.length;
         if (firstLen >= totalTargetEdits) {
           const allMatch = clients.every(c => c.text.length === firstLen && c.text.toString() === clients[0].text.toString());
           if (allMatch) {
+            clearTimeout(timeoutTimer);
             const durationMs = performance.now() - t0;
             resolve({ durationMs, finalChars: firstLen });
             return;
@@ -232,11 +237,17 @@ async function run() {
     await publishYjsUpdate(meshDocName, update);
   });
 
-  // Execute 100 sequential cross-instance propagation trials with per-update timing
+  // Execute 100 sequential cross-instance propagation trials with per-update timing and safety timeout
   for (let step = 0; step < testIterations; step++) {
     let t0 = 0;
-    const updateDelivered = new Promise<number>(resolve => {
+    const updateDelivered = new Promise<number>((resolve, reject) => {
+      const timeoutTimer = setTimeout(() => {
+        redisSub.off('messageBuffer', handler);
+        reject(new Error(`Timeout: Redis Pub/Sub propagation did not deliver update within 5,000 ms at iteration ${step}`));
+      }, 5000);
+
       const handler = (_ch: string, message: Buffer) => {
+        clearTimeout(timeoutTimer);
         const t1 = performance.now();
         const uint8 = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
         Y.applyUpdate(replicaDoc, uint8);
@@ -321,7 +332,12 @@ async function run() {
     benchmark: 'Yjs CRDT Real-Time Collaboration',
     timestamp: new Date().toISOString(),
     environment: env,
-    evidenceTier: 'Tier B / Component Harness (Production WSSharedDoc Class + Single-Host Redis Pub/Sub Mesh)',
+    evidenceTiers: {
+      level1_libraryMicrobenchmark: 'Tier D (In-Memory Microbenchmark: Y.Doc insert/delete operations in RAM)',
+      level2_productionWsSharedDoc: 'Tier B (Component Test Harness: Real WebSocket clients connected to production WSSharedDoc class)',
+      level3_redisPubSubMesh: 'Tier B (Single-Host Distributed Harness: Redis Pub/Sub propagation and state vector convergence across Y.Doc instances)',
+      level4_tombstoneInflation: 'Tier D (In-Memory CRDT Engine Microbenchmark: Tombstone byte overhead with gc: false)'
+    },
     productionSources: [
       'backend/src/services/yjsSyncEngine.service.ts',
       'backend/src/services/redisAdapter.service.ts'

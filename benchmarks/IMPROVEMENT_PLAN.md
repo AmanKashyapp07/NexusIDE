@@ -1,25 +1,25 @@
 # NexusIDE Benchmark Upgrade & Production Hardening Plan
 
-**Status**: Completed & Verified  
+**Status**: Final Production-Hardened Audit (Locked & Verified)  
 **Benchmark Owner**: NexusIDE Engineering Audit  
 **Date**: November 14, 2026  
 **Target Repository**: [NexusIDE](https://github.com/AmanKashyapp07/NexusIDE)  
 
 ---
 
-## 1. Executive Summary of Audit Findings
+## 1. Executive Summary of Audit Findings & Hardening Evolution
 
-A rigorous technical audit of the initial benchmark suite (`benchmarks/scripts/` v1) revealed critical methodological limitations that must be addressed to produce production-grade, defensible performance data:
+A multi-phase performance audit of the NexusIDE benchmark suite transformed initial unverified estimates and copied code into an evidence-backed, multi-tiered benchmark suite:
 
-| Benchmark Component | Initial v1 Methodology | Classification | Core Deficiency Identified | Upgrade Strategy (v2 Production) |
+| Benchmark Component | Initial v1 Methodology | Classification | Core Deficiency Identified | Upgrade Strategy & Hardening Resolution |
 |---|---|---|---|---|
-| **1. Binary Cursor Codec** | Inline JS re-implementation of functions | **Tier B (Microbenchmark)** | Production file not directly imported; collaborator scaling stopped at 100; no heap profiling; limited edge-case fuzzing. | Import `cursorCodec.service.ts` directly via `tsx`. Scale to 250 & 500 collaborators. Measure heap allocation delta, uint16 overflow, collision rates, and invalid frame rejection. |
-| **2. Docker Container Pool** | Structural array operations with `docker_available: false` | **Tier C / D (Simulated)** | Modeled cold start (~3.5s) was compared against `Array.shift()` (0.1µs), claiming an artificial 35,000,000× speedup without running Docker. | **Execute against live Docker Engine (v29.5.2)**. Benchmark real cold provisioning (`createContainer` + `start`), real warm allocation from `pool.ts`, replenishment latency, exhaustion under concurrency (1, 5, 10, 20 requests). |
-| **3. Terminal Stream Buffer** | Inline JS re-implementation with Mock WebSocket | **Tier C (Mocked)** | Mock WS lacked TCP framing, OS buffer constraints, real network backpressure, and socket drain events. | Import production `TerminalStreamBuffer`. Spin up a real loopback WebSocket server (`ws`). Transmit real byte streams, measure socket backpressure, verify bit-for-bit chunk ordering and zero data loss. |
-| **4. Real-Time CRDT Sync** | Pure in-memory Y.Doc instances | **Tier B / C (Local Sim)** | In-memory document mutation was presented as multi-client convergence without network transport or Redis bus. | 4-Level Architecture: Level 1 (Local library baseline), Level 2 (Real multi-client WebSocket collaboration: 2, 5, 10 clients), Level 3 (Redis Pub/Sub cross-instance mesh), Level 4 (Empirical tombstone growth analysis under `gc: false`). |
-| **5. Merkle DAG & CAS** | Inline SHA-256 and sorting script | **Tier B (Microbenchmark)** | Re-implemented logic; tested only flat synthetic files without exercising the production `CASService` class or repository layer. | Import production `CASService` directly. Test scaling from 10 to 500 files (1KB to 1MB). Benchmark full snapshot, incremental snapshot (1 file, 10%, 100% modified), deduplication across real workspaces, and distinguish pure CPU hashing from storage IO. |
-| **6. Redis Write-Behind & Cache** | Direct ioredis pipeline script | **Tier B (Isolated)** | Bypassed production `crdtWriteBehindService` and `RedisCache` wrapper classes. Extrapolated burst performance from a single batch. | Import production `crdtWriteBehindService` and `redisCache.ts`. Benchmark real write-behind buffering, pipelined batching, background flushes to PostgreSQL, queue growth, and RedisCache hit/miss behavior with offline fallback semantics. |
-| **7. PostgreSQL Persistence** | Temporary table with small sample runs | **Tier B (Synthetic)** | Computed sustained throughput by dividing batch latency by 50 rather than running sustained writes over time. | Run sustained write workloads over meaningful durations (5–10 seconds) on dedicated benchmark schema. Measure single INSERT vs multi-row batch (10, 50, 100), read/fetch reconstruction, and pool connection utilization. |
+| **1. Docker Container Pool** | Structural array operations with `docker_available: false` | **Tier C / D (Simulated)** | Modeled cold start (~3.5s) was compared against `Array.shift()` (0.1µs), claiming an artificial 35,000,000× speedup without running Docker. | **Execute against live Docker Engine (v29.5.2)**. Benchmark equivalent cold baseline, production `warmPoolManager.popTerminalContainer()`, background refills, and verified 0-depth fallback. Tag all containers with `nexus.benchmark.run` labels for non-destructive daemon cleanup. |
+| **2. Terminal Stream Buffer** | Inline JS re-implementation with Mock WebSocket | **Tier C (Mocked)** | Mock WS lacked TCP framing, OS buffer constraints, real network backpressure, and socket drain events. | Import production `TerminalStreamBuffer`. Spin up a real loopback WebSocket server (`ws`). Coalesce byte streams over real TCP sockets. Validate socket backpressure throttling via interface driver threshold tests. |
+| **3. Redis Write-Behind & Cache** | Direct ioredis pipeline script | **Tier B (Isolated)** | Bypassed production `crdtWriteBehindService` and `RedisCache` wrapper classes. Extrapolated burst performance from a single batch. | Import production `crdtWriteBehindService` and `redisCache.ts`. Benchmark real write-behind buffering, pipelined batching, background flushes to PostgreSQL under distributed lock, and RedisCache hit/miss behavior. |
+| **4. PostgreSQL Persistence** | Temporary table with small sample runs | **Tier B (Synthetic)** | Duplicate imports, shared singleton pool shutdown risks, fixed table naming, and extrapolated burst throughput. | Instantiate dedicated connection pool matching production parameters. Generate randomized table names dropped in `finally`. Measure single INSERT vs parameterized batches (10, 50, 100), read replay, and concurrent worker burst throughput. |
+| **5. Real-Time CRDT Sync** | Pure in-memory Y.Doc instances | **Tier B / C (Local Sim)** | In-memory document mutation was presented as multi-client convergence without network transport or Redis bus; single mutable timestamp caused race conditions. | 4-Level Architecture: Level 1 (Local library baseline), Level 2 (Real multi-client WebSocket collaboration on production `WSSharedDoc`), Level 3 (Redis Pub/Sub mesh with per-update promise synchronization), Level 4 (In-memory tombstone growth analysis under `gc: false`). Added bounded safety timeouts. |
+| **6. Merkle DAG & CAS** | Inline SHA-256 and sorting script | **Tier B (Microbenchmark)** | Re-implemented logic; tested only flat synthetic files without exercising the production `CASService` class or repository layer. | Import production `CASService` directly. Test scaling from 10 to 500 files (1KB to 1MB). Benchmark full snapshot, structural diffing, and variable content redundancy deduplication. |
+| **7. Binary Cursor Codec** | Inline JS re-implementation of functions | **Tier B (Microbenchmark)** | 16-bit hash has 7.28% birthday-paradox collision risk at 100 users; not integrated into live collaboration channel. | Kept strictly as **Tier D (Experimental Prototype Microbenchmark)**. Added identity round-trip tests, collision verification, and evaluated 12-byte uint32 and `RoomIdentityTable` migration designs. |
 
 ---
 
@@ -31,10 +31,10 @@ The host environment has been thoroughly audited and confirmed operational:
 +-----------------------------------------------------------------------------------+
 | Component      | Available | Version / Address            | Method / Driver       |
 +-----------------------------------------------------------------------------------+
-| Node.js        | YES       | v22.20.0                     | Native /usr/local/bin |
+| Node.js        | YES       | v26.5.0                      | Native /opt/homebrew  |
 | tsx Runner     | YES       | v4.22.4                      | backend/node_modules  |
 | Redis Server   | YES       | v8.8.0 on 127.0.0.1:6379     | ioredis v5.4.2        |
-| PostgreSQL     | YES       | PostgreSQL 14+ on port 5432  | pg v8.21.0            |
+| PostgreSQL     | YES       | PostgreSQL 14.20 on port 5432| pg v8.21.0            |
 | Docker Daemon  | YES       | Engine v29.5.2 (Unix Socket) | dockerode v5.0.0      |
 | Base Image     | YES       | sandbox-dev-env:latest       | Local Docker Cache    |
 +-----------------------------------------------------------------------------------+
@@ -51,9 +51,9 @@ benchmarks/
 ├── config/
 │   └── benchmark.config.mjs         # Centralized configuration (timeouts, iterations, ports)
 ├── common/
-│   ├── statistics.mjs               # Monotonic timing, percentiles (p50, p95, p99), mean, stddev
+│   ├── statistics.mjs               # Monotonic timing, percentiles, mean, stddev, sample warnings
 │   ├── environment.mjs              # Auto-detection of Node, Docker, Redis, Postgres, OS specs
-│   ├── cleanup.mjs                  # Deterministic cleanup for Docker containers, Redis keys, DB rows
+│   ├── cleanup.mjs                  # Run-scoped cleanup for Docker containers, Redis keys, DB rows
 │   ├── assertions.mjs               # Correctness validations & invariant assertions
 │   └── logger.mjs                   # Structured benchmark logging and progress output
 ├── scripts/                         # Seven production-grade benchmark suites
@@ -68,27 +68,22 @@ benchmarks/
 
 ---
 
-## 4. Evidence Classification Standard (Resume Grading)
+## 4. Multi-Tiered Evidence Classification Standard
 
-Every metric in the final report will be explicitly categorized according to its empirical rigor:
+Every metric in the final report is categorized according to its empirical rigor:
 
-- **Tier A — Production-Backed**: Direct invocation of production code running against live infrastructure (real Docker containers, real WebSockets over loopback TCP, live Redis, live PostgreSQL). Eligible for primary resume bullets.
-- **Tier B — Production-Code Microbenchmark**: Direct invocation of production TypeScript classes in isolation from external services (e.g., pure in-memory cryptographic hashing, binary buffer encoding). Eligible for qualified resume bullets.
-- **Tier C — Mock / Simulation**: Uses mock transports or simulated delays. Documented strictly for architectural trade-off analysis; **never** promoted to resume claims.
-- **Tier D — Modeled / Theoretical**: Extrapolations or asymptotic bounds. Clearly labeled as theoretical estimates.
+- **Tier A — Production Component Integration**: Direct invocation of production code running against live infrastructure (e.g. `warmPoolManager.popTerminalContainer()`, live Redis write-behind buffering, real WebSocket coalesced framing).
+- **Tier B — Production Infrastructure & Algorithms**: Infrastructure capability tests and component harnesses (e.g. direct-SQL PostgreSQL persistence with isolated pool matching production configuration, `WSSharedDoc` collaboration harness, `cas.service.ts` Merkle tree hashing).
+- **Tier C — Emulated Interface Tests**: Hardware or driver boundary validations evaluated against transport interfaces (e.g. socket `bufferedAmount` threshold throttling).
+- **Tier D — Experimental Prototypes & Microbenchmarks**: Non-production algorithmic evaluations (e.g. 8-byte cursor codec with 16-bit hash collision disclosure, in-memory Yjs tombstone inflation).
 
 ---
 
-## 5. Execution Roadmap
+## 5. Final Hardening Checklist (6/6 Complete)
 
-1. **Phase 2 — Shared Utilities [COMPLETED]**: Implemented `statistics.mjs`, `environment.mjs`, `cleanup.mjs`, `assertions.mjs`, `logger.mjs`, and `benchmark.config.mjs`.
-2. **Phase 3 — Implement Production Benchmarks [COMPLETED]**:
-   - `bench-cursor-codec.ts` (Importing `cursorCodec.service.ts` directly; 100/500 collabs, uint16 overflow & boundary fuzzing).
-   - `bench-terminal-buffer.ts` (Importing `terminalStreamBuffer.ts` over real loopback WebSocket TCP socket with backpressure throttling).
-   - `bench-merkle-dag.ts` (Importing `cas.service.ts` + tree hashing, diffing, and deduplication).
-   - `bench-redis-writebehind.ts` (Importing `crdtWriteBehind.service.ts` & `redisCache.ts` on live Redis 8.8 + DB flush lifecycle).
-   - `bench-postgres-persistence.ts` (Direct DB persistence via `pg` connection pool on live PostgreSQL 14).
-   - `bench-yjs-crdt.ts` (Production `WSSharedDoc` collaboration over real WebSockets and Redis mesh).
-   - `bench-container-pool.ts` (Importing `pool.ts` against live Docker Engine v29.5.2 daemon).
-3. **Phase 4 — Execution & Verification [COMPLETED]**: Executed all 7 suites, verified percentiles, logged machine-readable JSON metrics, and ensured complete resource teardown.
-4. **Phase 5 — Report Synthesis [COMPLETED]**: Authored evidence-backed `BENCHMARK_REPORT.md` and locked in vetted `RESUME_METRICS.md` with explicit trade-off qualifications.
+- [x] **Cursor Identity**: Explicitly retained as Tier D Experimental Prototype Microbenchmark. Tested round-trip fidelity, collision probability (7.28% at 100 users), and validated 12-byte uint32 and RoomIdentityTable solutions.
+- [x] **Docker Cleanup**: Generated unique `nexus.benchmark.run` labels. Cleaned up strictly by run label with daemon-level verification, ensuring zero orphan containers without touching unrelated containers.
+- [x] **PostgreSQL Lifecycle**: Isolated connection pool lifecycle from application singleton, renamed concurrent metric to `burstThroughputRowsPerSec`, and preserved direct-SQL infrastructure qualification.
+- [x] **Yjs Reliability**: Added bounded timeouts (10s convergence, 5s Redis propagation) to prevent hangs; classified tombstone measurements as in-memory engine microbenchmarks.
+- [x] **Documentation & Statistical Caveats**: Added sample size warnings in `Statistics.summarize` when $n < 20$ (e.g. Docker $n=5$ where p95 reflects max sample); updated all report tiers and descriptions.
+- [x] **Final Verification**: Executed all 7 benchmark suites cleanly via `tsx`; regenerated all raw JSON results; validated bit-for-bit fidelity and 100% synchronization.

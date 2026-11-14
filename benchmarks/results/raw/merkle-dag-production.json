@@ -1,8 +1,8 @@
 {
   "benchmark": "Merkle DAG & Content-Addressable Storage",
-  "timestamp": "2026-11-14T07:23:33.947Z",
+  "timestamp": "2026-11-14T07:33:38.662Z",
   "environment": {
-    "timestamp": "2026-11-14T07:23:33.023Z",
+    "timestamp": "2026-11-14T07:33:37.738Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.09
+      "freeMemoryGb": 0.07
     },
     "runtime": {
       "node": "v26.5.0",
@@ -46,187 +46,187 @@
         "sizeBytes": 1024,
         "stats": {
           "n": 1000,
-          "min": 0.000791,
-          "max": 0.01275,
-          "mean": 0.001206,
-          "median": 0.001166,
-          "p95": 0.001875,
-          "p99": 0.003708,
-          "stddev": 0.000746,
-          "opsPerSec": 857633
+          "min": 0.00075,
+          "max": 0.009583,
+          "mean": 0.001166,
+          "median": 0.001125,
+          "p95": 0.001833,
+          "p99": 0.003625,
+          "stddev": 0.000599,
+          "opsPerSec": 888889
         },
-        "throughputMbPerSec": 837.53
+        "throughputMbPerSec": 868.06
       },
       "10KB": {
         "sizeBytes": 10240,
         "stats": {
           "n": 1000,
-          "min": 0.003875,
-          "max": 0.016,
-          "mean": 0.004031,
-          "median": 0.003958,
-          "p95": 0.004042,
-          "p99": 0.005375,
-          "stddev": 0.000677,
-          "opsPerSec": 252653
+          "min": 0.003916,
+          "max": 0.005792,
+          "mean": 0.004041,
+          "median": 0.004,
+          "p95": 0.0045,
+          "p99": 0.005208,
+          "stddev": 0.000241,
+          "opsPerSec": 250000
         },
-        "throughputMbPerSec": 2467.31
+        "throughputMbPerSec": 2441.41
       },
       "100KB": {
         "sizeBytes": 102400,
         "stats": {
           "n": 1000,
-          "min": 0.035083,
-          "max": 0.139291,
-          "mean": 0.036744,
-          "median": 0.035542,
-          "p95": 0.043666,
-          "p99": 0.053208,
-          "stddev": 0.005367,
-          "opsPerSec": 28136
+          "min": 0.035,
+          "max": 0.052042,
+          "mean": 0.035477,
+          "median": 0.035375,
+          "p95": 0.036125,
+          "p99": 0.041916,
+          "stddev": 0.001131,
+          "opsPerSec": 28269
         },
-        "throughputMbPerSec": 2747.66
+        "throughputMbPerSec": 2760.64
       },
       "1MB": {
         "sizeBytes": 1048576,
         "stats": {
           "n": 1000,
-          "min": 0.355666,
-          "max": 0.508458,
-          "mean": 0.367536,
-          "median": 0.35825,
-          "p95": 0.405125,
-          "p99": 0.453041,
-          "stddev": 0.020688,
-          "opsPerSec": 2791
+          "min": 0.355625,
+          "max": 1.538208,
+          "mean": 0.375508,
+          "median": 0.355917,
+          "p95": 0.467292,
+          "p99": 0.643459,
+          "stddev": 0.073026,
+          "opsPerSec": 2810
         },
-        "throughputMbPerSec": 2791
+        "throughputMbPerSec": 2810
       }
     },
     "treeHashing": {
       "10": {
         "n": 1000,
-        "min": 0.00275,
-        "max": 0.011459,
-        "mean": 0.00332,
-        "median": 0.00325,
-        "p95": 0.004333,
-        "p99": 0.006792,
-        "stddev": 0.000757,
-        "opsPerSec": 307692
+        "min": 0.002791,
+        "max": 0.026791,
+        "mean": 0.003353,
+        "median": 0.003292,
+        "p95": 0.004,
+        "p99": 0.009167,
+        "stddev": 0.001253,
+        "opsPerSec": 303767
       },
       "50": {
         "n": 1000,
-        "min": 0.008334,
-        "max": 0.688208,
-        "mean": 0.014518,
-        "median": 0.014792,
-        "p95": 0.018875,
-        "p99": 0.023625,
-        "stddev": 0.021662,
-        "opsPerSec": 67604
+        "min": 0.008542,
+        "max": 0.660417,
+        "mean": 0.014549,
+        "median": 0.014834,
+        "p95": 0.018292,
+        "p99": 0.03,
+        "stddev": 0.020908,
+        "opsPerSec": 67415
       },
       "100": {
         "n": 1000,
-        "min": 0.014875,
-        "max": 0.46425,
-        "mean": 0.023286,
-        "median": 0.025604,
-        "p95": 0.03325,
-        "p99": 0.041334,
-        "stddev": 0.015791,
-        "opsPerSec": 39056
+        "min": 0.015334,
+        "max": 0.853916,
+        "mean": 0.024921,
+        "median": 0.025208,
+        "p95": 0.033291,
+        "p99": 0.067125,
+        "stddev": 0.028175,
+        "opsPerSec": 39670
       },
       "500": {
         "n": 1000,
-        "min": 0.070583,
-        "max": 0.241208,
-        "mean": 0.079132,
-        "median": 0.078959,
-        "p95": 0.088333,
-        "p99": 0.124041,
-        "stddev": 0.009529,
-        "opsPerSec": 12665
+        "min": 0.07275,
+        "max": 0.205708,
+        "mean": 0.081647,
+        "median": 0.080542,
+        "p95": 0.085584,
+        "p99": 0.124791,
+        "stddev": 0.007769,
+        "opsPerSec": 12416
       }
     },
     "dagGeneration": {
       "10": {
         "n": 1000,
-        "min": 0.007166,
-        "max": 0.063542,
-        "mean": 0.010106,
+        "min": 0.007125,
+        "max": 0.109875,
+        "mean": 0.010316,
         "median": 0.009833,
-        "p95": 0.012958,
-        "p99": 0.020167,
-        "stddev": 0.002915,
+        "p95": 0.012542,
+        "p99": 0.02625,
+        "stddev": 0.005107,
         "opsPerSec": 101698
       },
       "50": {
         "n": 1000,
-        "min": 0.036875,
-        "max": 1.504375,
-        "mean": 0.045313,
-        "median": 0.041667,
-        "p95": 0.050625,
-        "p99": 0.063375,
-        "stddev": 0.062369,
-        "opsPerSec": 24000
+        "min": 0.040042,
+        "max": 1.533542,
+        "mean": 0.044827,
+        "median": 0.041042,
+        "p95": 0.046708,
+        "p99": 0.053958,
+        "stddev": 0.064365,
+        "opsPerSec": 24365
       },
       "100": {
         "n": 1000,
-        "min": 0.0715,
-        "max": 1.604042,
-        "mean": 0.088216,
-        "median": 0.08025,
-        "p95": 0.090666,
-        "p99": 0.109,
-        "stddev": 0.10531,
-        "opsPerSec": 12461
+        "min": 0.077083,
+        "max": 1.572458,
+        "mean": 0.08587,
+        "median": 0.078084,
+        "p95": 0.081875,
+        "p99": 0.087083,
+        "stddev": 0.104054,
+        "opsPerSec": 12807
       },
       "500": {
         "n": 200,
-        "min": 0.358792,
-        "max": 1.953916,
-        "mean": 0.444629,
-        "median": 0.397458,
-        "p95": 0.446791,
-        "p99": 1.948625,
-        "stddev": 0.255519,
-        "opsPerSec": 2516
+        "min": 0.364166,
+        "max": 1.837416,
+        "mean": 0.432549,
+        "median": 0.387604,
+        "p95": 0.41375,
+        "p99": 1.825667,
+        "stddev": 0.241806,
+        "opsPerSec": 2580
       }
     },
     "treeDiff": {
       "oneFileModified": {
         "n": 1000,
-        "min": 0.005083,
-        "max": 0.128042,
-        "mean": 0.009104,
-        "median": 0.008417,
-        "p95": 0.010125,
-        "p99": 0.029042,
-        "stddev": 0.006669,
-        "opsPerSec": 118807
+        "min": 0.004792,
+        "max": 0.113208,
+        "mean": 0.008262,
+        "median": 0.008125,
+        "p95": 0.009417,
+        "p99": 0.014167,
+        "stddev": 0.004789,
+        "opsPerSec": 123077
       },
       "tenFilesModified": {
         "n": 1000,
-        "min": 0.004667,
-        "max": 0.456459,
-        "mean": 0.008811,
-        "median": 0.005292,
-        "p95": 0.0165,
-        "p99": 0.0655,
-        "stddev": 0.018546,
-        "opsPerSec": 188964
+        "min": 0.004584,
+        "max": 0.084958,
+        "mean": 0.005368,
+        "median": 0.005208,
+        "p95": 0.00575,
+        "p99": 0.006917,
+        "stddev": 0.002913,
+        "opsPerSec": 192012
       },
       "allFilesModified": {
         "n": 1000,
-        "min": 0.00475,
-        "max": 0.248041,
-        "mean": 0.006366,
+        "min": 0.004917,
+        "max": 0.091584,
+        "mean": 0.005762,
         "median": 0.005542,
-        "p95": 0.007,
-        "p99": 0.023959,
-        "stddev": 0.008897,
+        "p95": 0.005958,
+        "p99": 0.007791,
+        "stddev": 0.003549,
         "opsPerSec": 180440
       }
     },
@@ -235,8 +235,8 @@
         "totalFiles": 100,
         "uniqueBlobs": 100,
         "reusedBlobs": 0,
-        "totalContentBytes": 4116,
-        "deduplicatedBytes": 4116,
+        "totalContentBytes": 4108,
+        "deduplicatedBytes": 4108,
         "storageSavedBytes": 0,
         "storageSavedPct": 0
       },
@@ -244,28 +244,28 @@
         "totalFiles": 100,
         "uniqueBlobs": 76,
         "reusedBlobs": 24,
-        "totalContentBytes": 4820,
-        "deduplicatedBytes": 3164,
+        "totalContentBytes": 4817,
+        "deduplicatedBytes": 3161,
         "storageSavedBytes": 1656,
-        "storageSavedPct": 34.36
+        "storageSavedPct": 34.38
       },
       "50% Duplication (Forked/Vendored Files)": {
         "totalFiles": 100,
         "uniqueBlobs": 51,
         "reusedBlobs": 49,
-        "totalContentBytes": 5517,
-        "deduplicatedBytes": 2136,
+        "totalContentBytes": 5519,
+        "deduplicatedBytes": 2138,
         "storageSavedBytes": 3381,
-        "storageSavedPct": 61.28
+        "storageSavedPct": 61.26
       },
       "75% Duplication (Monorepo Symlinks/Shared)": {
         "totalFiles": 100,
         "uniqueBlobs": 26,
         "reusedBlobs": 74,
-        "totalContentBytes": 6203,
-        "deduplicatedBytes": 1097,
+        "totalContentBytes": 6205,
+        "deduplicatedBytes": 1099,
         "storageSavedBytes": 5106,
-        "storageSavedPct": 82.32
+        "storageSavedPct": 82.29
       }
     }
   }

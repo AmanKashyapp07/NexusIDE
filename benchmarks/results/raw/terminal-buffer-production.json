@@ -1,8 +1,8 @@
 {
   "benchmark": "Terminal PTY Stream Buffer",
-  "timestamp": "2026-11-14T07:23:37.952Z",
+  "timestamp": "2026-11-14T07:33:29.269Z",
   "environment": {
-    "timestamp": "2026-11-14T07:23:37.877Z",
+    "timestamp": "2026-11-14T07:33:29.196Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.06
+      "freeMemoryGb": 0.23
     },
     "runtime": {
       "node": "v26.5.0",
@@ -46,9 +46,9 @@
       "directFrames": 100,
       "bufferedFrames": 2,
       "frameReductionPct": 98,
-      "directDeliveryDurationMs": 1.38,
-      "bufferedDeliveryDurationMs": 11.41,
-      "latencyTradeoffDeltaMs": 10.03,
+      "directDeliveryDurationMs": 1.36,
+      "bufferedDeliveryDurationMs": 11.38,
+      "latencyTradeoffDeltaMs": 10.01,
       "integrityVerified": true
     },
     "scenarioB_1000x64B": {
@@ -56,9 +56,9 @@
       "directFrames": 1000,
       "bufferedFrames": 4,
       "frameReductionPct": 99.6,
-      "directDeliveryDurationMs": 5.07,
-      "bufferedDeliveryDurationMs": 10.83,
-      "latencyTradeoffDeltaMs": 5.76,
+      "directDeliveryDurationMs": 5.32,
+      "bufferedDeliveryDurationMs": 10.44,
+      "latencyTradeoffDeltaMs": 5.12,
       "integrityVerified": true
     },
     "scenarioC_10x8KB": {
@@ -66,8 +66,8 @@
       "directFrames": 10,
       "bufferedFrames": 5,
       "frameReductionPct": 50,
-      "directDeliveryDurationMs": 0.08,
-      "bufferedDeliveryDurationMs": 0.11,
+      "directDeliveryDurationMs": 0.09,
+      "bufferedDeliveryDurationMs": 0.12,
       "integrityVerified": true
     },
     "scenarioD_mixed": {
@@ -75,8 +75,8 @@
       "directFrames": 100,
       "bufferedFrames": 13,
       "frameReductionPct": 87,
-      "directDeliveryDurationMs": 0.57,
-      "bufferedDeliveryDurationMs": 10.35,
+      "directDeliveryDurationMs": 0.53,
+      "bufferedDeliveryDurationMs": 10.39,
       "integrityVerified": true
     },
     "backpressureAudit": {

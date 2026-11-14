@@ -29,6 +29,9 @@ export class Statistics {
     const variance = sorted.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / n;
     const stddev = Math.sqrt(variance);
 
+    const hasSufficientSampleForP95 = n >= 20;
+    const hasSufficientSampleForP99 = n >= 100;
+
     return {
       n,
       min: Number(min.toFixed(6)),
@@ -37,6 +40,8 @@ export class Statistics {
       median: Number(median.toFixed(6)),
       p95: Number(p95.toFixed(6)),
       p99: Number(p99.toFixed(6)),
+      p95SampleWarning: !hasSufficientSampleForP95 ? `Sample size n=${n} insufficient for distinct p95 (reflects max/near-max observation)` : undefined,
+      p99SampleWarning: !hasSufficientSampleForP99 ? `Sample size n=${n} insufficient for distinct p99 (reflects max observation)` : undefined,
       stddev: Number(stddev.toFixed(6)),
       opsPerSec: median > 0 ? Math.round(1000 / median) : Math.round(1000 / (mean || 0.000001))
     };

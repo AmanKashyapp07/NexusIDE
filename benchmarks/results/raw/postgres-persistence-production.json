@@ -1,8 +1,8 @@
 {
   "benchmark": "PostgreSQL Persistence Engine",
-  "timestamp": "2026-11-14T07:23:42.534Z",
+  "timestamp": "2026-11-14T07:32:59.725Z",
   "environment": {
-    "timestamp": "2026-11-14T07:23:42.303Z",
+    "timestamp": "2026-11-14T07:32:59.488Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.07
+      "freeMemoryGb": 0.13
     },
     "runtime": {
       "node": "v26.5.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 47,
+        "containers": 46,
         "images": 5
       },
       "redis": {
@@ -38,99 +38,102 @@
       }
     }
   },
-  "evidenceTier": "Tier B (PostgreSQL Infrastructure Benchmark: Direct SQL with Production getPool())",
-  "productionSource": "backend/src/db.ts",
-  "scopeQualification": "Measures database engine raw row and batch write throughput via production getPool() connection pool. End-to-end write coalescing lifecycle is benchmarked in bench-redis-writebehind.ts.",
+  "evidenceTier": "Tier B (PostgreSQL Infrastructure Benchmark: Direct SQL with Dedicated Pool matching Production Parameters)",
+  "productionConfigurationRef": "backend/src/db.ts",
+  "scopeQualification": "Direct-SQL PostgreSQL infrastructure benchmark measuring raw row, parameterized batch, and concurrent burst write throughput using a dedicated pool with production settings. Evaluates raw DB engine capability; application write coalescing is benchmarked in bench-redis-writebehind.ts.",
   "results": {
     "pingLatency": {
       "n": 500,
-      "min": 0.031292,
-      "max": 0.472958,
-      "mean": 0.064884,
-      "median": 0.06075,
-      "p95": 0.091042,
-      "p99": 0.139167,
-      "stddev": 0.024548,
-      "opsPerSec": 16461
+      "min": 0.0295,
+      "max": 0.443917,
+      "mean": 0.065717,
+      "median": 0.060146,
+      "p95": 0.099958,
+      "p99": 0.141959,
+      "stddev": 0.026789,
+      "opsPerSec": 16626
     },
     "singleRowInsert": {
       "n": 500,
-      "min": 0.048958,
-      "max": 0.827041,
-      "mean": 0.076708,
-      "median": 0.072583,
-      "p95": 0.104125,
-      "p99": 0.205541,
-      "stddev": 0.040542,
-      "opsPerSec": 13777
+      "min": 0.0605,
+      "max": 0.823666,
+      "mean": 0.076361,
+      "median": 0.069959,
+      "p95": 0.102416,
+      "p99": 0.1875,
+      "stddev": 0.039007,
+      "opsPerSec": 14294
     },
     "batchInserts": {
       "10": {
         "batchSize": 10,
         "batchStats": {
           "n": 50,
-          "min": 0.077166,
-          "max": 0.309833,
-          "mean": 0.112453,
-          "median": 0.090688,
-          "p95": 0.240958,
-          "p99": 0.309833,
-          "stddev": 0.05273,
-          "opsPerSec": 11027
+          "min": 0.086834,
+          "max": 0.311875,
+          "mean": 0.126229,
+          "median": 0.101229,
+          "p95": 0.263709,
+          "p99": 0.311875,
+          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (reflects max observation)",
+          "stddev": 0.057958,
+          "opsPerSec": 9879
         },
-        "perUpdateMedianMs": 0.009069,
-        "effectiveThroughputRowsPerSec": 110268
+        "perUpdateMedianMs": 0.010123,
+        "effectiveThroughputRowsPerSec": 98786
       },
       "50": {
         "batchSize": 50,
         "batchStats": {
           "n": 50,
-          "min": 0.147792,
-          "max": 1.160625,
-          "mean": 0.294187,
-          "median": 0.290479,
-          "p95": 0.532125,
-          "p99": 1.160625,
-          "stddev": 0.165358,
-          "opsPerSec": 3443
+          "min": 0.146125,
+          "max": 0.682958,
+          "mean": 0.262131,
+          "median": 0.276708,
+          "p95": 0.406292,
+          "p99": 0.682958,
+          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (reflects max observation)",
+          "stddev": 0.1024,
+          "opsPerSec": 3614
         },
-        "perUpdateMedianMs": 0.00581,
-        "effectiveThroughputRowsPerSec": 172129
+        "perUpdateMedianMs": 0.005534,
+        "effectiveThroughputRowsPerSec": 180696
       },
       "100": {
         "batchSize": 100,
         "batchStats": {
           "n": 50,
-          "min": 0.224875,
-          "max": 0.628541,
-          "mean": 0.341872,
-          "median": 0.311104,
-          "p95": 0.474333,
-          "p99": 0.628541,
-          "stddev": 0.096505,
-          "opsPerSec": 3214
+          "min": 0.211584,
+          "max": 0.523083,
+          "mean": 0.319079,
+          "median": 0.304563,
+          "p95": 0.475834,
+          "p99": 0.523083,
+          "p99SampleWarning": "Sample size n=50 insufficient for distinct p99 (reflects max observation)",
+          "stddev": 0.082369,
+          "opsPerSec": 3283
         },
-        "perUpdateMedianMs": 0.003111,
-        "effectiveThroughputRowsPerSec": 321436
+        "perUpdateMedianMs": 0.003046,
+        "effectiveThroughputRowsPerSec": 328339
       }
     },
     "concurrentWrites": {
       "concurrentWorkers": 5,
       "updatesPerWorker": 100,
       "totalWrites": 500,
-      "totalDurationMs": 18.57,
-      "sustainedThroughputRowsPerSec": 26930
+      "totalDurationMs": 16.78,
+      "burstThroughputRowsPerSec": 29793
     },
     "stateReplayRead": {
       "n": 100,
-      "min": 0.368667,
-      "max": 1.334041,
-      "mean": 0.461616,
-      "median": 0.412604,
-      "p95": 0.764084,
-      "p99": 1.334041,
-      "stddev": 0.16586,
-      "opsPerSec": 2424
+      "min": 0.378125,
+      "max": 1.521583,
+      "mean": 0.49233,
+      "median": 0.445479,
+      "p95": 0.774583,
+      "p99": 1.521583,
+      "stddev": 0.191007,
+      "opsPerSec": 2245
     }
   }
 }

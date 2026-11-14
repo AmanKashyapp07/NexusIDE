@@ -25,9 +25,10 @@ export class CleanupManager {
   }
 
   /**
-   * Force remove any containers prefixed with 'bench-' or tracked by id
+   * Force remove benchmark containers scoped strictly to a run ID or explicit container IDs.
+   * NEVER deletes unrelated containers matching broad name patterns.
    */
-  static async cleanupContainers(containerIds = []) {
+  static async cleanupContainers(runId, containerIds = []) {
     const sockets = [`${process.env.HOME}/.docker/run/docker.sock`, '/var/run/docker.sock'];
     let docker = null;
     for (const sock of sockets) {
@@ -45,25 +46,27 @@ export class CleanupManager {
     for (const id of containerIds) {
       try {
         const c = docker.getContainer(id);
-        await c.remove({ force: true });
+        await c.remove({ force: true, v: true });
         removed++;
       } catch {}
     }
 
-    // Also scan for any lingering bench-* containers
-    try {
-      const list = await docker.listContainers({ all: true });
-      for (const item of list) {
-        const isBench = item.Names && item.Names.some(n => n.includes('bench-'));
-        if (isBench) {
+    // If a runId is provided, remove only containers bearing that specific label
+    if (runId) {
+      try {
+        const labeled = await docker.listContainers({
+          all: true,
+          filters: { label: [`nexus.benchmark.run=${runId}`] }
+        });
+        for (const item of labeled) {
           try {
             const c = docker.getContainer(item.Id);
-            await c.remove({ force: true });
+            await c.remove({ force: true, v: true });
             removed++;
           } catch {}
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     return removed;
   }

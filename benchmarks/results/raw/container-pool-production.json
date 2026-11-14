@@ -1,6 +1,13 @@
 {
   "benchmark": "Docker Container Pool Lifecycle & Exhaustion Audit",
-  "timestamp": "2026-11-14T07:23:59.338Z",
+  "timestamp": "2026-11-14T07:33:12.118Z",
+  "benchmarkRunId": "nexus-bench-1794641584697-499887",
+  "evidenceTiers": {
+    "warmCheckout": "Tier A (Production Component Integration: warmPoolManager.popTerminalContainer())",
+    "coldProvisioning": "Tier B (Equivalent Infrastructure Baseline: Docker container with equivalent production cgroup/volume configuration)",
+    "onDemandFallback": "Tier A (Production Component Integration under Pool Depletion)"
+  },
+  "sampleCaveat": "n=5 observations per condition. Tail percentiles (p95/p99) reflect max observation in small sample size.",
   "environment": {
     "platform": "darwin",
     "arch": "arm64",
@@ -10,76 +17,83 @@
   "results": {
     "coldProvisioning": {
       "samplesMs": [
-        100.28,
-        95.74,
-        132,
-        125.2,
-        127.65
+        120.95,
+        118,
+        98.06,
+        121.78,
+        114.7
       ],
       "stats": {
         "n": 5,
-        "min": 95.74,
-        "max": 132,
-        "mean": 116.174,
-        "median": 125.2,
-        "p95": 132,
-        "p99": 132,
-        "stddev": 15.058533,
+        "min": 98.06,
+        "max": 121.78,
+        "mean": 114.698,
+        "median": 118,
+        "p95": 121.78,
+        "p99": 121.78,
+        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (reflects max/near-max observation)",
+        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (reflects max observation)",
+        "stddev": 8.682954,
         "opsPerSec": 8
       }
     },
     "warmCheckout": {
       "samplesMs": [
-        0.21,
-        0.2496,
-        0.2021,
-        0.2369,
-        0.1775
+        0.2774,
+        0.4134,
+        0.2815,
+        0.2317,
+        0.2264
       ],
       "stats": {
         "n": 5,
-        "min": 0.1775,
-        "max": 0.2496,
-        "mean": 0.21522,
-        "median": 0.21,
-        "p95": 0.2496,
-        "p99": 0.2496,
-        "stddev": 0.02559,
-        "opsPerSec": 4762
+        "min": 0.2264,
+        "max": 0.4134,
+        "mean": 0.28608,
+        "median": 0.2774,
+        "p95": 0.4134,
+        "p99": 0.4134,
+        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (reflects max/near-max observation)",
+        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (reflects max observation)",
+        "stddev": 0.067566,
+        "opsPerSec": 3605
       },
       "verifiedPrewarmed": true
     },
     "onDemandFallback": {
       "samplesMs": [
-        121.02,
-        131.34,
-        130.52,
-        131.32,
-        109.39
+        115.34,
+        103.78,
+        117.1,
+        112.33,
+        108.81
       ],
       "stats": {
         "n": 5,
-        "min": 109.39,
-        "max": 131.34,
-        "mean": 124.718,
-        "median": 130.52,
-        "p95": 131.34,
-        "p99": 131.34,
-        "stddev": 8.599108,
-        "opsPerSec": 8
+        "min": 103.78,
+        "max": 117.1,
+        "mean": 111.472,
+        "median": 112.33,
+        "p95": 117.1,
+        "p99": 117.1,
+        "p95SampleWarning": "Sample size n=5 insufficient for distinct p95 (reflects max/near-max observation)",
+        "p99SampleWarning": "Sample size n=5 insufficient for distinct p99 (reflects max observation)",
+        "stddev": 4.767076,
+        "opsPerSec": 9
       },
       "verifiedEmptyPoolBeforeEachPop": true
     },
     "comparison": {
-      "coldMedianMs": 125.2,
-      "warmCheckoutMedianMs": 0.21,
-      "onDemandFallbackMedianMs": 130.52,
-      "warmCheckoutSpeedupVsCold": 596.2,
-      "warmCheckoutLatencyReductionPct": 99.83,
+      "coldMedianMs": 118,
+      "warmCheckoutMedianMs": 0.2774,
+      "onDemandFallbackMedianMs": 112.33,
+      "warmCheckoutSpeedupVsCold": 425.4,
+      "warmCheckoutLatencyReductionPct": 99.76,
       "onDemandMatchesColdProvisioning": true
     },
     "cleanupVerification": {
-      "removedContainersCount": 29,
+      "benchmarkRunId": "nexus-bench-1794641584697-499887",
+      "removedContainersCount": 27,
       "zeroOrphansVerified": true,
       "remainingBenchmarkContainers": 0
     }

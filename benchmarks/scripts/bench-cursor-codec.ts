@@ -330,9 +330,9 @@ async function run() {
     benchmark: 'Binary Cursor Codec (Experimental 8-Byte vs Collision-Free 12-Byte vs JSON)',
     timestamp: new Date().toISOString(),
     environment: env,
-    evidenceTier: 'Tier B (Component Microbenchmark)',
+    evidenceTier: 'Tier D (Experimental Prototype Microbenchmark - Non-Production)',
     productionSource: 'backend/src/services/cursorCodec.service.ts',
-    statusNote: 'The 8-byte codec in backend/src/services/cursorCodec.service.ts is an experimental component microbenchmark; it is NOT integrated into the live websocketServer awareness channel.',
+    statusNote: 'EXPERIMENTAL PROTOTYPE: The 8-byte bit-packed codec in backend/src/services/cursorCodec.service.ts uses a 16-bit user hash subject to birthday-paradox collisions at scale (>100 users = 7.28%). It is retained strictly as an algorithmic prototype microbenchmark and is NOT integrated into the live WebSocket collaboration channel. Collision-free alternatives (RoomIdentityTable and 12-byte uint32 codec) are evaluated as prospective migration designs.',
     correctness: {
       roundTrip8BytePassed: true,
       boundaryClamping8BytePassed: true,
