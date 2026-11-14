@@ -1,0 +1,128 @@
+{
+  "timestamp": "2026-11-14T06:04:29.538Z",
+  "benchmark": "NexusIDE Warm Container Pool",
+  "node_version": "v22.20.0",
+  "docker_available": false,
+  "mode": "simulation",
+  "source_analysis": {
+    "poolDataStructure": "WarmContainer[] (plain JS array)",
+    "allocationOp": "Array.prototype.shift() — O(1) amortized",
+    "replenishOp": "Array.prototype.push() — O(1)",
+    "fillStrategy": "SEQUENTIAL (while loop, serial await per container)",
+    "targetPoolSizeFormula": "clamp(POOL_MIN=1, POOL_MAX=2[demo]/5[prod], activeSessions + 2)",
+    "cgroupConstraints": {
+      "memory_bytes": 1073741824,
+      "memory_swap_bytes": 1073741824,
+      "nano_cpus": 1500000000,
+      "cpu_cores": 1.5,
+      "pids_limit": 500,
+      "tmpfs_tmp": "rw,exec,size=256m",
+      "rootfs_readonly": false
+    },
+    "singleFlightGuard": "boolean replenishingTerminal flag",
+    "estimatedColdLatency_ms": "~3500 (createContainer + start, no image pull)",
+    "estimatedWarmLatency_ms": "< 1 (array shift + no I/O)"
+  },
+  "pool_size_dynamics": {
+    "formula": "clamp(POOL_MIN=1, POOL_MAX, activeSessions + 2)",
+    "demo_pool_max": 2,
+    "prod_pool_max": 5,
+    "cases": [
+      {
+        "activeSessions": 0,
+        "demo_pool_size": 2,
+        "prod_pool_size": 2
+      },
+      {
+        "activeSessions": 1,
+        "demo_pool_size": 2,
+        "prod_pool_size": 3
+      },
+      {
+        "activeSessions": 2,
+        "demo_pool_size": 2,
+        "prod_pool_size": 4
+      },
+      {
+        "activeSessions": 3,
+        "demo_pool_size": 2,
+        "prod_pool_size": 5
+      },
+      {
+        "activeSessions": 4,
+        "demo_pool_size": 2,
+        "prod_pool_size": 5
+      },
+      {
+        "activeSessions": 5,
+        "demo_pool_size": 2,
+        "prod_pool_size": 5
+      },
+      {
+        "activeSessions": 10,
+        "demo_pool_size": 2,
+        "prod_pool_size": 5
+      }
+    ]
+  },
+  "warm_allocation_shift": {
+    "n": 1000,
+    "min": 0,
+    "max": 0.0035,
+    "mean": 0.0001,
+    "median": 0.0001,
+    "p95": 0.0002,
+    "p99": 0.0006,
+    "stddev": 0.0001,
+    "ops_per_sec": 9191091.99
+  },
+  "pool_replenishment_push": {
+    "n": 1000,
+    "min": 0,
+    "max": 0.003,
+    "mean": 0.0001,
+    "median": 0.0001,
+    "p95": 0.0001,
+    "p99": 0.0001,
+    "stddev": 0.0002,
+    "ops_per_sec": 12795414.12
+  },
+  "fill_strategy": {
+    "sequential_ms": 17.395,
+    "parallel_ms": 4.845,
+    "speedup": 3.59,
+    "containers": 5
+  },
+  "concurrent_allocation": [
+    {
+      "N": 5,
+      "wall_ms": 0.019,
+      "throughput_alloc_per_sec": 267251.1,
+      "mean_ms": 0.0002,
+      "p99_ms": 0.0009,
+      "on_demand_count": 0
+    },
+    {
+      "N": 10,
+      "wall_ms": 0.008,
+      "throughput_alloc_per_sec": 1237164.4,
+      "mean_ms": 0.0001,
+      "p99_ms": 0.0005,
+      "on_demand_count": 0
+    },
+    {
+      "N": 20,
+      "wall_ms": 0.008,
+      "throughput_alloc_per_sec": 2461538.5,
+      "mean_ms": 0.0001,
+      "p99_ms": 0.0001,
+      "on_demand_count": 0
+    }
+  ],
+  "cold_vs_warm": {
+    "cold_ms_simulated": 3500,
+    "warm_ms_measured": 0.0001,
+    "latency_reduction_pct": 100,
+    "speedup_factor": 35000000
+  }
+}

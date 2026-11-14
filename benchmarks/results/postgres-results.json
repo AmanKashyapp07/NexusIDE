@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-11-14T06:05:42.063Z",
+  "postgres_ping_latency_ms": {
+    "median": 0.06279200000000174,
+    "p95": 0.1132910000000038,
+    "p99": 0.2581250000000068,
+    "ops_per_sec": 15926
+  },
+  "postgres_single_insert_ms": {
+    "median": 0.0543750000000216,
+    "p95": 0.08124999999998295,
+    "p99": 0.13320799999999622,
+    "ops_per_sec": 18391
+  },
+  "postgres_batch_50_insert_ms": {
+    "median_total": 0.14183300000001964,
+    "p95_total": 0.44924999999997794,
+    "p99_total": 0.48212499999999636,
+    "per_update_median_ms": 0.002836660000000393,
+    "effective_throughput_updates_sec": 352527
+  },
+  "postgres_fetch_updates_ms": {
+    "median": 0.27466699999996536,
+    "p95": 0.3189999999999884,
+    "p99": 0.37829199999998764,
+    "ops_per_sec": 3641
+  }
+}

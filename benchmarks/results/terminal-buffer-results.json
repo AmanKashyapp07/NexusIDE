@@ -1,0 +1,63 @@
+{
+  "benchmark": "TerminalStreamBuffer",
+  "timestamp": "2026-11-14T06:02:35.472Z",
+  "node_version": "v22.20.0",
+  "iterations_per_scenario": 100,
+  "results": [
+    {
+      "scenario": "A. DIRECT",
+      "description": "No buffering — send each chunk immediately (baseline)",
+      "iterations": 100,
+      "chunksIn": 100,
+      "median_framesOut": 100,
+      "median_frameReductionPct": 0,
+      "median_totalBytes": 25600,
+      "median_elapsedMs": 0.0218,
+      "median_avgBatchBytes": 256
+    },
+    {
+      "scenario": "B. BUFFERED",
+      "description": "TerminalStreamBuffer with 10ms window, 100 chunks × 256B",
+      "iterations": 100,
+      "chunksIn": 100,
+      "median_framesOut": 2,
+      "median_frameReductionPct": 98,
+      "median_totalBytes": 25600,
+      "median_elapsedMs": 15.6924,
+      "median_avgBatchBytes": 12800
+    },
+    {
+      "scenario": "C. HIGH_VELOCITY",
+      "description": "1000 chunks of 64 bytes each arriving in <1ms burst",
+      "iterations": 100,
+      "chunksIn": 1000,
+      "median_framesOut": 4,
+      "median_frameReductionPct": 99.6,
+      "median_totalBytes": 64000,
+      "median_elapsedMs": 15.6549,
+      "median_avgBatchBytes": 16000
+    },
+    {
+      "scenario": "D. LARGE_CHUNKS",
+      "description": "10 chunks of 8KB each",
+      "iterations": 100,
+      "chunksIn": 10,
+      "median_framesOut": 5,
+      "median_frameReductionPct": 50,
+      "median_totalBytes": 81920,
+      "median_elapsedMs": 15.6435,
+      "median_avgBatchBytes": 16384
+    },
+    {
+      "scenario": "E. MIXED",
+      "description": "Alternating small (32B) and large (4KB) chunks (100 total)",
+      "iterations": 100,
+      "chunksIn": 100,
+      "median_framesOut": 13,
+      "median_frameReductionPct": 87,
+      "median_totalBytes": 206400,
+      "median_elapsedMs": 15.678,
+      "median_avgBatchBytes": 15876.9
+    }
+  ]
+}

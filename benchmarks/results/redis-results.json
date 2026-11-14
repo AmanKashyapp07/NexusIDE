@@ -1,0 +1,101 @@
+{
+  "timestamp": "2026-11-14T06:03:29.948Z",
+  "environment": {
+    "redis": "127.0.0.1:6379",
+    "nodeVersion": "v22.20.0"
+  },
+  "results": {
+    "A_single_rpush": {
+      "mean": 0.0485,
+      "median": 0.042,
+      "p95": 0.0725,
+      "p99": 0.0916,
+      "opsPerSec": 20608
+    },
+    "B_pipeline_batch": {
+      "batch_10": {
+        "total_ms": {
+          "mean": 0.0948,
+          "median": 0.0361,
+          "p95": 0.1195,
+          "p99": 1.5354,
+          "opsPerSec": 10551
+        },
+        "per_update_ms": {
+          "mean": 0.0095,
+          "median": 0.0036,
+          "p95": 0.0119,
+          "p99": 0.1535,
+          "opsPerSec": 105509
+        }
+      },
+      "batch_50": {
+        "total_ms": {
+          "mean": 0.0785,
+          "median": 0.0565,
+          "p95": 0.0943,
+          "p99": 0.4865,
+          "opsPerSec": 12739
+        },
+        "per_update_ms": {
+          "mean": 0.0016,
+          "median": 0.0011,
+          "p95": 0.0019,
+          "p99": 0.0097,
+          "opsPerSec": 636953
+        }
+      },
+      "batch_100": {
+        "total_ms": {
+          "mean": 0.083,
+          "median": 0.0663,
+          "p95": 0.1759,
+          "p99": 0.4215,
+          "opsPerSec": 12054
+        },
+        "per_update_ms": {
+          "mean": 0.0008,
+          "median": 0.0007,
+          "p95": 0.0018,
+          "p99": 0.0042,
+          "opsPerSec": 1205382
+        }
+      }
+    },
+    "C_write_behind": {
+      "updates": 500,
+      "individual_total_ms": 16.28,
+      "individual_ops": 500,
+      "individual_per_op_median_ms": 0.0276,
+      "pipeline_total_ms": 0.24,
+      "pipeline_calls": 1,
+      "time_reduction_pct": 98.5,
+      "speedup_factor": 66.82
+    },
+    "D_cache_read": {
+      "mean": 0.027,
+      "median": 0.0249,
+      "p95": 0.0331,
+      "p99": 0.0607,
+      "opsPerSec": 37076
+    },
+    "E_memory_vs_redis": {
+      "iterations": 10000,
+      "map_l1": {
+        "mean": 0,
+        "median": 0,
+        "p95": 0,
+        "p99": 0,
+        "opsPerSec": 32007682
+      },
+      "redis_get": {
+        "mean": 0.0208,
+        "median": 0.0195,
+        "p95": 0.0255,
+        "p99": 0.0482,
+        "opsPerSec": 47972
+      },
+      "l1_speedup_vs_redis": 195
+    }
+  }
+}
