@@ -29,7 +29,7 @@ benchmarks/
 │   ├── bench-cursor-codec.ts        # Binary cursor codec vs JSON serialization
 │   ├── bench-container-pool.ts      # Real Docker Engine warm container pool allocation
 │   ├── bench-terminal-buffer.ts     # Terminal PTY stream buffer over real WebSockets
-│   ├── bench-redis-writebehind.ts   # Redis write-behind buffer and multi-tier cache
+│   ├── bench-redis-writebehind.ts   # Redis write-behind buffer and write coalescing
 │   ├── bench-postgres-persistence.ts# PostgreSQL single & batch write persistence
 │   ├── bench-yjs-crdt.ts            # 4-Level Yjs CRDT synchronization & real WS collaboration
 │   └── bench-merkle-dag.ts          # Merkle DAG content-addressable snapshot storage
@@ -68,7 +68,7 @@ All benchmark scripts are executed using `tsx` (bundled in `backend/node_modules
 # 1. Binary Cursor Codec (Production Codec vs JSON)
 node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-cursor-codec.ts
 
-# 2. Redis Write-Behind & Multi-Tier Caching (Live Redis 8.8)
+# 2. Redis Write-Behind & Write Coalescing (Live Redis 8.8)
 node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-redis-writebehind.ts
 
 # 3. Merkle DAG & CAS Snapshots (Production CASService)
