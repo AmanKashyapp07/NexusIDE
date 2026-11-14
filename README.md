@@ -48,6 +48,7 @@ I built NexusIDE to make collaborative software development clean, immediate, an
   - [6. Bit-Packed Binary Cursor Codec (96.8% Bandwidth Reduction)](#6-bit-packed-binary-cursor-codec-968-bandwidth-reduction)
   - [7. Git-Style Merkle DAG Content-Addressable Storage (CAS)](#7-git-style-merkle-dag-content-addressable-storage-cas)
   - [8. Multi-Tier Caching Architecture & Read Path Optimization](#8-multi-tier-caching-architecture--read-path-optimization)
+- [Performance Benchmarks & Empirical Scorecard](#performance-benchmarks--empirical-scorecard)
 - [Future Roadmap](#future-roadmap)
 - [License](#license)
 
@@ -381,6 +382,75 @@ CREATE INDEX idx_file_updates_file_seq ON file_updates(file_id, sequence_number 
 CREATE INDEX idx_blobs_hash ON git_blobs(hash);
 ```
 This ensures workspace file tree hydration and incremental update replay execute in constant time $O(\log N)$ without sequential table scans.
+
+---
+
+## Performance Benchmarks & Empirical Scorecard
+
+NexusIDE includes a statistically rigorous, automated benchmark suite under [`benchmarks/`](benchmarks/) measuring subsystem latencies, throughput capacities, and memory footprints against live production services (Docker daemon, Redis 8.8, PostgreSQL 14).
+
+All measurements follow a strict **Multi-Tiered Empirical Classification Standard**:
+- **Tier A — Production Component Integration**: Live Docker 29.5 daemon container checkouts (`pool.ts`), real Redis write-behind buffering and PostgreSQL persistence flushes (`crdtWriteBehind.service.ts`), and terminal stream buffer frame coalescing over loopback WebSocket TCP transport (`terminalStreamBuffer.ts`).
+- **Tier B — Infrastructure & Algorithm Benchmarks**: PostgreSQL raw and parameterized batch write throughput using an isolated pool matching production configuration, real multi-client WebSocket convergence using production `WSSharedDoc`, and Merkle DAG SHA-256 tree hashing, diffing, and deduplication (`cas.service.ts`).
+- **Tier C — Emulated Driver Interface Tests**: Terminal buffer backpressure throttling evaluated against socket driver buffer thresholds (`bufferedAmount`).
+- **Tier D — Experimental Prototypes & Microbenchmarks**: The 8-byte bit-packed cursor codec evaluated against JSON and prospective 12-byte / room-scoped migration designs, and in-memory Yjs CRDT tombstone growth under `gc: false`.
+
+### Production Performance Scorecard
+
+| Subsystem | Metric | Baseline | Production Engine | Improvement / Speedup | Evidence Tier & Scope |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Docker Sandbox Pool** | Workspace Allocation Latency | 118.5 ms (Cold Boot Median) | **0.326 ms** (Warm Pool Pop Median) | **363× faster checkout** (~118.2ms saved) | **Tier A (Warm) / Tier B (Cold)** (Live Docker 29.5.2) |
+| **Docker Sandbox Pool** | Depleted Pool Fallback | 118.5 ms (Cold Provisioning) | **111.0 ms** (On-Demand Fallback) | **Graceful non-blocking degradation** | **Tier A** (Live Docker 29.5.2) |
+| **Terminal Stream Buffer** | Socket Framing (1,000 Chunks) | 1,000 individual frames | **4 coalesced frames** | **99.6% frame reduction** (+5.15ms latency delta) | **Tier A** (Real WS TCP Transport) |
+| **Terminal Stream Buffer** | Socket Framing (100 Chunks) | 100 individual frames | **2 coalesced frames** | **98.0% frame reduction** (+9.89ms latency delta) | **Tier A** (Real WS TCP Transport) |
+| **Terminal Stream Buffer** | Socket Throttling & Drain | Unchecked buffer bloat | Deferred transmission at 64KB threshold | **Zero byte loss, strictly ordered FIFO** | **Tier C** (Emulated Socket Interface) |
+| **Redis Write-Behind Buffer** | 100-Update Ingestion Throughput | 26,519 updates/s (Single) | **1,529,637 updates/s** (Pipelined) | **57.7× throughput gain** | **Tier A** (Live Redis 8.8) |
+| **Redis Write-Behind Buffer** | 500-Update Burst Ingestion | 12.61 ms (Sequential) | **0.24 ms** (Pipelined Batch) | **98.1% latency drop (52.0× speedup)** | **Tier A** (Live Redis 8.8) |
+| **Redis Write-Behind Buffer** | Database Write Coalescing | 50 separate SQL INSERTs | **1 coalesced row in 4.77 ms** | **98.0% write amplification reduction** | **Tier A** (Live Redis + PostgreSQL) |
+| **PostgreSQL Persistence** | 100-Update Parameterized Batch | 0.0905 ms / row (Single INSERT) | **0.00373 ms / row effective** | **267,932 rows/sec effective capacity** | **Tier B** (Direct SQL / Dedicated Pool) |
+| **PostgreSQL Persistence** | Concurrent Client Writes (5 workers)| N/A | **35,357 rows/sec** (14.14 ms burst) | **Zero transaction deadlocks** | **Tier B** (Direct SQL / Dedicated Pool) |
+| **Merkle DAG CAS Engine** | Snapshot Speed (100 Files) | Naive directory walk | **0.0788 ms** full DAG build | **12,685 DAGs/sec** | **Tier B** (Production Algorithm) |
+| **Merkle DAG CAS Engine** | Content Deduplication | 100 physical copies | **51 unique blobs** (50% duplicate tree) | **61.4% storage bytes saved** | **Tier B** (Production Algorithm) |
+| **Real-Time CRDT Sync** | Dynamic Multi-Client Convergence | N/A | **7.85 ms** (2 clients), **37.97 ms** (10 clients) | **100% bit-for-bit convergence** | **Tier B** (WSSharedDoc Harness) |
+| **CRDT Tombstone Growth** | Deletion State Inflation | 520 B (Fresh doc, 500 chars) | **1,040 B** (`gc: false`, 50% deleted) | **+100.0% tombstone expansion** | **Tier D** (In-Memory Engine Microbenchmark) |
+| **Binary Cursor Codec** | 100-User Payload Size | 6,798 Bytes (JSON) | **800 Bytes** (8-Byte) / **1,200 Bytes** (12-Byte) | **88.23% / 82.35% payload reduction** | **Tier D** (Experimental Prototype) |
+| **Binary Cursor Codec** | 100-User Batch Deserialization | 110.1K batch ops/s (JSON.parse) | **3.00M ops/s** (8-Byte) / **2.40M** (12-Byte) | **27.28× / 21.78× faster batch decoding** | **Tier D** (Experimental Prototype) |
+
+### Key Benchmark Discoveries & Engineering Decisions
+
+1. **Sub-Millisecond Container Checkout Eliminates Workspace Wait Time**:
+   - Pre-warming containers in RAM with cgroup quotas (`1.5 CPU cores`, `1 GB RAM`, `500 PID limit`) cuts workspace allocation latency from **118.5 ms** (cold boot median) to **0.326 ms** (326 µs, 363× faster). When the pool is exhausted, on-demand fallback provisions containers in **111.0 ms** without blocking or deadlocking.
+2. **PTY Micro-Batching Cuts WebSocket Overhead by 99.6%**:
+   - Coalescing high-velocity terminal bursts (1,000 chunks × 64B) into a 10ms micro-window reduces outgoing WebSocket frames from 1,000 down to **4 frames**, saving significant Node.js event-loop overhead and preventing client DOM canvas freezing while remaining well within interactive latency tolerances (+5.15ms).
+3. **Pipelined Write-Behind Coalescing Slashes Database IOPS by 98%**:
+   - Pipelined Redis queuing ingests **1,529,637 updates/sec** (0.00065ms/op), absorbing typing bursts with sub-millisecond responsiveness. Multi-delta flushes merge 50 buffered updates into a single compound SQL row in **4.77 ms**, cutting database write transactions by 98.0%.
+4. **Content-Addressable Deduplication Cuts Storage by 61.4%**:
+   - Canonical SHA-256 tree hashing constructs complete workspace snapshots across 100 files in **0.0788 ms** (12,685 DAGs/sec). On redundant file trees (50% duplication), CAS content addressing saves **61.4% storage bytes** via automatic blob deduplication.
+5. **Cursor Codec Architecture & Identity Trade-offs**:
+   - Prototyped bit-packed binary cursor streaming delivering **88.23% payload reduction** and **27.28× faster batch decoding** over JSON. Benchmark testing identified a 7.28% birthday-paradox collision probability for 16-bit user hashes at 100 collaborators, modeling two production migration paths: (a) a zero-collision room-scoped integer index table (`RoomIdentityTable`), and (b) a prospective 12-byte uint32 layout paired with external numeric ID allocation.
+
+### Reproducing the Benchmarks
+
+All benchmark scripts are fully automated, runnable via `tsx`, and store raw machine-readable JSON datasets in [`benchmarks/results/raw/`](benchmarks/results/raw/):
+
+```bash
+# Execute the complete automated benchmark suite
+npm run bench
+
+# Or execute individual component benchmarks:
+node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-container-pool.ts
+node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-terminal-buffer.ts
+node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-redis-writebehind.ts
+node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-postgres-persistence.ts
+node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-yjs-crdt.ts
+node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-merkle-dag.ts
+node backend/node_modules/tsx/dist/cli.mjs benchmarks/scripts/bench-cursor-codec.ts
+```
+
+For complete statistical methodologies, raw JSON outputs, percentile distributions, and architecture trade-offs, refer to the:
+- 📊 **[Comprehensive Benchmark Audit Report](benchmarks/BENCHMARK_REPORT.md)**
+- 🎯 **[Resume Metrics & Evidence Portfolio](benchmarks/RESUME_METRICS.md)**
+- 🛠️ **[Benchmark Reproduction Guide](benchmarks/README.md)**
 
 ---
 
