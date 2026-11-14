@@ -1,8 +1,8 @@
 {
   "benchmark": "Docker Warm Container Sandbox Pool",
-  "timestamp": "2026-11-14T06:21:35.469Z",
+  "timestamp": "2026-11-14T06:39:20.682Z",
   "environment": {
-    "timestamp": "2026-11-14T06:21:34.075Z",
+    "timestamp": "2026-11-14T06:39:18.275Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.07
+      "freeMemoryGb": 0.1
     },
     "runtime": {
       "node": "v22.20.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 38,
+        "containers": 39,
         "images": 5
       },
       "redis": {
@@ -38,40 +38,71 @@
       }
     }
   },
-  "evidenceTier": "Tier A (Live Docker Engine v29.5.2 Daemon + Production Pool Manager)",
+  "evidenceTier": "Tier A (Live Docker Engine v29.5.2 Daemon)",
   "productionSource": "backend/src/sandbox/pool.ts",
   "results": {
-    "coldContainerProvisioning": {
-      "n": 3,
-      "min": 107.721042,
-      "max": 130.614083,
-      "mean": 115.400055,
-      "median": 107.865041,
-      "p95": 130.614083,
-      "p99": 130.614083,
-      "stddev": 10.758103,
-      "opsPerSec": 9
+    "coldProvisioning": {
+      "samplesMs": [
+        128.815917,
+        99.97275000000002,
+        103.47204199999999,
+        113.77179100000001,
+        91.65037499999994
+      ],
+      "stats": {
+        "n": 5,
+        "min": 91.650375,
+        "max": 128.815917,
+        "mean": 107.536575,
+        "median": 103.472042,
+        "p95": 128.815917,
+        "p99": 128.815917,
+        "stddev": 12.788992,
+        "opsPerSec": 10
+      }
     },
-    "warmAllocation": {
-      "n": 2,
-      "min": 0.313542,
-      "max": 110.348666,
-      "mean": 55.331104,
-      "median": 55.331104,
-      "p95": 110.348666,
-      "p99": 110.348666,
-      "stddev": 55.017562,
-      "opsPerSec": 18
+    "warmCheckout": {
+      "samplesMs": [
+        0.4172919999999749
+      ],
+      "stats": {
+        "n": 1,
+        "min": 0.417292,
+        "max": 0.417292,
+        "mean": 0.417292,
+        "median": 0.417292,
+        "p95": 0.417292,
+        "p99": 0.417292,
+        "stddev": 0,
+        "opsPerSec": 2396
+      },
+      "verifiedPrewarmed": true
     },
-    "coldVsWarmComparison": {
-      "coldMedianMs": 107.865041,
-      "warmMedianMs": 55.331104,
-      "latencyReductionPct": 48.7,
-      "speedupFactor": 1.9
+    "onDemandFallback": {
+      "samplesMs": [
+        205.30187499999988,
+        0.009958000000096945,
+        138.57850000000008
+      ],
+      "stats": {
+        "n": 3,
+        "min": 0.009958,
+        "max": 205.301875,
+        "mean": 114.630111,
+        "median": 138.5785,
+        "p95": 205.301875,
+        "p99": 205.301875,
+        "stddev": 85.50375,
+        "opsPerSec": 7
+      }
     },
-    "poolExhaustionFallback": {
-      "fallbackAllocationMs": 0.01,
-      "createdOnDemand": true
+    "comparison": {
+      "coldMedianMs": 103.472042,
+      "warmCheckoutMedianMs": 0.417292,
+      "onDemandFallbackMedianMs": 138.5785,
+      "warmCheckoutSpeedupVsCold": 248,
+      "warmCheckoutLatencyReductionPct": 99.6,
+      "onDemandMatchesColdProvisioning": false
     }
   }
 }

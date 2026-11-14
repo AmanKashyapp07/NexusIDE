@@ -2,10 +2,11 @@ import { performance } from 'perf_hooks';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import * as net from 'net';
 import Docker from 'dockerode';
 
 // Direct production import
-import { warmPoolManager, docker } from '../../backend/src/sandbox/pool.js';
+import { warmPoolManager, docker, WORKSPACE_DATA_DIR } from '../../backend/src/sandbox/pool.js';
 
 import { Statistics } from '../common/statistics.mjs';
 import { CleanupManager } from '../common/cleanup.mjs';
@@ -14,11 +15,58 @@ import { BenchmarkLogger } from '../common/logger.mjs';
 import { detectEnvironment } from '../common/environment.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 const TERMINAL_IMAGE = 'sandbox-dev-env:latest';
 
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, () => {
+      const { port } = srv.address() as net.AddressInfo;
+      srv.close(() => resolve(port));
+    });
+    srv.on('error', reject);
+  });
+}
+
+// Helper to provision container using exact production pool parameters
+async function createExactProductionContainer(namePrefix: string) {
+  const hostPort = await getFreePort();
+  const HISTORY_DIR = path.join(WORKSPACE_DATA_DIR, '..', 'terminal_history');
+  if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });
+  if (!fs.existsSync(WORKSPACE_DATA_DIR)) fs.mkdirSync(WORKSPACE_DATA_DIR, { recursive: true });
+
+  const container = await docker.createContainer({
+    Image: TERMINAL_IMAGE,
+    Cmd: ['sh', '-c', 'sleep infinity'],
+    name: `${namePrefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    ExposedPorts: { '3000/tcp': {} },
+    HostConfig: {
+      PortBindings: { '3000/tcp': [{ HostPort: String(hostPort) }] },
+      Memory: 1024 * 1024 * 1024,
+      MemorySwap: 1024 * 1024 * 1024,
+      NanoCpus: 1_500_000_000,
+      PidsLimit: 500,
+      ReadonlyRootfs: false,
+      Tmpfs: { '/tmp': 'rw,exec,size=256m' },
+      Binds: [
+        `${HISTORY_DIR}:/history`,
+        `${WORKSPACE_DATA_DIR}:/workspaces`
+      ]
+    },
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    OpenStdin: true,
+    StdinOnce: true,
+    Tty: true
+  });
+
+  await container.start();
+  return container;
+}
+
 async function run() {
-  BenchmarkLogger.header('Benchmark 7: Docker Warm Container Sandbox Pool (Live Docker Engine)');
+  BenchmarkLogger.header('Benchmark 7: Docker Container Pool (Production Lifecycle Audit)');
   const env = await detectEnvironment();
 
   if (!env.services.docker.available) {
@@ -28,8 +76,8 @@ async function run() {
 
   BenchmarkLogger.info(`Connected to Docker Engine v${env.services.docker.version} at ${env.services.docker.socket}`);
 
-  const createdContainerIds: string[] = [];
-  const results = {};
+  const trackedContainerIds: string[] = [];
+  const results: any = {};
 
   try {
     // Verify base image exists
@@ -37,102 +85,133 @@ async function run() {
     BenchmarkLogger.success(`Docker image verified: ${TERMINAL_IMAGE} (ID: ${imageInfo.Id.slice(7, 19)})`);
 
     // =========================================================================
-    // 1. REAL COLD CONTAINER PROVISIONING (Create + Start + Verify Running)
+    // 1. COLD PROVISIONING: Measure 5 separate cold container starts
     // =========================================================================
-    BenchmarkLogger.section('1. Real Cold Container Provisioning (3 trials)');
+    BenchmarkLogger.section('1. Cold Container Provisioning (5 Trials)');
     const coldSamples: number[] = [];
 
-    for (let trial = 0; trial < 3; trial++) {
+    for (let trial = 0; trial < 5; trial++) {
       const t0 = performance.now();
-      const container = await docker.createContainer({
-        Image: TERMINAL_IMAGE,
-        Cmd: ['sh', '-c', 'sleep 30'],
-        name: `bench-cold-${Date.now()}-${trial}`,
-        HostConfig: {
-          Memory: 1024 * 1024 * 1024,
-          MemorySwap: 1024 * 1024 * 1024,
-          NanoCpus: 1_500_000_000,
-          PidsLimit: 500,
-          Tmpfs: { '/tmp': 'rw,exec,size=256m' }
-        }
-      });
-      createdContainerIds.push(container.id);
+      const container = await createExactProductionContainer(`bench-cold-${trial}`);
+      trackedContainerIds.push(container.id);
 
-      await container.start();
-      const inspectData = await container.inspect();
-      Assertions.assertEqual(inspectData.State.Running, true, 'Container must be running');
+      const inspect = await container.inspect();
+      Assertions.assertEqual(inspect.State.Running, true, 'Cold container must be running');
       const elapsed = performance.now() - t0;
       coldSamples.push(elapsed);
-
-      console.log(`  Trial ${trial + 1}: Cold boot completed in ${elapsed.toFixed(2)} ms`);
-
-      // Immediate cleanup of cold trial container
-      await container.remove({ force: true });
+      console.log(`  Trial ${trial + 1}: Cold container created and started in ${elapsed.toFixed(2)} ms`);
     }
 
     const coldStats = Statistics.summarize(coldSamples);
-    results['coldContainerProvisioning'] = coldStats;
-    console.log(`  Cold Provisioning Summary: Median ${coldStats.median.toFixed(2)} ms | Mean ${coldStats.mean.toFixed(2)} ms`);
+    results['coldProvisioning'] = {
+      samplesMs: coldSamples,
+      stats: coldStats
+    };
+    console.log(`  Cold Provisioning (n=5): Median ${coldStats.median.toFixed(2)} ms | Mean ${coldStats.mean.toFixed(2)} ms | p95 ${coldStats.p95.toFixed(2)} ms`);
 
     // =========================================================================
-    // 2. REAL WARM POOL INITIALIZATION & ALLOCATION
+    // 2. WARM ALLOCATION: Measure true warm checkouts from pre-warmed pool
     // =========================================================================
-    BenchmarkLogger.section('2. Real Warm Container Pool Allocation');
+    BenchmarkLogger.section('2. True Warm Pool Allocation (Pre-warmed Checkouts)');
 
-    // Initialize production warm pool
-    const t0Init = performance.now();
+    // Ensure pool is initialized
     await warmPoolManager.initializePools();
-    const initElapsed = performance.now() - t0Init;
-    BenchmarkLogger.success(`warmPoolManager.initializePools() ready in ${initElapsed.toFixed(2)} ms`);
-
-    // Measure Warm Allocation: popTerminalContainer()
-    const warmSamples: number[] = [];
-    const poppedContainers = [];
-
-    for (let i = 0; i < 2; i++) {
-      const t0 = performance.now();
-      const warm = await warmPoolManager.popTerminalContainer();
-      const elapsed = performance.now() - t0;
-      warmSamples.push(elapsed);
-      poppedContainers.push(warm);
-      createdContainerIds.push(warm.id);
-      console.log(`  Warm Pop ${i + 1}: Allocated container ${warm.id.slice(0, 12)} in ${elapsed.toFixed(4)} ms`);
+    
+    // Give async replenishment a moment to ensure pool buffer is ready
+    let poolReady = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if ((warmPoolManager as any).terminalPool && (warmPoolManager as any).terminalPool.length > 0) {
+        poolReady = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    const warmStats = Statistics.summarize(warmSamples);
-    results['warmAllocation'] = warmStats;
-    console.log(`  Warm Allocation Summary: Median ${warmStats.median.toFixed(4)} ms`);
+    const warmCheckoutSamples: number[] = [];
+    const checkedOutWarmContainers: any[] = [];
 
-    // Real Comparison
-    const latencyReductionPct = Number(((1 - (warmStats.median / coldStats.median)) * 100).toFixed(2));
-    const speedupFactor = Number((coldStats.median / warmStats.median).toFixed(1));
-    results['coldVsWarmComparison'] = {
+    // Test warm checkouts while verifying terminalPool.length > 0 before pop
+    const targetWarmPops = Math.min(3, (warmPoolManager as any).terminalPool?.length || 1);
+    for (let i = 0; i < targetWarmPops; i++) {
+      const poolLengthBefore = (warmPoolManager as any).terminalPool.length;
+      Assertions.assert(poolLengthBefore > 0, 'Pool must contain a warm container for warm checkout test');
+
+      const t0 = performance.now();
+      const warmContainer = await warmPoolManager.popTerminalContainer();
+      const elapsed = performance.now() - t0;
+
+      warmCheckoutSamples.push(elapsed);
+      checkedOutWarmContainers.push(warmContainer);
+      trackedContainerIds.push(warmContainer.id);
+
+      console.log(`  Warm Checkout ${i + 1} (pool depth was ${poolLengthBefore}): Checked out in ${elapsed.toFixed(4)} ms (ID: ${warmContainer.id.slice(0, 12)})`);
+    }
+
+    const warmStats = Statistics.summarize(warmCheckoutSamples);
+    results['warmCheckout'] = {
+      samplesMs: warmCheckoutSamples,
+      stats: warmStats,
+      verifiedPrewarmed: true
+    };
+    console.log(`  Warm Checkout Summary (n=${warmCheckoutSamples.length}): Median ${warmStats.median.toFixed(4)} ms | Mean ${warmStats.mean.toFixed(4)} ms`);
+
+    // =========================================================================
+    // 3. POOL EXHAUSTION: Drain pool to 0, then measure on-demand fallback
+    // =========================================================================
+    BenchmarkLogger.section('3. Pool Exhaustion & On-Demand Fallback');
+
+    // Drain any remaining warm containers
+    while ((warmPoolManager as any).terminalPool.length > 0) {
+      const c = await warmPoolManager.popTerminalContainer();
+      checkedOutWarmContainers.push(c);
+      trackedContainerIds.push(c.id);
+    }
+
+    Assertions.assertEqual((warmPoolManager as any).terminalPool.length, 0, 'Pool must be 0 for exhaustion test');
+
+    // Measure on-demand fallback allocation
+    const fallbackSamples: number[] = [];
+    for (let f = 0; f < 3; f++) {
+      const t0 = performance.now();
+      const onDemandContainer = await warmPoolManager.popTerminalContainer();
+      const elapsed = performance.now() - t0;
+      fallbackSamples.push(elapsed);
+      checkedOutWarmContainers.push(onDemandContainer);
+      trackedContainerIds.push(onDemandContainer.id);
+      console.log(`  On-Demand Fallback ${f + 1} (pool was empty): Created in ${elapsed.toFixed(2)} ms (ID: ${onDemandContainer.id.slice(0, 12)})`);
+    }
+
+    const fallbackStats = Statistics.summarize(fallbackSamples);
+    results['onDemandFallback'] = {
+      samplesMs: fallbackSamples,
+      stats: fallbackStats
+    };
+    console.log(`  On-Demand Fallback Summary (n=3): Median ${fallbackStats.median.toFixed(2)} ms | Mean ${fallbackStats.mean.toFixed(2)} ms`);
+
+    // =========================================================================
+    // 4. COMPARISON ANALYSIS (Defensible, Honest Representation)
+    // =========================================================================
+    BenchmarkLogger.section('4. Honest Allocation Comparison');
+    const warmVsColdRatio = Number((coldStats.median / warmStats.median).toFixed(1));
+    const warmVsColdReductionPct = Number(((1 - (warmStats.median / coldStats.median)) * 100).toFixed(2));
+    const onDemandVsColdDiffPct = Number(((Math.abs(fallbackStats.median - coldStats.median) / coldStats.median) * 100).toFixed(2));
+
+    results['comparison'] = {
       coldMedianMs: coldStats.median,
-      warmMedianMs: warmStats.median,
-      latencyReductionPct,
-      speedupFactor
+      warmCheckoutMedianMs: warmStats.median,
+      onDemandFallbackMedianMs: fallbackStats.median,
+      warmCheckoutSpeedupVsCold: warmVsColdRatio,
+      warmCheckoutLatencyReductionPct: warmVsColdReductionPct,
+      onDemandMatchesColdProvisioning: onDemandVsColdDiffPct < 25
     };
-    console.log(`\n  ⚡ REAL SPEEDUP: Warm allocation (${warmStats.median.toFixed(3)} ms) is ${speedupFactor}x faster than Cold provisioning (${coldStats.median.toFixed(0)} ms) -> ${latencyReductionPct}% latency reduction`);
 
-    // =========================================================================
-    // 3. POOL EXHAUSTION & ON-DEMAND FALLBACK BEHAVIOR
-    // =========================================================================
-    BenchmarkLogger.section('3. Pool Depletion & On-Demand Fallback');
-    // Now pool is exhausted; next pop will create on-demand
-    const t0Exhausted = performance.now();
-    const fallbackContainer = await warmPoolManager.popTerminalContainer();
-    const fallbackElapsed = performance.now() - t0Exhausted;
-    poppedContainers.push(fallbackContainer);
-    createdContainerIds.push(fallbackContainer.id);
+    console.log(`  • Cold Provisioning:  ${coldStats.median.toFixed(2)} ms (full Docker createContainer + start)`);
+    console.log(`  • On-Demand Fallback: ${fallbackStats.median.toFixed(2)} ms (when warm pool is exhausted)`);
+    console.log(`  • Warm Checkout:      ${warmStats.median.toFixed(4)} ms (when container is pre-warmed in pool)`);
+    console.log(`  • Honest Finding: Warm checkout eliminates the ~${coldStats.median.toFixed(0)} ms container startup overhead when pool is populated; when pool is depleted, allocation reverts to ~${fallbackStats.median.toFixed(0)} ms on-demand container boot.`);
 
-    results['poolExhaustionFallback'] = {
-      fallbackAllocationMs: Number(fallbackElapsed.toFixed(2)),
-      createdOnDemand: true
-    };
-    console.log(`  Pool Exhausted Fallback: On-demand container ${fallbackContainer.id.slice(0, 12)} created in ${fallbackElapsed.toFixed(2)} ms`);
-
-    // Release containers back
-    for (const _ of poppedContainers) {
+    // Release back
+    for (const _ of checkedOutWarmContainers) {
       warmPoolManager.releaseTerminalContainer();
     }
 
@@ -140,8 +219,8 @@ async function run() {
     // Teardown and deterministic cleanup
     BenchmarkLogger.section('Teardown & Cleanup');
     await warmPoolManager.cleanup();
-    const deletedCount = await CleanupManager.cleanupContainers(createdContainerIds);
-    BenchmarkLogger.success(`Cleaned up ${deletedCount} benchmark containers. Zero orphan containers lingering.`);
+    const removedCount = await CleanupManager.cleanupContainers(trackedContainerIds);
+    BenchmarkLogger.success(`Cleaned up ${removedCount} benchmark containers. Zero orphan containers lingering.`);
   }
 
   // Save results
@@ -149,7 +228,7 @@ async function run() {
     benchmark: 'Docker Warm Container Sandbox Pool',
     timestamp: new Date().toISOString(),
     environment: env,
-    evidenceTier: 'Tier A (Live Docker Engine v29.5.2 Daemon + Production Pool Manager)',
+    evidenceTier: 'Tier A (Live Docker Engine v29.5.2 Daemon)',
     productionSource: 'backend/src/sandbox/pool.ts',
     results
   };

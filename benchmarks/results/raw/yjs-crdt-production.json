@@ -1,8 +1,8 @@
 {
   "benchmark": "Yjs CRDT Real-Time Collaboration",
-  "timestamp": "2026-11-14T06:21:08.870Z",
+  "timestamp": "2026-11-14T06:41:22.286Z",
   "environment": {
-    "timestamp": "2026-11-14T06:21:07.890Z",
+    "timestamp": "2026-11-14T06:41:21.786Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.07
+      "freeMemoryGb": 0.32
     },
     "runtime": {
       "node": "v22.20.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 38,
+        "containers": 42,
         "images": 5
       },
       "redis": {
@@ -38,7 +38,7 @@
       }
     }
   },
-  "evidenceTier": "Tier A (Real WebSockets + Live Redis + Yjs Engine)",
+  "evidenceTier": "Tier A (Live WebSockets + Live Redis + Production WSSharedDoc)",
   "productionSources": [
     "backend/src/services/yjsSyncEngine.service.ts",
     "backend/src/services/redisAdapter.service.ts"
@@ -47,98 +47,94 @@
     "level1_localLibrary": {
       "100": {
         "insertions": 100,
-        "elapsedMs": 1.78,
-        "insertionsPerSec": 56180,
+        "elapsedMs": 1.55,
+        "insertionsPerSec": 64501,
         "encodedStateBytes": 120,
         "bytesPerChar": 1.2
       },
       "1000": {
         "insertions": 1000,
-        "elapsedMs": 4.981,
-        "insertionsPerSec": 200768,
+        "elapsedMs": 4.001,
+        "insertionsPerSec": 249940,
         "encodedStateBytes": 1021,
         "bytesPerChar": 1.02
       },
       "5000": {
         "insertions": 5000,
-        "elapsedMs": 18.569,
-        "insertionsPerSec": 269262,
+        "elapsedMs": 14.347,
+        "insertionsPerSec": 348498,
         "encodedStateBytes": 5021,
         "bytesPerChar": 1
       }
     },
-    "level2_realWsCollaboration": {
+    "level2_productionWsSharedDoc": {
       "2": {
         "clientCount": 2,
-        "editsPerClient": 50,
-        "totalClusterEdits": 100,
-        "convergenceDurationMs": 63.38,
-        "allClientsIdentical": true,
-        "finalStateBytes": 138
+        "editsPerClient": 20,
+        "totalEdits": 40,
+        "exactConvergenceMs": 7.52,
+        "allClientsBitIdentical": true
       },
       "5": {
         "clientCount": 5,
-        "editsPerClient": 50,
-        "totalClusterEdits": 250,
-        "convergenceDurationMs": 65.74,
-        "allClientsIdentical": true,
-        "finalStateBytes": 342
+        "editsPerClient": 20,
+        "totalEdits": 100,
+        "exactConvergenceMs": 24.81,
+        "allClientsBitIdentical": true
       },
       "10": {
         "clientCount": 10,
-        "editsPerClient": 50,
-        "totalClusterEdits": 500,
-        "convergenceDurationMs": 91.85,
-        "allClientsIdentical": true,
-        "finalStateBytes": 679
+        "editsPerClient": 20,
+        "totalEdits": 200,
+        "exactConvergenceMs": 43.51,
+        "allClientsBitIdentical": true
       }
     },
-    "level3_redisPubSub": {
-      "updatesSent": 200,
+    "level3_redisPubSubMesh": {
+      "iterations": 100,
       "propagationStats": {
-        "n": 200,
-        "min": 0.099917,
-        "max": 0.500166,
-        "mean": 0.213329,
-        "median": 0.182479,
-        "p95": 0.343042,
-        "p99": 0.445584,
-        "stddev": 0.071642,
-        "opsPerSec": 5480
-      },
-      "stateSyncedBitForBit": true
+        "n": 100,
+        "min": 0.096916,
+        "max": 1.253834,
+        "mean": 0.177245,
+        "median": 0.142979,
+        "p95": 0.340916,
+        "p99": 1.253834,
+        "stddev": 0.127858,
+        "opsPerSec": 6994
+      }
     },
-    "level4_tombstoneOverhead": {
+    "level4_tombstoneStateInflation": {
       "0%_deleted": {
         "initialChars": 1000,
         "deletedPct": 0,
         "remainingChars": 1000,
-        "gcFalseStateBytes": 1021,
-        "freshStateBytes": 1021,
+        "gcFalseStateVectorBytes": 1021,
+        "freshDocStateVectorBytes": 1021,
         "tombstoneInflationPct": 0
       },
       "25%_deleted": {
         "initialChars": 1000,
         "deletedPct": 25,
         "remainingChars": 750,
-        "gcFalseStateBytes": 1040,
-        "freshStateBytes": 771,
+        "gcFalseStateVectorBytes": 1040,
+        "freshDocStateVectorBytes": 771,
         "tombstoneInflationPct": 34.89
       },
       "50%_deleted": {
         "initialChars": 1000,
         "deletedPct": 50,
         "remainingChars": 500,
-        "gcFalseStateBytes": 1040,
-        "freshStateBytes": 521,
+        "gcFalseStateVectorBytes": 1040,
+        "freshDocStateVectorBytes": 521,
         "tombstoneInflationPct": 99.62
       },
       "75%_deleted": {
         "initialChars": 1000,
         "deletedPct": 75,
         "remainingChars": 250,
-        "gcFalseStateBytes": 1040,
-        "freshStateBytes": 271,
+        "gcFalseStateVectorBytes": 1040,
+        "freshDocStateVectorBytes": 271,
         "tombstoneInflationPct": 283.76
       }
     }

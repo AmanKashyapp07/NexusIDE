@@ -1,8 +1,8 @@
 {
-  "benchmark": "Redis Write-Behind & Multi-Tier Cache",
-  "timestamp": "2026-11-14T06:19:12.755Z",
+  "benchmark": "Redis Write-Behind Buffer & Flush Lifecycle",
+  "timestamp": "2026-11-14T06:40:09.586Z",
   "environment": {
-    "timestamp": "2026-11-14T06:19:12.137Z",
+    "timestamp": "2026-11-14T06:40:09.379Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.07
+      "freeMemoryGb": 0.08
     },
     "runtime": {
       "node": "v22.20.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 38,
+        "containers": 41,
         "images": 5
       },
       "redis": {
@@ -38,7 +38,7 @@
       }
     }
   },
-  "evidenceTier": "Tier A (Live Redis 8.8.0 + Production Service Code)",
+  "evidenceTier": "Tier A (Live Redis 8.8 + Live PostgreSQL 14 + Production Service)",
   "productionSources": [
     "backend/src/services/crdtWriteBehind.service.ts",
     "backend/src/utils/redisCache.ts"
@@ -46,101 +46,98 @@
   "results": {
     "singleIngestion": {
       "n": 1000,
-      "min": 0.029708,
-      "max": 0.889833,
-      "mean": 0.057215,
-      "median": 0.05602,
-      "p95": 0.104125,
-      "p99": 0.130583,
-      "stddev": 0.036136,
-      "opsPerSec": 17851
+      "min": 0.029583,
+      "max": 4.078583,
+      "mean": 0.062552,
+      "median": 0.052625,
+      "p95": 0.105625,
+      "p99": 0.151792,
+      "stddev": 0.134836,
+      "opsPerSec": 19002
     },
     "batchIngestion": {
       "10": {
         "batchSize": 10,
         "totalBatchStats": {
           "n": 100,
-          "min": 0.028,
-          "max": 1.406667,
-          "mean": 0.054996,
-          "median": 0.033375,
-          "p95": 0.092375,
-          "p99": 1.406667,
-          "stddev": 0.137017,
-          "opsPerSec": 29963
+          "min": 0.027875,
+          "max": 0.183125,
+          "mean": 0.03993,
+          "median": 0.032312,
+          "p95": 0.097125,
+          "p99": 0.183125,
+          "stddev": 0.024187,
+          "opsPerSec": 30948
         },
-        "perUpdateMedianMs": 0.003338,
-        "effectiveUpdatesPerSec": 299625
+        "perUpdateMedianMs": 0.003231,
+        "effectiveBatchUpdatesPerSec": 309483
       },
       "50": {
         "batchSize": 50,
         "totalBatchStats": {
           "n": 100,
-          "min": 0.036291,
-          "max": 0.101,
-          "mean": 0.050147,
-          "median": 0.046979,
-          "p95": 0.069459,
-          "p99": 0.101,
-          "stddev": 0.011796,
-          "opsPerSec": 21286
+          "min": 0.036875,
+          "max": 1.352167,
+          "mean": 0.063801,
+          "median": 0.049479,
+          "p95": 0.077917,
+          "p99": 1.352167,
+          "stddev": 0.129994,
+          "opsPerSec": 20211
         },
-        "perUpdateMedianMs": 0.00094,
-        "effectiveUpdatesPerSec": 1064305
+        "perUpdateMedianMs": 0.00099,
+        "effectiveBatchUpdatesPerSec": 1010530
       },
       "100": {
         "batchSize": 100,
         "totalBatchStats": {
           "n": 100,
-          "min": 0.050958,
-          "max": 0.085083,
-          "mean": 0.061701,
-          "median": 0.060667,
-          "p95": 0.073917,
-          "p99": 0.085083,
-          "stddev": 0.006819,
-          "opsPerSec": 16483
+          "min": 0.048333,
+          "max": 0.096708,
+          "mean": 0.056986,
+          "median": 0.055437,
+          "p95": 0.069792,
+          "p99": 0.096708,
+          "stddev": 0.006479,
+          "opsPerSec": 18038
         },
-        "perUpdateMedianMs": 0.000607,
-        "effectiveUpdatesPerSec": 1648343
+        "perUpdateMedianMs": 0.000554,
+        "effectiveBatchUpdatesPerSec": 1803849
       }
     },
-    "burstComparison": {
-      "updatesCount": 500,
-      "individualSequentialMs": 21.856,
-      "pipelinedBatchMs": 0.19,
-      "speedupFactor": 115.29,
-      "latencyReductionPct": 99.13
+    "flushLifecycle": {
+      "bufferedUpdatesCount": 50,
+      "flushedUpdatesCount": 50,
+      "flushDurationMs": 7.785,
+      "persistedSqlRows": 1,
+      "writeAmplificationReductionPct": 98
     },
-    "cacheHierarchy": {
-      "l1InMemoryMap": {
-        "n": 100,
-        "min": 0.002583,
-        "max": 0.009713,
-        "mean": 0.00335,
-        "median": 0.002882,
-        "p95": 0.004928,
-        "p99": 0.009713,
-        "stddev": 0.000985,
-        "opsPerSec": 347014
+    "cacheOperations": {
+      "cacheSetStats": {
+        "n": 500,
+        "min": 0.01875,
+        "max": 0.725875,
+        "mean": 0.029189,
+        "median": 0.025959,
+        "p95": 0.0385,
+        "p99": 0.070916,
+        "stddev": 0.032222,
+        "opsPerSec": 38523
       },
-      "l2RedisRoundtrip": {
-        "n": 1000,
-        "min": 0.014792,
-        "max": 4.505792,
-        "mean": 0.029949,
-        "median": 0.022083,
-        "p95": 0.04325,
-        "p99": 0.124333,
-        "stddev": 0.143058,
-        "opsPerSec": 45284
+      "cacheGetHitStats": {
+        "n": 500,
+        "min": 0.018834,
+        "max": 0.095375,
+        "mean": 0.024699,
+        "median": 0.024208,
+        "p95": 0.030333,
+        "p99": 0.037708,
+        "stddev": 0.004537,
+        "opsPerSec": 41309
       },
-      "l1SpeedupVsL2": 7.66,
-      "cacheHitStats": {
-        "hits": 0,
-        "misses": 0,
-        "hitRate": 0
-      }
+      "hitsRecorded": 500,
+      "missesRecorded": 0,
+      "hitRatePct": 100
     }
   }
 }

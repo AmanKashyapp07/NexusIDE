@@ -1,8 +1,8 @@
 {
   "benchmark": "Terminal PTY Stream Buffer",
-  "timestamp": "2026-11-14T06:20:13.145Z",
+  "timestamp": "2026-11-14T06:40:40.695Z",
   "environment": {
-    "timestamp": "2026-11-14T06:20:13.061Z",
+    "timestamp": "2026-11-14T06:40:40.614Z",
     "os": {
       "platform": "darwin",
       "release": "27.2.0",
@@ -10,7 +10,7 @@
       "cpus": 10,
       "cpuModel": "Apple M4",
       "totalMemoryGb": 16,
-      "freeMemoryGb": 0.08
+      "freeMemoryGb": 0.07
     },
     "runtime": {
       "node": "v22.20.0",
@@ -22,7 +22,7 @@
         "available": true,
         "version": "29.5.2",
         "socket": "/Users/amankashyap/.docker/run/docker.sock",
-        "containers": 38,
+        "containers": 41,
         "images": 5
       },
       "redis": {
@@ -38,7 +38,7 @@
       }
     }
   },
-  "evidenceTier": "Tier A (Live WebSocket Transport + Production StreamBuffer)",
+  "evidenceTier": "Tier A (Live WebSocket TCP Transport + Production TerminalStreamBuffer)",
   "productionSource": "backend/src/terminal/terminalStreamBuffer.ts",
   "results": {
     "scenarioA_100x256B": {
@@ -46,8 +46,9 @@
       "directFrames": 100,
       "bufferedFrames": 2,
       "frameReductionPct": 98,
-      "directElapsedMs": 1.72,
-      "bufferedElapsedMs": 11.43,
+      "directDeliveryDurationMs": 1.72,
+      "bufferedDeliveryDurationMs": 11.36,
+      "latencyTradeoffDeltaMs": 9.64,
       "integrityVerified": true
     },
     "scenarioB_1000x64B": {
@@ -55,8 +56,9 @@
       "directFrames": 1000,
       "bufferedFrames": 4,
       "frameReductionPct": 99.6,
-      "directElapsedMs": 6.35,
-      "bufferedElapsedMs": 10.44,
+      "directDeliveryDurationMs": 6.6,
+      "bufferedDeliveryDurationMs": 11.48,
+      "latencyTradeoffDeltaMs": 4.88,
       "integrityVerified": true
     },
     "scenarioC_10x8KB": {
@@ -64,8 +66,8 @@
       "directFrames": 10,
       "bufferedFrames": 5,
       "frameReductionPct": 50,
-      "directElapsedMs": 0.13,
-      "bufferedElapsedMs": 0.14,
+      "directDeliveryDurationMs": 0.12,
+      "bufferedDeliveryDurationMs": 0.13,
       "integrityVerified": true
     },
     "scenarioD_mixed": {
@@ -73,9 +75,17 @@
       "directFrames": 100,
       "bufferedFrames": 13,
       "frameReductionPct": 87,
-      "directElapsedMs": 0.7,
-      "bufferedElapsedMs": 10.36,
+      "directDeliveryDurationMs": 0.77,
+      "bufferedDeliveryDurationMs": 10.44,
       "integrityVerified": true
+    },
+    "backpressureAudit": {
+      "backpressureThresholdBytes": 65536,
+      "emulatedSocketCongestionBytes": 70000,
+      "transmissionDeferredDuringCongestion": true,
+      "dataRetainedInRamBytes": 27,
+      "flushedSuccessfullyOnDrain": true,
+      "zeroDataLossVerified": true
     }
   }
 }

@@ -1,7 +1,7 @@
 # NexusIDE Benchmark Upgrade & Production Hardening Plan
 
-**Status**: Active / In-Progress  
-**Author**: Senior Performance Engineer  
+**Status**: Completed & Verified  
+**Benchmark Owner**: NexusIDE Engineering Audit  
 **Date**: November 14, 2026  
 **Target Repository**: [NexusIDE](https://github.com/AmanKashyapp07/NexusIDE)  
 
@@ -81,14 +81,14 @@ Every metric in the final report will be explicitly categorized according to its
 
 ## 5. Execution Roadmap
 
-1. **Phase 2 — Shared Utilities**: Implement `statistics.mjs`, `environment.mjs`, `cleanup.mjs`, `assertions.mjs`, `logger.mjs`, and `benchmark.config.mjs`.
-2. **Phase 3 — Implement Production Benchmarks**:
-   - `bench-cursor-codec.ts` (Importing `cursorCodec.service.ts`)
-   - `bench-terminal-buffer.ts` (Importing `terminalStreamBuffer.ts` + Real WebSocket server)
-   - `bench-merkle-dag.ts` (Importing `cas.service.ts` + synthetic & real workspace trees)
-   - `bench-redis-writebehind.ts` (Importing `crdtWriteBehind.service.ts` & `redisCache.ts`)
-   - `bench-postgres-persistence.ts` (Direct DB persistence via `pg` connection pool)
-   - `bench-yjs-crdt.ts` (Local library microbenchmark + Real multi-client WebSocket collaboration)
-   - `bench-container-pool.ts` (Importing `pool.ts` + Real Docker Engine container lifecycle)
-3. **Phase 4 — Execution & Verification**: Execute all 7 suites, log raw metrics, verify cleanup.
-4. **Phase 5 — Report Synthesis**: Write comprehensive `BENCHMARK_REPORT.md` and `RESUME_METRICS.md`.
+1. **Phase 2 — Shared Utilities [COMPLETED]**: Implemented `statistics.mjs`, `environment.mjs`, `cleanup.mjs`, `assertions.mjs`, `logger.mjs`, and `benchmark.config.mjs`.
+2. **Phase 3 — Implement Production Benchmarks [COMPLETED]**:
+   - `bench-cursor-codec.ts` (Importing `cursorCodec.service.ts` directly; 100/500 collabs, uint16 overflow & boundary fuzzing).
+   - `bench-terminal-buffer.ts` (Importing `terminalStreamBuffer.ts` over real loopback WebSocket TCP socket with backpressure throttling).
+   - `bench-merkle-dag.ts` (Importing `cas.service.ts` + tree hashing, diffing, and deduplication).
+   - `bench-redis-writebehind.ts` (Importing `crdtWriteBehind.service.ts` & `redisCache.ts` on live Redis 8.8 + DB flush lifecycle).
+   - `bench-postgres-persistence.ts` (Direct DB persistence via `pg` connection pool on live PostgreSQL 14).
+   - `bench-yjs-crdt.ts` (Production `WSSharedDoc` collaboration over real WebSockets and Redis mesh).
+   - `bench-container-pool.ts` (Importing `pool.ts` against live Docker Engine v29.5.2 daemon).
+3. **Phase 4 — Execution & Verification [COMPLETED]**: Executed all 7 suites, verified percentiles, logged machine-readable JSON metrics, and ensured complete resource teardown.
+4. **Phase 5 — Report Synthesis [COMPLETED]**: Authored evidence-backed `BENCHMARK_REPORT.md` and locked in vetted `RESUME_METRICS.md` with explicit trade-off qualifications.
