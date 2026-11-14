@@ -245,7 +245,7 @@ A real local WebSocket server on `127.0.0.1:49152` and a real WebSocket client w
 #### Methodology
 10,000 iterations were performed for each collaborator tier (1, 10, 50, 100, 250, 500 collaborators) comparing:
 1. Production experimental 8-byte binary bit-packing.
-2. Verified 12-byte uint32 collision-free binary codec (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`).
+2. Prospective 12-byte binary format (`encodeBitPackedCursor12` / `decodeBitPackedCursor12`) supporting unique numeric uint32 IDs when paired with a collision-safe external allocator.
 3. Equivalent JSON representations (`[{ userHash, lineNumber, column, selectionLength }, ...]`).
 JIT warmup (1,000 iterations) was executed prior to measurement. Latency and batch throughput (batch operations per second) were measured using `performance.now()`.
 

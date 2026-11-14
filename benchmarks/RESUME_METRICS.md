@@ -122,7 +122,7 @@
 ## 2. Experimental Prototype Section (Non-Production Systems Research)
 
 ### 2.1. Bit-Packed Binary Cursor Streaming Codec
-> **"Prototyped and benchmarked an experimental bit-packed binary cursor codec (Tier D), evaluating an 88.23% payload reduction (800B vs 6.8KB JSON) and 31.7× faster batch deserialization across 100 collaborators, while identifying a 7.28% 16-bit hash collision risk and modeling collision-free 12-byte uint32 and room-scoped slot table migration architectures."**
+> **"Prototyped and benchmarked an experimental bit-packed binary cursor codec (Tier D), evaluating an 88.23% payload reduction (800B vs 6.8KB JSON) and 31.7× faster batch deserialization across 100 collaborators, while identifying a 7.28% 16-bit hash collision risk and modeling migration via collision-free room-scoped slot tables and prospective 12-byte uint32 formats with external allocation."**
 
 #### Evidence & Audit Record:
 - **Metric**: Network payload reduction & Deserialization batch throughput.

@@ -22,7 +22,7 @@ import { detectEnvironment } from '../common/environment.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // =============================================================================
-// CONCRETE COLLISION-FREE IMPLEMENTATIONS FOR IDENTITY PRESERVATION
+// EVALUATED IDENTITY MIGRATION ARCHITECTURES
 // =============================================================================
 
 // Solution 1: Room-Scoped Ephemeral Identity Mapping Table
@@ -85,6 +85,9 @@ export function encodeBitPackedCursor12(
   selectionLength = 0,
   flags = 0
 ): Uint8Array {
+  if (!Number.isInteger(userId) || userId < 0 || userId > 0xFFFFFFFF) {
+    throw new RangeError('userId must be an unsigned 32-bit integer');
+  }
   const buffer = new ArrayBuffer(CURSOR_12_FRAME_BYTES);
   const view = new DataView(buffer);
   view.setUint32(0, userId >>> 0, true);
@@ -115,6 +118,9 @@ export function encodeCursorBatch12(cursors: CursorPosition12[]): Uint8Array {
   for (let i = 0; i < cursors.length; i++) {
     const offset = i * CURSOR_12_FRAME_BYTES;
     const c = cursors[i];
+    if (!Number.isInteger(c.userId) || c.userId < 0 || c.userId > 0xFFFFFFFF) {
+      throw new RangeError(`userId at index ${i} must be an unsigned 32-bit integer`);
+    }
     view.setUint32(offset + 0, c.userId >>> 0, true);
     view.setUint16(offset + 4, Math.min(65535, Math.max(0, c.lineNumber)), true);
     view.setUint16(offset + 6, Math.min(65535, Math.max(0, c.column)), true);
@@ -196,9 +202,9 @@ async function run() {
   };
 
   // =========================================================================
-  // 2. Concrete Collision-Free Implementations Verification
+  // 2. Verification of Identity Migration Solutions (Room Table & 12-Byte Codec)
   // =========================================================================
-  BenchmarkLogger.section('2. Verification of Collision-Free Identity Solutions');
+  BenchmarkLogger.section('2. Verification of Identity Migration Solutions (Room Table & 12-Byte Codec)');
 
   // A. Room-Scoped Ephemeral Table Verification
   const roomTable = new RoomIdentityTable();
@@ -246,6 +252,27 @@ async function run() {
   const decCorrupted12 = decodeCursorBatch12(corrupted12);
   Assertions.assertEqual(decCorrupted12.length, 0, '12-Byte corrupted batch must return 0 elements');
   BenchmarkLogger.success('12-Byte Codec: Round-trip fidelity, uint16 clamping, and corruption safety verified');
+
+  // C. 12-Byte uint32 Input Range & Type Boundary Validation
+  const encZero = encodeBitPackedCursor12(0, 10, 20);
+  Assertions.assertEqual(decodeBitPackedCursor12(encZero).userId, 0, 'userId 0 must be accepted');
+
+  const encMax = encodeBitPackedCursor12(4294967295, 10, 20);
+  Assertions.assertEqual(decodeBitPackedCursor12(encMax).userId, 4294967295, 'userId 4294967295 must be accepted');
+
+  let errNeg = false;
+  try { encodeBitPackedCursor12(-1, 10, 20); } catch (e) { if (e instanceof RangeError) errNeg = true; }
+  Assertions.assertEqual(errNeg, true, 'userId -1 must be rejected with RangeError');
+
+  let errOver = false;
+  try { encodeBitPackedCursor12(4294967296, 10, 20); } catch (e) { if (e instanceof RangeError) errOver = true; }
+  Assertions.assertEqual(errOver, true, 'userId 4294967296 must be rejected with RangeError');
+
+  let errFloat = false;
+  try { encodeBitPackedCursor12(1.5, 10, 20); } catch (e) { if (e instanceof RangeError) errFloat = true; }
+  Assertions.assertEqual(errFloat, true, 'userId 1.5 must be rejected with RangeError');
+
+  BenchmarkLogger.success('12-Byte Codec: uint32 input validation (0, 4294967295, -1, 4294967296, 1.5) verified');
 
   // =========================================================================
   // 3. Multi-Collaborator Scaling Benchmarks (8-Byte vs 12-Byte vs JSON)
